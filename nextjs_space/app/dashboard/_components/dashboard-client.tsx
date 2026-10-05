@@ -1,0 +1,185 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { signOut } from 'next-auth/react';
+import { Shield, Plus, LogOut, Scroll, Swords, Users, ArrowRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { toast } from 'sonner';
+import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
+
+interface Campaign {
+  id: string;
+  name: string;
+  description: string | null;
+  inviteCode: string;
+  myRole: string;
+  playerCount: number;
+  _count?: { characters: number };
+}
+
+export function DashboardClient({ userId, userName }: { userId: string; userName: string }) {
+  const router = useRouter();
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+
+  const fetchCampaigns = async () => {
+    try {
+      const res = await fetch('/api/campaigns');
+      if (res.ok) {
+        const data = await res.json();
+        setCampaigns(data ?? []);
+      }
+    } catch { /* ignore */ } finally { setLoading(false); }
+  };
+
+  useEffect(() => { fetchCampaigns(); }, []);
+
+  const handleCreate = async () => {
+    if (!newName.trim()) { toast.error('Enter a campaign name'); return; }
+    const res = await fetch('/api/campaigns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName, description: newDesc }),
+    });
+    if (res.ok) {
+      toast.success('Campaign created!');
+      setCreateOpen(false);
+      setNewName('');
+      setNewDesc('');
+      fetchCampaigns();
+    } else {
+      const data = await res.json();
+      toast.error(data?.error ?? 'Failed');
+    }
+  };
+
+  const handleJoin = async () => {
+    if (!joinCode.trim()) { toast.error('Enter an invite code'); return; }
+    const res = await fetch('/api/campaigns/join', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: joinCode }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      toast.success(`Joined ${data?.name ?? 'campaign'}!`);
+      setJoinOpen(false);
+      setJoinCode('');
+      fetchCampaigns();
+    } else {
+      toast.error(data?.error ?? 'Invalid code');
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-card/80 backdrop-blur-md border-b border-border">
+        <div className="max-w-5xl mx-auto flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Shield className="w-7 h-7 text-primary" />
+            <span className="font-display text-xl font-bold text-primary tracking-tight">Questbound</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted-foreground hidden sm:block">Welcome, <span className="text-foreground font-medium">{userName}</span></span>
+            <Button variant="ghost" size="sm" onClick={() => signOut({ redirectTo: '/login' })}>
+              <LogOut className="w-4 h-4 mr-1" /> Sign Out
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-5xl mx-auto px-4 py-8">
+        <FadeIn>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
+            <div>
+              <h1 className="font-display text-3xl tracking-tight font-bold">Your Campaigns</h1>
+              <p className="text-muted-foreground mt-1">Manage your adventures and characters</p>
+            </div>
+            <div className="flex gap-2">
+              <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+                <DialogTrigger asChild>
+                  <Button><Plus className="w-4 h-4 mr-1" /> New Campaign</Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader><DialogTitle>Create a Campaign</DialogTitle></DialogHeader>
+                  <div className="space-y-4 mt-2">
+                    <div><Label>Campaign Name</Label><Input value={newName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewName(e.target.value)} placeholder="The Lost Mines" className="mt-1" /></div>
+                    <div><Label>Description (optional)</Label><Input value={newDesc} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewDesc(e.target.value)} placeholder="A grand adventure..." className="mt-1" /></div>
+                    <Button onClick={handleCreate} className="w-full">Create Campaign</Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+              <Dialog open={joinOpen} onOpenChange={setJoinOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="secondary"><Users className="w-4 h-4 mr-1" /> Join Campaign</Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader><DialogTitle>Join a Campaign</DialogTitle></DialogHeader>
+                  <div className="space-y-4 mt-2">
+                    <div><Label>Invite Code</Label><Input value={joinCode} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setJoinCode(e.target.value.toUpperCase())} placeholder="ABC12" maxLength={6} className="mt-1 font-mono text-lg tracking-widest text-center" /></div>
+                    <Button onClick={handleJoin} className="w-full">Join</Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </div>
+        </FadeIn>
+
+        {loading ? (
+          <div className="text-center py-20 text-muted-foreground">Loading campaigns...</div>
+        ) : (campaigns?.length ?? 0) === 0 ? (
+          <FadeIn>
+            <div className="text-center py-20">
+              <Scroll className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+              <h2 className="text-xl font-display font-semibold mb-2">No campaigns yet</h2>
+              <p className="text-muted-foreground">Create a new campaign or join one with an invite code</p>
+            </div>
+          </FadeIn>
+        ) : (
+          <Stagger staggerDelay={0.08}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {(campaigns ?? []).map((c: Campaign) => (
+                <StaggerItem key={c.id}>
+                  <HoverLift>
+                    <button
+                      onClick={() => router.push(`/campaign/${c.id}`)}
+                      className="w-full text-left p-5 rounded-lg bg-card parchment-bg border border-border hover:border-primary/40 transition-colors"
+                      style={{ boxShadow: 'var(--shadow-md)' }}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h3 className="font-display text-lg font-semibold">{c.name}</h3>
+                          {c.description && <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{c.description}</p>}
+                        </div>
+                        <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${
+                          c.myRole === 'dm' ? 'bg-primary/20 text-primary' : 'bg-secondary text-secondary-foreground'
+                        }`}>
+                          {c.myRole === 'dm' ? 'DM' : 'Player'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1"><Users className="w-3 h-3" /> {c.playerCount} members</span>
+                        <span className="flex items-center gap-1"><Swords className="w-3 h-3" /> {c._count?.characters ?? 0} characters</span>
+                        <ArrowRight className="w-4 h-4 ml-auto text-primary" />
+                      </div>
+                    </button>
+                  </HoverLift>
+                </StaggerItem>
+              ))}
+            </div>
+          </Stagger>
+        )}
+      </main>
+    </div>
+  );
+}

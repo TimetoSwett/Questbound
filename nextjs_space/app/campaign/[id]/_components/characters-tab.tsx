@@ -1,0 +1,136 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { Plus, Scroll, Trash2, ChevronRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
+import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
+import { CharacterSheet } from './character-sheet';
+
+interface CharSummary {
+  id: string;
+  name: string;
+  race: string;
+  classes: any;
+  hpMax: number;
+  hpCurrent: number;
+  userId: string;
+  user?: { displayName: string };
+}
+
+export function CharactersTab({ campaignId, role, userId }: { campaignId: string; role: string; userId: string }) {
+  const [characters, setCharacters] = useState<CharSummary[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/characters?campaignId=${campaignId}`);
+      if (res.ok) setCharacters(await res.json() ?? []);
+    } catch { /* ignore */ } finally { setLoading(false); }
+  }, [campaignId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const createChar = async () => {
+    const res = await fetch('/api/characters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ campaignId, name: 'New Character' }),
+    });
+    if (res.ok) {
+      const ch = await res.json();
+      toast.success('Character created!');
+      load();
+      setSelectedId(ch.id);
+    }
+  };
+
+  const deleteChar = async (id: string, name: string) => {
+    if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
+    const res = await fetch(`/api/characters?id=${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      toast.success('Character deleted');
+      if (selectedId === id) setSelectedId(null);
+      load();
+    }
+  };
+
+  if (selectedId) {
+    const ch = (characters ?? []).find((c: CharSummary) => c.id === selectedId);
+    const isOwner = ch?.userId === userId;
+    const canEdit = isOwner || role === 'dm';
+    return (
+      <div className="max-w-6xl mx-auto px-4 py-4">
+        <Button variant="ghost" size="sm" onClick={() => { setSelectedId(null); load(); }} className="mb-4">
+          <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to list
+        </Button>
+        <CharacterSheet characterId={selectedId} editable={canEdit} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 py-6">
+      <FadeIn>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="font-display text-2xl font-bold tracking-tight flex items-center gap-2">
+            <Scroll className="w-6 h-6 text-primary" />
+            {role === 'dm' ? 'All Characters' : 'Your Characters'}
+          </h2>
+          {role !== 'dm' && (
+            <Button onClick={createChar}><Plus className="w-4 h-4 mr-1" /> New Character</Button>
+          )}
+          {role === 'dm' && (
+            <Button onClick={createChar}><Plus className="w-4 h-4 mr-1" /> Create NPC</Button>
+          )}
+        </div>
+      </FadeIn>
+
+      {loading ? (
+        <p className="text-muted-foreground py-10 text-center">Loading characters...</p>
+      ) : (characters?.length ?? 0) === 0 ? (
+        <FadeIn>
+          <div className="text-center py-16">
+            <Scroll className="w-14 h-14 text-muted-foreground mx-auto mb-3" />
+            <p className="text-muted-foreground">No characters yet. Create one to get started!</p>
+          </div>
+        </FadeIn>
+      ) : (
+        <Stagger staggerDelay={0.06}>
+          <div className="grid gap-3">
+            {(characters ?? []).map((ch: CharSummary) => {
+              let classStr = '';
+              try {
+                const cls = typeof ch.classes === 'string' ? JSON.parse(ch.classes) : (ch.classes ?? []);
+                classStr = (cls ?? []).map((c: any) => `${c?.name ?? '?'} ${c?.level ?? 0}`).join(' / ');
+              } catch { classStr = ''; }
+              const isOwner = ch.userId === userId;
+              return (
+                <StaggerItem key={ch.id}>
+                  <HoverLift>
+                    <div className="flex items-center gap-3 bg-card p-4 rounded-lg border border-border hover:border-primary/30 transition-colors cursor-pointer" style={{ boxShadow: 'var(--shadow-sm)' }} onClick={() => setSelectedId(ch.id)}>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-display font-semibold truncate">{ch.name ?? 'Unnamed'}</h3>
+                        <p className="text-sm text-muted-foreground">{ch.race} {classStr ? `• ${classStr}` : ''}</p>
+                        {role === 'dm' && <p className="text-xs text-muted-foreground mt-0.5">Player: {ch.user?.displayName ?? 'Unknown'}</p>}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-sm font-mono"><span className="text-green-700">{ch.hpCurrent ?? 0}</span>/{ch.hpMax ?? 0} HP</p>
+                      </div>
+                      {(isOwner || role === 'dm') && (
+                        <Button variant="ghost" size="icon-sm" onClick={(e: React.MouseEvent) => { e.stopPropagation(); deleteChar(ch.id, ch.name); }}>
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      )}
+                    </div>
+                  </HoverLift>
+                </StaggerItem>
+              );
+            })}
+          </div>
+        </Stagger>
+      )}
+    </div>
+  );
+}

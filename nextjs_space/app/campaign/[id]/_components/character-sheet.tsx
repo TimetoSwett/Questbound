@@ -1,0 +1,698 @@
+'use client';
+
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Save, Upload, Heart, Swords, Shield, BookOpen, Scroll, Package, Sparkles, FileText, User, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { toast } from 'sonner';
+import { PF1E_SKILLS, abilityMod, formatMod } from '@/lib/pf1e-skills';
+import type { SkillDef } from '@/lib/pf1e-skills';
+import { TipTapEditor } from '@/components/tiptap-editor';
+import Image from 'next/image';
+
+const SIZES = ['Fine', 'Diminutive', 'Tiny', 'Small', 'Medium', 'Large', 'Huge', 'Gargantuan', 'Colossal'];
+const ALIGNMENTS = ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'];
+
+interface SkillEntry { name: string; ranks: number; classSkill: boolean; misc: number; }
+interface EquipItem { name: string; weight: number; quantity: number; value: string; notes: string; }
+interface FeatEntry { name: string; description: string; }
+interface SpellEntry { name: string; level: number; school: string; description: string; cast: number; maxCast: number; }
+interface ClassEntry { name: string; level: number; }
+
+export function CharacterSheet({ characterId, editable }: { characterId: string; editable: boolean }) {
+  const [data, setData] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+  const [section, setSection] = useState<string>('core');
+  const [portraitUrl, setPortraitUrl] = useState<string | null>(null);
+  const saveTimer = useRef<any>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/characters?campaignId=_all_&charId=${characterId}`);
+      // We can't query a single char this way, so let's use a different approach
+    } catch { /* ignore */ }
+  }, [characterId]);
+
+  // Load character data directly
+  useEffect(() => {
+    const fetchChar = async () => {
+      try {
+        // Fetch via the campaign endpoint - we need campaignId
+        // Actually let's make a dedicated endpoint. For now, fetch all and find.
+        const res = await fetch(`/api/characters/single?id=${characterId}`);
+        if (res.ok) {
+          const ch = await res.json();
+          // Parse JSON fields
+          const parsed = {
+            ...ch,
+            skills: parseJson(ch?.skills, []),
+            equipment: parseJson(ch?.equipment, []),
+            feats: parseJson(ch?.feats, []),
+            spells: parseJson(ch?.spells, { slots: {}, known: [] }),
+            classes: parseJson(ch?.classes, []),
+          };
+          setData(parsed);
+          // Load portrait
+          if (ch?.portraitPath) {
+            const pRes = await fetch(`/api/characters/portrait?id=${characterId}`);
+            if (pRes.ok) {
+              const pData = await pRes.json();
+              setPortraitUrl(pData?.url ?? null);
+            }
+          }
+        }
+      } catch { /* ignore */ }
+    };
+    fetchChar();
+  }, [characterId]);
+
+  const parseJson = (val: any, fallback: any) => {
+    if (!val) return fallback;
+    if (typeof val === 'string') {
+      try { return JSON.parse(val); } catch { return fallback; }
+    }
+    return val;
+  };
+
+  const update = useCallback((field: string, value: any) => {
+    setData((prev: any) => ({ ...(prev ?? {}), [field]: value }));
+  }, []);
+
+  const autoSave = useCallback(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => saveNow(), 2000);
+  }, []);
+
+  const saveNow = async () => {
+    if (!data || !editable) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/characters', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: characterId,
+          name: data.name,
+          race: data.race,
+          alignment: data.alignment,
+          deity: data.deity,
+          size: data.size,
+          gender: data.gender,
+          age: data.age,
+          height: data.height,
+          weight: data.weight,
+          homeland: data.homeland,
+          xp: parseInt(data.xp) || 0,
+          speed: parseInt(data.speed) || 30,
+          str: parseInt(data.str) || 10,
+          dex: parseInt(data.dex) || 10,
+          con: parseInt(data.con) || 10,
+          int: parseInt(data.int) || 10,
+          wis: parseInt(data.wis) || 10,
+          cha: parseInt(data.cha) || 10,
+          hpMax: parseInt(data.hpMax) || 0,
+          hpCurrent: parseInt(data.hpCurrent) || 0,
+          hpTemp: parseInt(data.hpTemp) || 0,
+          bab: parseInt(data.bab) || 0,
+          sr: parseInt(data.sr) || 0,
+          baseFort: parseInt(data.baseFort) || 0,
+          baseRef: parseInt(data.baseRef) || 0,
+          baseWill: parseInt(data.baseWill) || 0,
+          miscFort: parseInt(data.miscFort) || 0,
+          miscRef: parseInt(data.miscRef) || 0,
+          miscWill: parseInt(data.miscWill) || 0,
+          armorBonus: parseInt(data.armorBonus) || 0,
+          shieldBonus: parseInt(data.shieldBonus) || 0,
+          naturalArmor: parseInt(data.naturalArmor) || 0,
+          deflection: parseInt(data.deflection) || 0,
+          sizeMod: parseInt(data.sizeMod) || 0,
+          miscAC: parseInt(data.miscAC) || 0,
+          miscTouchAC: parseInt(data.miscTouchAC) || 0,
+          miscFlatAC: parseInt(data.miscFlatAC) || 0,
+          miscCMD: parseInt(data.miscCMD) || 0,
+          miscCMB: parseInt(data.miscCMB) || 0,
+          miscInit: parseInt(data.miscInit) || 0,
+          classes: data.classes ?? [],
+          skills: data.skills ?? [],
+          equipment: data.equipment ?? [],
+          feats: data.feats ?? [],
+          spells: data.spells ?? { slots: {}, known: [] },
+          notes: data.notes ?? '',
+        }),
+      });
+      if (res.ok) toast.success('Saved!', { duration: 1500 });
+      else toast.error('Save failed');
+    } catch { toast.error('Save error'); } finally { setSaving(false); }
+  };
+
+  const uploadPortrait = async (file: File) => {
+    try {
+      const presRes = await fetch('/api/upload/presigned', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: file.name, contentType: file.type, isPublic: true }),
+      });
+      if (!presRes.ok) { toast.error('Upload failed'); return; }
+      const { uploadUrl, cloud_storage_path } = await presRes.json();
+      const putRes = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+      if (!putRes.ok) { toast.error('Upload failed'); return; }
+      // Save path to character
+      await fetch('/api/characters', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: characterId, portraitPath: cloud_storage_path, portraitIsPublic: true }),
+      });
+      // Get URL
+      const pRes = await fetch(`/api/characters/portrait?id=${characterId}`);
+      if (pRes.ok) { const pData = await pRes.json(); setPortraitUrl(pData?.url ?? null); }
+      toast.success('Portrait uploaded!');
+    } catch { toast.error('Upload error'); }
+  };
+
+  // Computed values
+  const stats = useMemo(() => {
+    if (!data) return null;
+    const s = (f: string) => parseInt(data?.[f]) || 0;
+    const strMod = abilityMod(s('str'));
+    const dexMod = abilityMod(s('dex'));
+    const conMod = abilityMod(s('con'));
+    const intMod = abilityMod(s('int'));
+    const wisMod = abilityMod(s('wis'));
+    const chaMod = abilityMod(s('cha'));
+    const bab = s('bab');
+    const sizeMod = s('sizeMod');
+
+    const ac = 10 + s('armorBonus') + s('shieldBonus') + dexMod + sizeMod + s('naturalArmor') + s('deflection') + s('miscAC');
+    const touchAC = 10 + dexMod + sizeMod + s('deflection') + s('miscTouchAC');
+    const flatAC = 10 + s('armorBonus') + s('shieldBonus') + sizeMod + s('naturalArmor') + s('deflection') + s('miscFlatAC');
+    const cmd = 10 + bab + strMod + dexMod + sizeMod + s('miscCMD');
+    const cmb = bab + strMod + sizeMod + s('miscCMB');
+    const init = dexMod + s('miscInit');
+    const fort = s('baseFort') + conMod + s('miscFort');
+    const ref = s('baseRef') + dexMod + s('miscRef');
+    const will = s('baseWill') + wisMod + s('miscWill');
+
+    return { strMod, dexMod, conMod, intMod, wisMod, chaMod, ac, touchAC, flatAC, cmd, cmb, init, fort, ref, will };
+  }, [data]);
+
+  const abilityModForSkill = useCallback((ability: string) => {
+    if (!stats) return 0;
+    const map: Record<string, number> = { STR: stats.strMod, DEX: stats.dexMod, CON: stats.conMod, INT: stats.intMod, WIS: stats.wisMod, CHA: stats.chaMod };
+    return map[ability] ?? 0;
+  }, [stats]);
+
+  if (!data) return <div className="text-center py-20 text-muted-foreground">Loading character...</div>;
+
+  const NumField = ({ label, field, className }: { label: string; field: string; className?: string }) => (
+    <div className={className}>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <Input
+        type="number"
+        value={data?.[field] ?? 0}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => { update(field, e.target.value); autoSave(); }}
+        disabled={!editable}
+        className="mt-0.5 h-8 text-center font-mono text-sm"
+      />
+    </div>
+  );
+
+  const TextField = ({ label, field, className, placeholder }: { label: string; field: string; className?: string; placeholder?: string }) => (
+    <div className={className}>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <Input
+        value={data?.[field] ?? ''}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => { update(field, e.target.value); autoSave(); }}
+        disabled={!editable}
+        placeholder={placeholder}
+        className="mt-0.5 h-8 text-sm"
+      />
+    </div>
+  );
+
+  const sections = [
+    { key: 'core', label: 'Core', icon: User },
+    { key: 'combat', label: 'Combat', icon: Swords },
+    { key: 'skills', label: 'Skills', icon: BookOpen },
+    { key: 'equipment', label: 'Inventory', icon: Package },
+    { key: 'feats', label: 'Feats', icon: Sparkles },
+    { key: 'spells', label: 'Spells', icon: Sparkles },
+    { key: 'notes', label: 'Notes', icon: FileText },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* Section tabs */}
+      <div className="flex flex-wrap gap-1 bg-card/50 p-1 rounded-lg">
+        {sections.map((s) => (
+          <button key={s.key} onClick={() => setSection(s.key)}
+            className={`flex items-center gap-1 px-3 py-1.5 text-sm rounded-md transition-colors ${
+              section === s.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+            }`}>
+            <s.icon className="w-3.5 h-3.5" /> {s.label}
+          </button>
+        ))}
+        <div className="ml-auto flex items-center gap-2">
+          <Button size="sm" onClick={saveNow} loading={saving} disabled={!editable}>
+            <Save className="w-4 h-4 mr-1" /> Save
+          </Button>
+        </div>
+      </div>
+
+      {/* CORE SECTION */}
+      {section === 'core' && (
+        <div className="space-y-4">
+          {/* Name + Portrait */}
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4">
+            <div className="space-y-3">
+              <TextField label="Character Name" field="name" placeholder="Unnamed Hero" />
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <TextField label="Race" field="race" placeholder="Human" />
+                <div>
+                  <Label className="text-xs text-muted-foreground">Alignment</Label>
+                  <select value={data?.alignment ?? ''} onChange={(e) => { update('alignment', e.target.value); autoSave(); }} disabled={!editable} className="mt-0.5 h-8 w-full rounded-md bg-card border border-input px-2 text-sm">
+                    <option value="">-</option>
+                    {ALIGNMENTS.map((a) => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
+                <TextField label="Deity" field="deity" />
+                <div>
+                  <Label className="text-xs text-muted-foreground">Size</Label>
+                  <select value={data?.size ?? 'Medium'} onChange={(e) => { update('size', e.target.value); autoSave(); }} disabled={!editable} className="mt-0.5 h-8 w-full rounded-md bg-card border border-input px-2 text-sm">
+                    {SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <TextField label="Gender" field="gender" />
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <TextField label="Age" field="age" />
+                <TextField label="Height" field="height" />
+                <TextField label="Weight" field="weight" />
+                <TextField label="Homeland" field="homeland" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <NumField label="XP" field="xp" />
+                <NumField label="Speed (ft)" field="speed" />
+              </div>
+            </div>
+            {/* Portrait */}
+            <div className="flex flex-col items-center">
+              <div className="w-32 h-40 rounded-lg bg-muted border border-border overflow-hidden relative">
+                {portraitUrl ? (
+                  <Image src={portraitUrl} alt="Portrait" fill className="object-cover" unoptimized />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-muted-foreground"><User className="w-10 h-10" /></div>
+                )}
+              </div>
+              {editable && (
+                <label className="mt-2 cursor-pointer">
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target?.files?.[0]; if (f) uploadPortrait(f); }} />
+                  <span className="text-xs text-primary hover:underline flex items-center gap-1"><Upload className="w-3 h-3" /> Upload Portrait</span>
+                </label>
+              )}
+            </div>
+          </div>
+
+          {/* Classes */}
+          <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-display font-semibold text-sm">Classes</h3>
+              {editable && (
+                <Button variant="ghost" size="sm" onClick={() => { update('classes', [...(data?.classes ?? []), { name: '', level: 1 }]); autoSave(); }}>+ Add Class</Button>
+              )}
+            </div>
+            {(data?.classes ?? []).length === 0 ? (
+              <p className="text-xs text-muted-foreground">No classes added</p>
+            ) : (
+              <div className="space-y-1">
+                {(data?.classes ?? []).map((cls: ClassEntry, i: number) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <Input value={cls?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.classes ?? [])]; arr[i] = { ...(arr[i] ?? {}), name: e.target.value }; update('classes', arr); autoSave(); }} placeholder="Class name" disabled={!editable} className="h-7 text-sm flex-1" />
+                    <Input type="number" value={cls?.level ?? 1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.classes ?? [])]; arr[i] = { ...(arr[i] ?? {}), level: parseInt(e.target.value) || 1 }; update('classes', arr); autoSave(); }} disabled={!editable} className="h-7 text-sm w-16 text-center font-mono" />
+                    {editable && (
+                      <Button variant="ghost" size="icon-sm" onClick={() => { const arr = [...(data?.classes ?? [])]; arr.splice(i, 1); update('classes', arr); autoSave(); }}>
+                        <Trash2 className="w-3 h-3 text-destructive" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Ability Scores */}
+          <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+            <h3 className="font-display font-semibold text-sm mb-3">Ability Scores</h3>
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+              {(['str', 'dex', 'con', 'int', 'wis', 'cha'] as const).map((ab) => {
+                const mod = abilityMod(parseInt(data?.[ab]) || 10);
+                return (
+                  <div key={ab} className="text-center">
+                    <Label className="text-xs font-mono text-primary uppercase">{ab}</Label>
+                    <Input type="number" value={data?.[ab] ?? 10} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { update(ab, e.target.value); autoSave(); }} disabled={!editable} className="mt-0.5 h-10 text-center font-mono text-lg" />
+                    <div className={`text-sm font-mono mt-1 ${mod >= 0 ? 'text-green-700' : 'text-red-600'}`}>{formatMod(mod)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* HP */}
+          <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+            <h3 className="font-display font-semibold text-sm mb-3 flex items-center gap-1"><Heart className="w-4 h-4 text-red-400" /> Hit Points</h3>
+            <div className="grid grid-cols-3 gap-3">
+              <NumField label="Max HP" field="hpMax" />
+              <NumField label="Current HP" field="hpCurrent" />
+              <NumField label="Temp HP" field="hpTemp" />
+            </div>
+            {data?.hpMax > 0 && (
+              <div className="mt-2 h-2 bg-muted rounded-full overflow-hidden">
+                <div className="h-full bg-green-500 transition-all" style={{ width: `${Math.min(100, Math.max(0, ((parseInt(data?.hpCurrent) || 0) / (parseInt(data?.hpMax) || 1)) * 100))}%` }} />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* COMBAT SECTION */}
+      {section === 'combat' && (
+        <div className="space-y-4">
+          <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+            <h3 className="font-display font-semibold text-sm mb-3 flex items-center gap-1"><Shield className="w-4 h-4 text-primary" /> Armor Class</h3>
+            <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="text-center p-3 bg-muted rounded-lg">
+                <div className="text-2xl font-mono font-bold text-primary">{stats?.ac ?? 10}</div>
+                <div className="text-xs text-muted-foreground">AC</div>
+              </div>
+              <div className="text-center p-3 bg-muted rounded-lg">
+                <div className="text-2xl font-mono font-bold">{stats?.touchAC ?? 10}</div>
+                <div className="text-xs text-muted-foreground">Touch</div>
+              </div>
+              <div className="text-center p-3 bg-muted rounded-lg">
+                <div className="text-2xl font-mono font-bold">{stats?.flatAC ?? 10}</div>
+                <div className="text-xs text-muted-foreground">Flat-Footed</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <NumField label="Armor Bonus" field="armorBonus" />
+              <NumField label="Shield Bonus" field="shieldBonus" />
+              <NumField label="Natural Armor" field="naturalArmor" />
+              <NumField label="Deflection" field="deflection" />
+              <NumField label="Size Mod" field="sizeMod" />
+              <NumField label="Misc AC" field="miscAC" />
+              <NumField label="Misc Touch" field="miscTouchAC" />
+              <NumField label="Misc Flat-Footed" field="miscFlatAC" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="bg-card rounded-lg p-4 border border-border text-center" style={{ boxShadow: 'var(--shadow-sm)' }}>
+              <div className="text-2xl font-mono font-bold">{formatMod(stats?.init ?? 0)}</div>
+              <div className="text-xs text-muted-foreground">Initiative</div>
+              <NumField label="Misc Init" field="miscInit" className="mt-2" />
+            </div>
+            <div className="bg-card rounded-lg p-4 border border-border text-center" style={{ boxShadow: 'var(--shadow-sm)' }}>
+              <div className="text-2xl font-mono font-bold">{formatMod(stats?.cmb ?? 0)}</div>
+              <div className="text-xs text-muted-foreground">CMB</div>
+              <NumField label="Misc CMB" field="miscCMB" className="mt-2" />
+            </div>
+            <div className="bg-card rounded-lg p-4 border border-border text-center" style={{ boxShadow: 'var(--shadow-sm)' }}>
+              <div className="text-2xl font-mono font-bold">{stats?.cmd ?? 10}</div>
+              <div className="text-xs text-muted-foreground">CMD</div>
+              <NumField label="Misc CMD" field="miscCMD" className="mt-2" />
+            </div>
+            <div className="bg-card rounded-lg p-4 border border-border text-center" style={{ boxShadow: 'var(--shadow-sm)' }}>
+              <NumField label="BAB" field="bab" />
+              <NumField label="SR" field="sr" className="mt-2" />
+            </div>
+          </div>
+
+          {/* Saving Throws */}
+          <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+            <h3 className="font-display font-semibold text-sm mb-3">Saving Throws</h3>
+            <div className="grid grid-cols-3 gap-4">
+              {[
+                { name: 'Fortitude', total: stats?.fort ?? 0, base: 'baseFort', misc: 'miscFort', ab: 'CON', mod: stats?.conMod ?? 0 },
+                { name: 'Reflex', total: stats?.ref ?? 0, base: 'baseRef', misc: 'miscRef', ab: 'DEX', mod: stats?.dexMod ?? 0 },
+                { name: 'Will', total: stats?.will ?? 0, base: 'baseWill', misc: 'miscWill', ab: 'WIS', mod: stats?.wisMod ?? 0 },
+              ].map((sv) => (
+                <div key={sv.name}>
+                  <div className="text-center mb-2">
+                    <div className="text-xl font-mono font-bold">{formatMod(sv.total)}</div>
+                    <div className="text-xs text-muted-foreground">{sv.name}</div>
+                  </div>
+                  <NumField label={`Base ${sv.name}`} field={sv.base} />
+                  <div className="text-xs text-muted-foreground text-center mt-1">{sv.ab} mod: {formatMod(sv.mod)}</div>
+                  <NumField label="Misc" field={sv.misc} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SKILLS SECTION */}
+      {section === 'skills' && (
+        <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+          <h3 className="font-display font-semibold text-sm mb-3">Skills</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-muted-foreground border-b border-border">
+                  <th className="text-left py-1 px-1">Skill</th>
+                  <th className="text-center py-1 px-1 w-12">Total</th>
+                  <th className="text-center py-1 px-1 w-14">Ranks</th>
+                  <th className="text-center py-1 px-1 w-10">CS</th>
+                  <th className="text-center py-1 px-1 w-12">Abil</th>
+                  <th className="text-center py-1 px-1 w-14">Misc</th>
+                </tr>
+              </thead>
+              <tbody>
+                {PF1E_SKILLS.map((skill: SkillDef) => {
+                  const entry = (data?.skills ?? []).find((s: SkillEntry) => s?.name === skill.name) ?? { name: skill.name, ranks: 0, classSkill: false, misc: 0 };
+                  const abMod = abilityModForSkill(skill.ability);
+                  const ranks = entry?.ranks ?? 0;
+                  const csBonus = (entry?.classSkill && ranks >= 1) ? 3 : 0;
+                  const total = ranks + csBonus + abMod + (entry?.misc ?? 0);
+
+                  const updateSkill = (field: string, value: any) => {
+                    const skills = [...(data?.skills ?? [])];
+                    const idx = skills.findIndex((s: SkillEntry) => s?.name === skill.name);
+                    if (idx >= 0) {
+                      skills[idx] = { ...(skills[idx] ?? {}), [field]: value };
+                    } else {
+                      skills.push({ name: skill.name, ranks: 0, classSkill: false, misc: 0, [field]: value });
+                    }
+                    update('skills', skills);
+                    autoSave();
+                  };
+
+                  return (
+                    <tr key={skill.name} className="border-b border-border/50 hover:bg-muted/30">
+                      <td className="py-1 px-1">
+                        <span className="text-xs">{skill.name}</span>
+                        <span className="text-[10px] text-muted-foreground ml-1">({skill.ability})</span>
+                      </td>
+                      <td className="text-center font-mono font-bold">{formatMod(total)}</td>
+                      <td className="text-center">
+                        <input type="number" value={ranks} onChange={(e) => updateSkill('ranks', parseInt(e.target.value) || 0)} disabled={!editable}
+                          className="w-10 h-6 text-center bg-transparent border border-border rounded text-xs font-mono" />
+                      </td>
+                      <td className="text-center">
+                        <input type="checkbox" checked={entry?.classSkill ?? false} onChange={(e) => updateSkill('classSkill', e.target.checked)} disabled={!editable}
+                          className="w-3.5 h-3.5 accent-primary" />
+                      </td>
+                      <td className="text-center text-xs font-mono text-muted-foreground">{formatMod(abMod)}</td>
+                      <td className="text-center">
+                        <input type="number" value={entry?.misc ?? 0} onChange={(e) => updateSkill('misc', parseInt(e.target.value) || 0)} disabled={!editable}
+                          className="w-10 h-6 text-center bg-transparent border border-border rounded text-xs font-mono" />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* EQUIPMENT SECTION */}
+      {section === 'equipment' && (
+        <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-display font-semibold text-sm">Equipment & Inventory</h3>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground font-mono">
+                Total Weight: {(data?.equipment ?? []).reduce((sum: number, i: EquipItem) => sum + ((i?.weight ?? 0) * (i?.quantity ?? 1)), 0)?.toFixed?.(1) ?? '0.0'} lbs
+              </span>
+              {editable && (
+                <Button variant="ghost" size="sm" onClick={() => { update('equipment', [...(data?.equipment ?? []), { name: '', weight: 0, quantity: 1, value: '', notes: '' }]); autoSave(); }}>+ Add Item</Button>
+              )}
+            </div>
+          </div>
+          {(data?.equipment ?? []).length === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">No items</p>
+          ) : (
+            <div className="space-y-1">
+              <div className="grid grid-cols-[1fr_60px_50px_70px_30px] gap-2 text-xs text-muted-foreground px-1">
+                <span>Name</span><span>Weight</span><span>Qty</span><span>Value</span><span></span>
+              </div>
+              {(data?.equipment ?? []).map((item: EquipItem, i: number) => (
+                <div key={i} className="grid grid-cols-[1fr_60px_50px_70px_30px] gap-2 items-center">
+                  <Input value={item?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), name: e.target.value }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs" placeholder="Item name" />
+                  <Input type="number" value={item?.weight ?? 0} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), weight: parseFloat(e.target.value) || 0 }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs text-center font-mono" />
+                  <Input type="number" value={item?.quantity ?? 1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), quantity: parseInt(e.target.value) || 1 }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs text-center font-mono" />
+                  <Input value={item?.value ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), value: e.target.value }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs" placeholder="gp" />
+                  {editable && (
+                    <Button variant="ghost" size="icon-sm" onClick={() => { const arr = [...(data?.equipment ?? [])]; arr.splice(i, 1); update('equipment', arr); autoSave(); }}>
+                      <Trash2 className="w-3 h-3 text-destructive" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* FEATS SECTION */}
+      {section === 'feats' && (
+        <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-display font-semibold text-sm">Feats & Special Abilities</h3>
+            {editable && (
+              <Button variant="ghost" size="sm" onClick={() => { update('feats', [...(data?.feats ?? []), { name: '', description: '' }]); autoSave(); }}>+ Add Feat</Button>
+            )}
+          </div>
+          {(data?.feats ?? []).length === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">No feats</p>
+          ) : (
+            <div className="space-y-3">
+              {(data?.feats ?? []).map((feat: FeatEntry, i: number) => (
+                <div key={i} className="p-3 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Input value={feat?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.feats ?? [])]; arr[i] = { ...(arr[i] ?? {}), name: e.target.value }; update('feats', arr); autoSave(); }} disabled={!editable} className="h-7 text-sm font-semibold" placeholder="Feat name" />
+                    {editable && (
+                      <Button variant="ghost" size="icon-sm" onClick={() => { const arr = [...(data?.feats ?? [])]; arr.splice(i, 1); update('feats', arr); autoSave(); }}>
+                        <Trash2 className="w-3 h-3 text-destructive" />
+                      </Button>
+                    )}
+                  </div>
+                  <textarea value={feat?.description ?? ''} onChange={(e) => { const arr = [...(data?.feats ?? [])]; arr[i] = { ...(arr[i] ?? {}), description: e.target.value }; update('feats', arr); autoSave(); }} disabled={!editable}
+                    className="w-full bg-transparent text-xs text-muted-foreground resize-none min-h-[40px] outline-none" placeholder="Description..." />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SPELLS SECTION */}
+      {section === 'spells' && (
+        <div className="space-y-4">
+          {/* Spell Slots */}
+          <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+            <h3 className="font-display font-semibold text-sm mb-3">Spell Slots per Day</h3>
+            <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
+              {Array.from({ length: 10 }, (_, lvl) => (
+                <div key={lvl} className="text-center">
+                  <Label className="text-[10px] text-muted-foreground">{lvl === 0 ? 'Cantrips' : `Lv ${lvl}`}</Label>
+                  <Input type="number" value={data?.spells?.slots?.[lvl] ?? 0}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                      spells.slots = { ...(spells.slots ?? {}) };
+                      spells.slots[lvl] = parseInt(e.target.value) || 0;
+                      update('spells', spells);
+                      autoSave();
+                    }} disabled={!editable}
+                    className="h-7 text-center font-mono text-xs mt-0.5" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Known Spells */}
+          <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-display font-semibold text-sm">Known / Prepared Spells</h3>
+              {editable && (
+                <Button variant="ghost" size="sm" onClick={() => {
+                  const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                  spells.known = [...(spells.known ?? []), { name: '', level: 0, school: '', description: '', cast: 0, maxCast: 1 }];
+                  update('spells', spells);
+                  autoSave();
+                }}>+ Add Spell</Button>
+              )}
+            </div>
+            {(data?.spells?.known ?? []).length === 0 ? (
+              <p className="text-xs text-muted-foreground py-4 text-center">No spells</p>
+            ) : (
+              <div className="space-y-2">
+                {(data?.spells?.known ?? []).map((spell: SpellEntry, i: number) => (
+                  <div key={i} className="p-3 bg-muted/50 rounded-lg">
+                    <div className="grid grid-cols-[1fr_50px_80px_60px_30px] gap-2 items-center">
+                      <Input value={spell?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                        const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                        spells.known = [...(spells.known ?? [])];
+                        spells.known[i] = { ...(spells.known[i] ?? {}), name: e.target.value };
+                        update('spells', spells); autoSave();
+                      }} disabled={!editable} className="h-7 text-xs" placeholder="Spell name" />
+                      <Input type="number" value={spell?.level ?? 0} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                        const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                        spells.known = [...(spells.known ?? [])];
+                        spells.known[i] = { ...(spells.known[i] ?? {}), level: parseInt(e.target.value) || 0 };
+                        update('spells', spells); autoSave();
+                      }} disabled={!editable} className="h-7 text-xs text-center font-mono" />
+                      <Input value={spell?.school ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                        const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                        spells.known = [...(spells.known ?? [])];
+                        spells.known[i] = { ...(spells.known[i] ?? {}), school: e.target.value };
+                        update('spells', spells); autoSave();
+                      }} disabled={!editable} className="h-7 text-xs" placeholder="School" />
+                      <div className="flex items-center gap-1 text-xs font-mono">
+                        <span>{spell?.cast ?? 0}/{spell?.maxCast ?? 1}</span>
+                        {editable && (
+                          <Button variant="ghost" size="icon-sm" className="h-5 w-5" onClick={() => {
+                            const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                            spells.known = [...(spells.known ?? [])];
+                            spells.known[i] = { ...(spells.known[i] ?? {}), cast: (spell?.cast ?? 0) + 1 };
+                            update('spells', spells); autoSave();
+                          }}>+</Button>
+                        )}
+                      </div>
+                      {editable && (
+                        <Button variant="ghost" size="icon-sm" onClick={() => {
+                          const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                          spells.known = [...(spells.known ?? [])];
+                          spells.known.splice(i, 1);
+                          update('spells', spells); autoSave();
+                        }}>
+                          <Trash2 className="w-3 h-3 text-destructive" />
+                        </Button>
+                      )}
+                    </div>
+                    <textarea value={spell?.description ?? ''} onChange={(e) => {
+                      const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                      spells.known = [...(spells.known ?? [])];
+                      spells.known[i] = { ...(spells.known[i] ?? {}), description: e.target.value };
+                      update('spells', spells); autoSave();
+                    }} disabled={!editable}
+                      className="w-full bg-transparent text-xs text-muted-foreground resize-none min-h-[30px] outline-none mt-1" placeholder="Description..." />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* NOTES SECTION */}
+      {section === 'notes' && (
+        <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+          <h3 className="font-display font-semibold text-sm mb-3">Notes & Backstory</h3>
+          <TipTapEditor content={data?.notes ?? ''} onChange={(html: string) => { update('notes', html); autoSave(); }} editable={editable} placeholder="Write your character's backstory, notes, and other details..." />
+        </div>
+      )}
+    </div>
+  );
+}

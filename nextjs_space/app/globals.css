@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 39 40% 83%;
+    --foreground: 25 40% 18%;
+    --card: 40 48% 91%;
+    --card-foreground: 25 40% 18%;
+    --popover: 40 48% 93%;
+    --popover-foreground: 25 40% 18%;
+    --primary: 15 60% 40%;
+    --primary-foreground: 40 50% 95%;
+    --secondary: 36 32% 72%;
+    --secondary-foreground: 25 40% 22%;
+    --muted: 38 30% 77%;
+    --muted-foreground: 28 24% 38%;
+    --accent: 193 42% 33%;
+    --accent-foreground: 40 50% 96%;
+    --destructive: 2 62% 44%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 33 26% 56%;
+    --input: 34 30% 68%;
+    --ring: 15 60% 40%;
+    --radius: 0.625rem;
+    --chart-1: 15 60% 45%;
+    --chart-2: 193 42% 38%;
+    --chart-3: 95 30% 38%;
+    --chart-4: 40 70% 45%;
+    --chart-5: 275 30% 48%;
+    --shadow-sm: 0 1px 3px 0 rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px 0 rgba(0,0,0,0.4);
+    --shadow-lg: 0 10px 30px 0 rgba(0,0,0,0.5);
+    --duration-fast: 150ms;
+    --duration-normal: 250ms;
+    --duration-slow: 350ms;
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+    --spacing-2xl: 48px;
+    --spacing-3xl: 64px;
+  }
+
+  .dark {
+    --background: 39 40% 83%;
+    --foreground: 25 40% 18%;
+    --card: 40 48% 91%;
+    --card-foreground: 25 40% 18%;
+    --popover: 40 48% 93%;
+    --popover-foreground: 25 40% 18%;
+    --primary: 15 60% 40%;
+    --primary-foreground: 40 50% 95%;
+    --secondary: 36 32% 72%;
+    --secondary-foreground: 25 40% 22%;
+    --muted: 38 30% 77%;
+    --muted-foreground: 28 24% 38%;
+    --accent: 193 42% 33%;
+    --accent-foreground: 40 50% 96%;
+    --destructive: 2 62% 44%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 33 26% 56%;
+    --input: 34 30% 68%;
+    --ring: 15 60% 40%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    background-color: hsl(var(--background));
+    background-image:
+      /* soft aged blotches / coffee stains */
+      radial-gradient(ellipse at 12% 18%, hsl(28 45% 30% / 0.10), transparent 42%),
+      radial-gradient(ellipse at 88% 12%, hsl(20 45% 28% / 0.09), transparent 40%),
+      radial-gradient(ellipse at 78% 82%, hsl(30 40% 30% / 0.10), transparent 45%),
+      radial-gradient(ellipse at 25% 88%, hsl(24 40% 28% / 0.08), transparent 45%),
+      /* faint cartographer grid lines */
+      repeating-linear-gradient(0deg, hsl(30 30% 30% / 0.05) 0 1px, transparent 1px 40px),
+      repeating-linear-gradient(90deg, hsl(30 30% 30% / 0.05) 0 1px, transparent 1px 40px),
+      /* darkened aged edges (vignette) */
+      radial-gradient(ellipse at 50% 50%, transparent 55%, hsl(28 40% 25% / 0.22) 100%);
+    background-attachment: fixed;
+  }
+}
+
+/* Parchment texture for cards */
+.parchment-bg {
+  background-image:
+    radial-gradient(ellipse at 20% 50%, hsl(30 40% 55% / 0.12), transparent 70%),
+    radial-gradient(ellipse at 80% 30%, hsl(25 40% 50% / 0.10), transparent 60%);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: hsl(38 30% 74%);
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(33 26% 52%);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(15 55% 42%);
+}
+
+/* TipTap Editor styling */
+.tiptap-editor .ProseMirror {
+  min-height: 150px;
+  padding: 12px;
+  outline: none;
+}
+.tiptap-editor .ProseMirror h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; }
+.tiptap-editor .ProseMirror h2 { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; }
+.tiptap-editor .ProseMirror h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem; }
+.tiptap-editor .ProseMirror p { margin-bottom: 0.5rem; }
+.tiptap-editor .ProseMirror ul { list-style: disc; padding-left: 1.5rem; margin-bottom: 0.5rem; }
+.tiptap-editor .ProseMirror ol { list-style: decimal; padding-left: 1.5rem; margin-bottom: 0.5rem; }
+.tiptap-editor .ProseMirror blockquote { border-left: 3px solid hsl(15 60% 40%); padding-left: 1rem; margin: 0.5rem 0; opacity: 0.85; }
+.tiptap-editor .ProseMirror code { background: hsl(38 30% 78%); padding: 2px 6px; border-radius: 4px; font-family: var(--font-mono); font-size: 0.9em; }
+.tiptap-editor .ProseMirror pre { background: hsl(38 30% 80%); padding: 1rem; border-radius: 8px; margin-bottom: 0.5rem; overflow-x: auto; }
+.tiptap-editor .ProseMirror a { color: hsl(15 60% 40%); text-decoration: underline; }
+.tiptap-editor .ProseMirror hr { border-color: hsl(33 26% 56%); margin: 1rem 0; }
+
+/* Wiki link styling */
+.wiki-link {
+  color: hsl(15 60% 40%);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+.wiki-link:hover {
+  text-decoration-style: solid;
+}

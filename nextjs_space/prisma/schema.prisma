@@ -1,0 +1,248 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native"]
+    output = "../node_modules/.prisma/client"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  displayName   String    @default("Adventurer")
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  memberships   CampaignMembership[]
+  characters    Character[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Campaign {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @default("")
+  inviteCode  String   @unique
+  dmUserId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships   CampaignMembership[]
+  characters    Character[]
+  wikiPages     WikiPage[]
+  worldMapImage String?
+  worldMapImageIsPublic Boolean @default(true)
+  worldMapPins  WorldMapPin[]
+  battleMapState Json?    @default("{\"gridWidth\":20,\"gridHeight\":20,\"tokens\":[],\"highlights\":[],\"fog\":[]}")
+  regionNodes   RegionNode[]
+  regionEdges   RegionEdge[]
+}
+
+model CampaignMembership {
+  id         String   @id @default(cuid())
+  userId     String
+  campaignId String
+  role       String   @default("player") // "dm" or "player"
+  joinedAt   DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, campaignId])
+}
+
+model Character {
+  id         String @id @default(cuid())
+  userId     String
+  campaignId String
+  name       String @default("New Character")
+
+  // Portrait
+  portraitPath     String?
+  portraitIsPublic Boolean @default(true)
+
+  // Core info
+  race      String @default("")
+  alignment String @default("")
+  deity     String @default("")
+  size      String @default("Medium")
+  gender    String @default("")
+  age       String @default("")
+  height    String @default("")
+  weight    String @default("")
+  homeland  String @default("")
+  xp        Int    @default(0)
+  speed     Int    @default(30)
+
+  // Classes: [{name, level}]
+  classes Json @default("[]")
+
+  // Core Ability Scores
+  str Int @default(10)
+  dex Int @default(10)
+  con Int @default(10)
+  int Int @default(10)
+  wis Int @default(10)
+  cha Int @default(10)
+
+  // HP
+  hpMax     Int @default(0)
+  hpCurrent Int @default(0)
+  hpTemp    Int @default(0)
+
+  // Combat
+  bab Int @default(0)
+  sr  Int @default(0)
+
+  // Saving throws base
+  baseFort Int @default(0)
+  baseRef  Int @default(0)
+  baseWill Int @default(0)
+  miscFort Int @default(0)
+  miscRef  Int @default(0)
+  miscWill Int @default(0)
+
+  // AC components
+  armorBonus   Int @default(0)
+  shieldBonus  Int @default(0)
+  naturalArmor Int @default(0)
+  deflection   Int @default(0)
+  sizeMod      Int @default(0)
+  miscAC       Int @default(0)
+  miscTouchAC  Int @default(0)
+  miscFlatAC   Int @default(0)
+
+  // CMD/CMB misc
+  miscCMD Int @default(0)
+  miscCMB Int @default(0)
+
+  // Initiative misc
+  miscInit Int @default(0)
+
+  // Skills: [{name, ranks, classSkill, misc}]
+  skills Json @default("[]")
+
+  // Equipment: [{name, weight, quantity, value, notes}]
+  equipment Json @default("[]")
+
+  // Feats: [{name, description}]
+  feats Json @default("[]")
+
+  // Spells: {slots: {0:n,1:n,...}, known: [{name,level,school,description,cast,maxCast}]}
+  spells Json @default("{\"slots\":{},\"known\":[]}")
+
+  // Notes / Backstory (TipTap HTML)
+  notes String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([userId])
+}
+
+model WikiPage {
+  id         String @id @default(cuid())
+  campaignId String
+  title      String
+  category   String @default("Lore") // NPC, Location, Faction, Lore, Item
+  body       String @default("")
+  visibility String @default("dm_only") // dm_only or shared
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+}
+
+model WorldMapPin {
+  id          String @id @default(cuid())
+  campaignId  String
+  x           Float
+  y           Float
+  label       String
+  description String @default("")
+  category    String @default("POI") // City, Dungeon, Wilderness, POI
+  visibility  String @default("dm_only") // dm_only or shared
+  createdAt   DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+}
+
+model RegionNode {
+  id          String @id @default(cuid())
+  campaignId  String
+  name        String
+  description String @default("")
+  nodeType    String @default("city") // city, dungeon, wilderness, town, fort, poi
+  x           Float  @default(100)
+  y           Float  @default(100)
+  visibility  String @default("dm_only") // dm_only or shared
+  createdAt   DateTime @default(now())
+
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  edgesFrom   RegionEdge[] @relation("edgeFrom")
+  edgesTo     RegionEdge[] @relation("edgeTo")
+
+  @@index([campaignId])
+}
+
+model RegionEdge {
+  id         String @id @default(cuid())
+  campaignId String
+  fromNodeId String
+  toNodeId   String
+  label      String @default("")
+
+  campaign Campaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  fromNode RegionNode @relation("edgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode   RegionNode @relation("edgeTo", fields: [toNodeId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+}
