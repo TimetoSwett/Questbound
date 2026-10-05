@@ -91,7 +91,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-muted-foreground hidden sm:block">Welcome, <span className="text-foreground font-medium">{userName}</span></span>
-            <Button variant="ghost" size="sm" onClick={() => signOut({ redirectTo: '/login' })}>
+            <Button variant="ghost" size="sm" onClick={async () => { await signOut({ redirect: false }); window.location.href = '/login'; }}>
               <LogOut className="w-4 h-4 mr-1" /> Sign Out
             </Button>
           </div>

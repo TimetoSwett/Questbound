@@ -56,7 +56,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
           </div>
           <div className="flex items-center gap-2">
             <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${role === 'dm' ? 'bg-primary/20 text-primary' : 'bg-secondary text-secondary-foreground'}`}>{role === 'dm' ? 'Dungeon Master' : 'Player'}</span>
-            <Button variant="ghost" size="sm" onClick={() => signOut({ redirectTo: '/login' })}>
+            <Button variant="ghost" size="sm" onClick={async () => { await signOut({ redirect: false }); window.location.href = '/login'; }}>
               <LogOut className="w-4 h-4" />
             </Button>
           </div>
