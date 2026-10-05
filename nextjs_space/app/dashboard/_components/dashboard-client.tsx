@@ -36,7 +36,7 @@ function Header({ userName }: { userName: string }) {
   return (
     <header className="sticky top-0 z-50 bg-card/80 backdrop-blur-md border-b border-border">
       <div className="max-w-5xl mx-auto flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 cursor-pointer" onClick={ () => window.location.href = '/dashboard'}>
           <Shield className="w-7 h-7 text-primary" />
           <span className="font-display text-xl font-bold text-primary tracking-tight">Questbound</span>
         </div>
