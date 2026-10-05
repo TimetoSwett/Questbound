@@ -1,15 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'next-auth/react';
-import { Shield, Plus, LogOut, Scroll, Swords, Users, ArrowRight } from 'lucide-react';
+import { Shield, Plus, LogOut, Scroll, Swords, Users, ArrowRight, ChevronRight, Trash2, FolderPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
+import { CharacterSheet } from '@/app/campaign/[id]/_components/character-sheet';
 
 interface Campaign {
   id: string;
@@ -21,8 +22,45 @@ interface Campaign {
   _count?: { characters: number };
 }
 
+interface VaultChar {
+  id: string;
+  name: string;
+  race: string;
+  classes: any;
+  hpMax: number;
+  hpCurrent: number;
+  createdAt: string;
+}
+
+function Header({ userName }: { userName: string }) {
+  return (
+    <header className="sticky top-0 z-50 bg-card/80 backdrop-blur-md border-b border-border">
+      <div className="max-w-5xl mx-auto flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Shield className="w-7 h-7 text-primary" />
+          <span className="font-display text-xl font-bold text-primary tracking-tight">Questbound</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground hidden sm:block">Welcome, <span className="text-foreground font-medium">{userName}</span></span>
+          <Button variant="ghost" size="sm" onClick={async () => { await signOut({ redirect: false }); window.location.href = '/login'; }}>
+            <LogOut className="w-4 h-4 mr-1" /> Sign Out
+          </Button>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function classSummary(classes: any): string {
+  try {
+    const cls = typeof classes === 'string' ? JSON.parse(classes) : (classes ?? []);
+    return (cls ?? []).map((c: any) => `${c?.name ?? '?'} ${c?.level ?? 0}`).join(' / ');
+  } catch { return ''; }
+}
+
 export function DashboardClient({ userId, userName }: { userId: string; userName: string }) {
   const router = useRouter();
+  const [view, setView] = useState<'campaigns' | 'vault'>('campaigns');
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
@@ -30,6 +68,11 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [joinCode, setJoinCode] = useState('');
+
+  const [vault, setVault] = useState<VaultChar[]>([]);
+  const [vaultLoading, setVaultLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [attachChar, setAttachChar] = useState<VaultChar | null>(null);
 
   const fetchCampaigns = async () => {
     try {
@@ -41,7 +84,15 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
     } catch { /* ignore */ } finally { setLoading(false); }
   };
 
+  const fetchVault = useCallback(async () => {
+    try {
+      const res = await fetch('/api/characters');
+      if (res.ok) setVault(await res.json() ?? []);
+    } catch { /* ignore */ } finally { setVaultLoading(false); }
+  }, []);
+
   useEffect(() => { fetchCampaigns(); }, []);
+  useEffect(() => { fetchVault(); }, [fetchVault]);
 
   const handleCreate = async () => {
     if (!newName.trim()) { toast.error('Enter a campaign name'); return; }
@@ -80,35 +131,82 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
     }
   };
 
+  const makeCharacter = async () => {
+    const res = await fetch('/api/characters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'New Character' }),
+    });
+    if (res.ok) {
+      const ch = await res.json();
+      toast.success('Character created!');
+      fetchVault();
+      setEditingId(ch.id);
+    } else {
+      toast.error('Failed to create character');
+    }
+  };
+
+  const deleteVaultChar = async (id: string, name: string) => {
+    if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
+    const res = await fetch(`/api/characters?id=${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      toast.success('Character deleted');
+      if (editingId === id) setEditingId(null);
+      fetchVault();
+    } else {
+      toast.error('Failed to delete');
+    }
+  };
+
+  const attachToCampaign = async (campaignId: string) => {
+    if (!attachChar) return;
+    const res = await fetch('/api/characters', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: attachChar.id, campaignId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      toast.success(`"${attachChar.name}" added to campaign!`);
+      setAttachChar(null);
+      fetchVault();
+      fetchCampaigns();
+    } else {
+      toast.error(data?.error ?? 'Failed');
+    }
+  };
+
+  // Character editor view
+  if (editingId) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header userName={userName} />
+        <main className="max-w-6xl mx-auto px-4 py-4">
+          <Button variant="ghost" size="sm" onClick={() => { setEditingId(null); fetchVault(); }} className="mb-4">
+            <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to vault
+          </Button>
+          <CharacterSheet characterId={editingId} editable={true} />
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-card/80 backdrop-blur-md border-b border-border">
-        <div className="max-w-5xl mx-auto flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Shield className="w-7 h-7 text-primary" />
-            <span className="font-display text-xl font-bold text-primary tracking-tight">Questbound</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground hidden sm:block">Welcome, <span className="text-foreground font-medium">{userName}</span></span>
-            <Button variant="ghost" size="sm" onClick={async () => { await signOut({ redirect: false }); window.location.href = '/login'; }}>
-              <LogOut className="w-4 h-4 mr-1" /> Sign Out
-            </Button>
-          </div>
-        </div>
-      </header>
+      <Header userName={userName} />
 
       <main className="max-w-5xl mx-auto px-4 py-8">
         <FadeIn>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
             <div>
-              <h1 className="font-display text-3xl tracking-tight font-bold">Your Campaigns</h1>
-              <p className="text-muted-foreground mt-1">Manage your adventures and characters</p>
+              <h1 className="font-display text-3xl tracking-tight font-bold">Dashboard</h1>
+              <p className="text-muted-foreground mt-1">Your campaigns and characters</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Dialog open={createOpen} onOpenChange={setCreateOpen}>
                 <DialogTrigger asChild>
-                  <Button><Plus className="w-4 h-4 mr-1" /> New Campaign</Button>
+                  <Button><Plus className="w-4 h-4 mr-1" /> Start a campaign</Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader><DialogTitle>Create a Campaign</DialogTitle></DialogHeader>
@@ -119,6 +217,9 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
                   </div>
                 </DialogContent>
               </Dialog>
+              <Button variant="secondary" onClick={makeCharacter}>
+                <Scroll className="w-4 h-4 mr-1" /> Make a character
+              </Button>
               <Dialog open={joinOpen} onOpenChange={setJoinOpen}>
                 <DialogTrigger asChild>
                   <Button variant="secondary"><Users className="w-4 h-4 mr-1" /> Join Campaign</Button>
@@ -135,51 +236,128 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
           </div>
         </FadeIn>
 
-        {loading ? (
-          <div className="text-center py-20 text-muted-foreground">Loading campaigns...</div>
-        ) : (campaigns?.length ?? 0) === 0 ? (
-          <FadeIn>
-            <div className="text-center py-20">
-              <Scroll className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-              <h2 className="text-xl font-display font-semibold mb-2">No campaigns yet</h2>
-              <p className="text-muted-foreground">Create a new campaign or join one with an invite code</p>
-            </div>
-          </FadeIn>
-        ) : (
-          <Stagger staggerDelay={0.08}>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {(campaigns ?? []).map((c: Campaign) => (
-                <StaggerItem key={c.id}>
-                  <HoverLift>
-                    <button
-                      onClick={() => router.push(`/campaign/${c.id}`)}
-                      className="w-full text-left p-5 rounded-lg bg-card parchment-bg border border-border hover:border-primary/40 transition-colors"
-                      style={{ boxShadow: 'var(--shadow-md)' }}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h3 className="font-display text-lg font-semibold">{c.name}</h3>
-                          {c.description && <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{c.description}</p>}
+        {/* View toggle */}
+        <div className="flex gap-2 mb-6">
+          <Button variant={view === 'campaigns' ? 'default' : 'secondary'} size="sm" onClick={() => setView('campaigns')}>
+            <Swords className="w-4 h-4 mr-1" /> Campaigns
+          </Button>
+          <Button variant={view === 'vault' ? 'default' : 'secondary'} size="sm" onClick={() => setView('vault')}>
+            <Scroll className="w-4 h-4 mr-1" /> Character Vault
+          </Button>
+        </div>
+
+        {view === 'campaigns' ? (
+          loading ? (
+            <div className="text-center py-20 text-muted-foreground">Loading campaigns...</div>
+          ) : (campaigns?.length ?? 0) === 0 ? (
+            <FadeIn>
+              <div className="text-center py-20">
+                <Scroll className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                <h2 className="text-xl font-display font-semibold mb-2">No campaigns yet</h2>
+                <p className="text-muted-foreground">Start a new campaign or join one with an invite code</p>
+              </div>
+            </FadeIn>
+          ) : (
+            <Stagger staggerDelay={0.08}>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {(campaigns ?? []).map((c: Campaign) => (
+                  <StaggerItem key={c.id}>
+                    <HoverLift>
+                      <button
+                        onClick={() => router.push(`/campaign/${c.id}`)}
+                        className="w-full text-left p-5 rounded-lg bg-card parchment-bg border border-border hover:border-primary/40 transition-colors"
+                        style={{ boxShadow: 'var(--shadow-md)' }}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h3 className="font-display text-lg font-semibold">{c.name}</h3>
+                            {c.description && <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{c.description}</p>}
+                          </div>
+                          <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${
+                            c.myRole === 'dm' ? 'bg-primary/20 text-primary' : 'bg-secondary text-secondary-foreground'
+                          }`}>
+                            {c.myRole === 'dm' ? 'DM' : 'Player'}
+                          </span>
                         </div>
-                        <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${
-                          c.myRole === 'dm' ? 'bg-primary/20 text-primary' : 'bg-secondary text-secondary-foreground'
-                        }`}>
-                          {c.myRole === 'dm' ? 'DM' : 'Player'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1"><Users className="w-3 h-3" /> {c.playerCount} members</span>
-                        <span className="flex items-center gap-1"><Swords className="w-3 h-3" /> {c._count?.characters ?? 0} characters</span>
-                        <ArrowRight className="w-4 h-4 ml-auto text-primary" />
-                      </div>
-                    </button>
-                  </HoverLift>
-                </StaggerItem>
-              ))}
-            </div>
-          </Stagger>
+                        <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1"><Users className="w-3 h-3" /> {c.playerCount} members</span>
+                          <span className="flex items-center gap-1"><Swords className="w-3 h-3" /> {c._count?.characters ?? 0} characters</span>
+                          <ArrowRight className="w-4 h-4 ml-auto text-primary" />
+                        </div>
+                      </button>
+                    </HoverLift>
+                  </StaggerItem>
+                ))}
+              </div>
+            </Stagger>
+          )
+        ) : (
+          vaultLoading ? (
+            <div className="text-center py-20 text-muted-foreground">Loading vault...</div>
+          ) : (vault?.length ?? 0) === 0 ? (
+            <FadeIn>
+              <div className="text-center py-20">
+                <Scroll className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                <h2 className="text-xl font-display font-semibold mb-2">No characters yet</h2>
+                <p className="text-muted-foreground mb-4">Make a character now — no campaign needed.</p>
+                <Button onClick={makeCharacter}><Plus className="w-4 h-4 mr-1" /> Make a character</Button>
+              </div>
+            </FadeIn>
+          ) : (
+            <Stagger staggerDelay={0.06}>
+              <div className="grid gap-3">
+                {(vault ?? []).map((ch: VaultChar) => {
+                  const cls = classSummary(ch.classes);
+                  return (
+                    <StaggerItem key={ch.id}>
+                      <HoverLift>
+                        <div className="flex items-center gap-3 bg-card p-4 rounded-lg border border-border hover:border-primary/30 transition-colors" style={{ boxShadow: 'var(--shadow-sm)' }}>
+                          <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setEditingId(ch.id)}>
+                            <h3 className="font-display font-semibold truncate">{ch.name ?? 'Unnamed'}</h3>
+                            <p className="text-sm text-muted-foreground">{ch.race}{cls ? ` • ${cls}` : ''}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">Created {ch.createdAt ? new Date(ch.createdAt).toLocaleDateString() : ''}</p>
+                          </div>
+                          <div className="text-right shrink-0 hidden sm:block">
+                            <p className="text-sm font-mono"><span className="text-green-700">{ch.hpCurrent ?? 0}</span>/{ch.hpMax ?? 0} HP</p>
+                          </div>
+                          <Button variant="secondary" size="sm" onClick={() => setAttachChar(ch)} disabled={(campaigns?.length ?? 0) === 0} title={(campaigns?.length ?? 0) === 0 ? 'Join a campaign first' : 'Add to a campaign'}>
+                            <FolderPlus className="w-4 h-4 mr-1" /> Add to campaign
+                          </Button>
+                          <Button variant="ghost" size="icon-sm" onClick={() => deleteVaultChar(ch.id, ch.name)}>
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </HoverLift>
+                    </StaggerItem>
+                  );
+                })}
+              </div>
+            </Stagger>
+          )
         )}
       </main>
+
+      {/* Add-to-campaign dialog */}
+      <Dialog open={!!attachChar} onOpenChange={(o) => { if (!o) setAttachChar(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add to campaign</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Choose a campaign for <span className="font-medium text-foreground">{attachChar?.name}</span>.</p>
+          <div className="space-y-2 mt-2">
+            {(campaigns ?? []).map((c: Campaign) => (
+              <button
+                key={c.id}
+                onClick={() => attachToCampaign(c.id)}
+                className="w-full text-left p-3 rounded-lg bg-card border border-border hover:border-primary/40 transition-colors"
+              >
+                <span className="font-medium">{c.name}</span>
+                <span className={`text-xs font-mono px-2 py-0.5 rounded-full ml-2 ${c.myRole === 'dm' ? 'bg-primary/20 text-primary' : 'bg-secondary text-secondary-foreground'}`}>
+                  {c.myRole === 'dm' ? 'DM' : 'Player'}
+                </span>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

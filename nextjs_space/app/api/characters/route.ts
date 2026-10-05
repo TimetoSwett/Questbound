@@ -10,7 +10,15 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const campaignId = searchParams.get('campaignId');
-  if (!campaignId) return NextResponse.json({ error: 'campaignId required' }, { status: 400 });
+
+  // No campaignId -> character vault: the caller's unassigned characters
+  if (!campaignId) {
+    const characters = await prisma.character.findMany({
+      where: { userId: session.user.id, campaignId: null },
+      orderBy: { createdAt: 'asc' },
+    });
+    return NextResponse.json(characters);
+  }
 
   const role = await getUserRole(session.user.id, campaignId);
   if (!role) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
@@ -34,15 +42,17 @@ export async function POST(request: Request) {
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { campaignId, name } = await request.json();
-  if (!campaignId) return NextResponse.json({ error: 'campaignId required' }, { status: 400 });
 
-  const role = await getUserRole(session.user.id, campaignId);
-  if (!role) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
+  // campaignId is optional now: omitted -> vault character owned by the caller
+  if (campaignId) {
+    const role = await getUserRole(session.user.id, campaignId);
+    if (!role) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
+  }
 
   const character = await prisma.character.create({
     data: {
       userId: session.user.id,
-      campaignId,
+      campaignId: campaignId ?? null,
       name: name || 'New Character',
       skills: JSON.stringify([]),
       equipment: JSON.stringify([]),
@@ -65,10 +75,27 @@ export async function PUT(request: Request) {
   const character = await prisma.character.findUnique({ where: { id } });
   if (!character) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  // Only owner can edit (or DM for their campaign)
-  const role = await getUserRole(session.user.id, character.campaignId);
-  if (character.userId !== session.user.id && role !== 'dm') {
+  // Only owner can edit (or DM for campaign characters)
+  const isOwner = character.userId === session.user.id;
+  const role = character.campaignId ? await getUserRole(session.user.id, character.campaignId) : null;
+  if (!isOwner && role !== 'dm') {
     return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
+  }
+
+  // Attach a vault character to a campaign
+  if (data.campaignId !== undefined) {
+    const targetId: string | null = data.campaignId ?? null;
+    if (!targetId) return NextResponse.json({ error: 'campaignId required' }, { status: 400 });
+    if (character.campaignId) {
+      return NextResponse.json({ error: 'Character already assigned to a campaign' }, { status: 400 });
+    }
+    const targetRole = await getUserRole(session.user.id, targetId);
+    if (!targetRole) return NextResponse.json({ error: 'Not a member of target campaign' }, { status: 403 });
+    if (!isOwner && targetRole !== 'dm') {
+      return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
+    }
+    const updated = await prisma.character.update({ where: { id }, data: { campaignId: targetId } });
+    return NextResponse.json(updated);
   }
 
   // Stringify JSON fields if they are objects
@@ -95,7 +122,7 @@ export async function DELETE(request: Request) {
   if (!character) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   if (character.userId !== session.user.id) {
-    const role = await getUserRole(session.user.id, character.campaignId);
+    const role = character.campaignId ? await getUserRole(session.user.id, character.campaignId) : null;
     if (role !== 'dm') return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
   }
 

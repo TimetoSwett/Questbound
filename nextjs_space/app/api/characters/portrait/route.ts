@@ -13,8 +13,9 @@ export async function GET(request: Request) {
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
   const character = await prisma.character.findUnique({ where: { id }, select: { portraitPath: true, portraitIsPublic: true, campaignId: true, userId: true } });
   if (!character) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  const role = await getUserRole(session.user.id, character.campaignId);
-  if (!role) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
+  const isOwner = character.userId === session.user.id;
+  const role = character.campaignId ? await getUserRole(session.user.id, character.campaignId) : null;
+  if (!isOwner && role !== 'dm') return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
   if (!character.portraitPath) return NextResponse.json({ url: null });
   const url = await getFileUrl(character.portraitPath, 'image/png', character.portraitIsPublic);
   return NextResponse.json({ url });

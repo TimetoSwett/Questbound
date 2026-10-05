@@ -15,8 +15,8 @@ export async function GET(request: Request) {
     include: { user: { select: { displayName: true } } },
   });
   if (!character) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  const role = await getUserRole(session.user.id, character.campaignId);
-  if (!role) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
-  if (role !== 'dm' && character.userId !== session.user.id) return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
+  const isOwner = character.userId === session.user.id;
+  const role = character.campaignId ? await getUserRole(session.user.id, character.campaignId) : null;
+  if (!isOwner && role !== 'dm') return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
   return NextResponse.json(character);
 }
