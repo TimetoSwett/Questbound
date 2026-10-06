@@ -21,7 +21,7 @@ interface WikiPage {
 
 const CATEGORIES = ['NPC', 'Location', 'Faction', 'Lore', 'Item'];
 
-export function WikiView({ campaignId, isDM }: { campaignId: string; isDM: boolean }) {
+export function WikiView({ campaignId, isDM, initialPageId }: { campaignId: string; isDM: boolean; initialPageId?: string | null }) {
   const [pages, setPages] = useState<WikiPage[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -39,6 +39,11 @@ export function WikiView({ campaignId, isDM }: { campaignId: string; isDM: boole
   }, [campaignId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Deep link: select the article when a pin's "Read article" is clicked.
+  useEffect(() => {
+    if (initialPageId) setSelectedId(initialPageId);
+  }, [initialPageId]);
 
   const selected = (pages ?? []).find((p: WikiPage) => p.id === selectedId);
 

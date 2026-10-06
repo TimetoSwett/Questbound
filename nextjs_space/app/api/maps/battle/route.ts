@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   const role = await getUserRole(session.user.id, campaignId);
   if (!role) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { battleMapState: true } });
-  return NextResponse.json(campaign?.battleMapState ?? { gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [] });
+  return NextResponse.json(campaign?.battleMapState ?? { gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null });
 }
 
 export async function PUT(request: Request) {

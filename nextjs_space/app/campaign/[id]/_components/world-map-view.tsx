@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Upload, MapPin, Eye, EyeOff, Trash2, Plus, X } from 'lucide-react';
+import { Upload, MapPin, Eye, EyeOff, Trash2, Plus, X, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,6 +17,13 @@ interface Pin {
   description: string;
   category: string;
   visibility: string;
+  wikiPageId: string | null;
+  wikiPage?: { id: string; title: string; visibility: string } | null;
+}
+
+interface WikiPageOption {
+  id: string;
+  title: string;
 }
 
 const PIN_CATEGORIES = ['City', 'Dungeon', 'Wilderness', 'POI', 'Town', 'Fort'];
@@ -24,12 +31,13 @@ const PIN_COLORS: Record<string, string> = {
   City: '#D4A547', Dungeon: '#E04040', Wilderness: '#40A040', POI: '#60B5FF', Town: '#C080D0', Fort: '#FF9149',
 };
 
-export function WorldMapView({ campaignId, isDM }: { campaignId: string; isDM: boolean }) {
+export function WorldMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId: string; isDM: boolean; onOpenWikiPage?: (pageId: string) => void }) {
   const [mapUrl, setMapUrl] = useState<string | null>(null);
   const [pins, setPins] = useState<Pin[]>([]);
   const [placing, setPlacing] = useState(false);
   const [editPin, setEditPin] = useState<Pin | null>(null);
-  const [pinForm, setPinForm] = useState({ label: '', description: '', category: 'POI', visibility: 'dm_only' });
+  const [pinForm, setPinForm] = useState({ label: '', description: '', category: 'POI', visibility: 'dm_only', wikiPageId: '' });
+  const [wikiPages, setWikiPages] = useState<WikiPageOption[]>([]);
   const [newPinPos, setNewPinPos] = useState<{ x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -43,7 +51,16 @@ export function WorldMapView({ campaignId, isDM }: { campaignId: string; isDM: b
     if (res.ok) setPins(await res.json() ?? []);
   }, [campaignId]);
 
-  useEffect(() => { loadMap(); loadPins(); }, [loadMap, loadPins]);
+  const loadWikiPages = useCallback(async () => {
+    if (!isDM) return;
+    const res = await fetch(`/api/wiki?campaignId=${campaignId}`);
+    if (res.ok) {
+      const pages = await res.json() ?? [];
+      setWikiPages(pages.map((pg: any) => ({ id: pg.id, title: pg.title ?? 'Untitled' })));
+    }
+  }, [campaignId, isDM]);
+
+  useEffect(() => { loadMap(); loadPins(); loadWikiPages(); }, [loadMap, loadPins, loadWikiPages]);
 
   const uploadMap = async (file: File) => {
     const form = new FormData();
@@ -67,7 +84,7 @@ export function WorldMapView({ campaignId, isDM }: { campaignId: string; isDM: b
     const x = ((e.clientX - rect.left) / rect.width) * 100;
     const y = ((e.clientY - rect.top) / rect.height) * 100;
     setNewPinPos({ x, y });
-    setPinForm({ label: '', description: '', category: 'POI', visibility: 'dm_only' });
+    setPinForm({ label: '', description: '', category: 'POI', visibility: 'dm_only', wikiPageId: '' });
     setPlacing(false);
   };
 
@@ -88,7 +105,7 @@ export function WorldMapView({ campaignId, isDM }: { campaignId: string; isDM: b
     await fetch('/api/maps/world-pins', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: editPin.id, label: editPin.label, description: editPin.description, category: editPin.category, visibility: editPin.visibility }),
+      body: JSON.stringify({ id: editPin.id, label: editPin.label, description: editPin.description, category: editPin.category, visibility: editPin.visibility, wikiPageId: editPin.wikiPageId || null }),
     });
     toast.success('Updated!');
     setEditPin(null);
@@ -152,6 +169,7 @@ export function WorldMapView({ campaignId, isDM }: { campaignId: string; isDM: b
               <div><Label>Category</Label><select value={pinForm.category} onChange={(e) => setPinForm({ ...pinForm, category: e.target.value })} className="mt-1 h-8 w-full rounded-md bg-card border border-input px-2 text-sm">{PIN_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
               <div><Label>Visibility</Label><select value={pinForm.visibility} onChange={(e) => setPinForm({ ...pinForm, visibility: e.target.value })} className="mt-1 h-8 w-full rounded-md bg-card border border-input px-2 text-sm"><option value="dm_only">DM Only</option><option value="shared">Shared</option></select></div>
             </div>
+            <div><Label>Linked wiki article (optional)</Label><select value={pinForm.wikiPageId} onChange={(e) => setPinForm({ ...pinForm, wikiPageId: e.target.value })} className="mt-1 h-8 w-full rounded-md bg-card border border-input px-2 text-sm"><option value="">None</option>{wikiPages.map((pg) => <option key={pg.id} value={pg.id}>{pg.title}</option>)}</select></div>
             <Button onClick={saveNewPin} className="w-full">Place Pin</Button>
           </div>
         </DialogContent>
@@ -169,6 +187,21 @@ export function WorldMapView({ campaignId, isDM }: { campaignId: string; isDM: b
                 <div><Label>Category</Label><select value={editPin.category ?? 'POI'} onChange={(e) => setEditPin({ ...editPin, category: e.target.value })} className="mt-1 h-8 w-full rounded-md bg-card border border-input px-2 text-sm">{PIN_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
                 <div><Label>Visibility</Label><select value={editPin.visibility ?? 'dm_only'} onChange={(e) => setEditPin({ ...editPin, visibility: e.target.value })} className="mt-1 h-8 w-full rounded-md bg-card border border-input px-2 text-sm"><option value="dm_only">DM Only</option><option value="shared">Shared</option></select></div>
               </div>
+              {isDM && (
+                <div><Label>Linked wiki article (optional)</Label><select value={editPin.wikiPageId ?? ''} onChange={(e) => setEditPin({ ...editPin, wikiPageId: e.target.value || null })} className="mt-1 h-8 w-full rounded-md bg-card border border-input px-2 text-sm"><option value="">None</option>{wikiPages.map((pg) => <option key={pg.id} value={pg.id}>{pg.title}</option>)}</select></div>
+              )}
+              {editPin.wikiPage && onOpenWikiPage && (
+                <button
+                  onClick={() => {
+                    const pid = editPin.wikiPageId;
+                    setEditPin(null);
+                    if (pid && onOpenWikiPage) onOpenWikiPage(pid);
+                  }}
+                  className="flex items-center gap-1.5 text-sm text-primary hover:underline w-fit"
+                >
+                  <BookOpen className="w-4 h-4" /> Read article: {editPin.wikiPage.title}
+                </button>
+              )}
               <div className="flex gap-2">
                 {isDM && <Button onClick={updatePin} className="flex-1">Save</Button>}
                 {isDM && <Button variant="destructive" onClick={() => deletePin(editPin.id)}>Delete</Button>}

@@ -9,7 +9,14 @@ import { RegionMapView } from './region-map-view';
 
 export function WorldTab({ campaignId, role }: { campaignId: string; role: string }) {
   const [subTab, setSubTab] = useState<'wiki' | 'world-map' | 'battle-map' | 'region-map'>('wiki');
+  const [wikiPageId, setWikiPageId] = useState<string | null>(null);
   const isDM = role === 'dm';
+
+  // Deep link from a world map pin: jump to the wiki tab with the article open.
+  const openWikiPage = (pageId: string) => {
+    setWikiPageId(pageId);
+    setSubTab('wiki');
+  };
 
   const tabs = [
     { key: 'wiki' as const, label: 'Wiki', icon: BookOpen },
@@ -31,8 +38,8 @@ export function WorldTab({ campaignId, role }: { campaignId: string; role: strin
         ))}
       </div>
 
-      {subTab === 'wiki' && <WikiView campaignId={campaignId} isDM={isDM} />}
-      {subTab === 'world-map' && <WorldMapView campaignId={campaignId} isDM={isDM} />}
+      {subTab === 'wiki' && <WikiView campaignId={campaignId} isDM={isDM} initialPageId={wikiPageId} />}
+      {subTab === 'world-map' && <WorldMapView campaignId={campaignId} isDM={isDM} onOpenWikiPage={openWikiPage} />}
       {subTab === 'battle-map' && <BattleMapView campaignId={campaignId} isDM={isDM} />}
       {subTab === 'region-map' && <RegionMapView campaignId={campaignId} isDM={isDM} />}
     </div>

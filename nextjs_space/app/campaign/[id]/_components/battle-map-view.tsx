@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw } from 'lucide-react';
+import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,12 +10,12 @@ import { toast } from 'sonner';
 
 interface Token { id: string; label: string; color: string; x: number; y: number; size: number; }
 interface Highlight { id: string; x: number; y: number; w: number; h: number; color: string; label: string; }
-interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; }
+interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; }
 
 const TOKEN_COLORS = ['#D4A547', '#E04040', '#40A040', '#60B5FF', '#C080D0', '#FF9149', '#FF6363', '#80D8C3'];
 
 export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: boolean }) {
-  const [state, setState] = useState<BattleState>({ gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [] });
+  const [state, setState] = useState<BattleState>({ gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null });
   const [dragging, setDragging] = useState<string | null>(null);
   const [fogMode, setFogMode] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -32,6 +32,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
         tokens: d?.tokens ?? [],
         highlights: d?.highlights ?? [],
         fog: d?.fog ?? [],
+        backgroundImage: d?.backgroundImage ?? null,
       });
     }
   }, [campaignId]);
@@ -106,6 +107,24 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     save(ns);
   };
 
+  const uploadBackground = async (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    const upRes = await fetch('/api/upload', { method: 'POST', body: form });
+    if (!upRes.ok) { toast.error('Upload failed'); return; }
+    const { cloud_storage_path } = await upRes.json();
+    const ns = { ...state, backgroundImage: cloud_storage_path };
+    setState(ns);
+    save(ns);
+    toast.success('Background uploaded!');
+  };
+
+  const removeBackground = () => {
+    const ns = { ...state, backgroundImage: null };
+    setState(ns);
+    save(ns);
+  };
+
   const isFogged = (x: number, y: number) => (state?.fog ?? []).includes(`${x},${y}`);
 
   return (
@@ -148,6 +167,15 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
               <Button onClick={() => { save(state); setSettingsOpen(false); toast.success('Grid updated'); }} className="w-full mt-3">Save</Button>
             </DialogContent>
           </Dialog>
+          <label className="cursor-pointer">
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target?.files?.[0]; if (f) uploadBackground(f); e.target.value = ''; }} />
+            <Button variant="secondary" size="sm" asChild><span><ImagePlus className="w-4 h-4 mr-1" /> Background</span></Button>
+          </label>
+          {state?.backgroundImage && (
+            <Button variant="secondary" size="sm" onClick={removeBackground}>
+              <X className="w-4 h-4 mr-1" /> Remove bg
+            </Button>
+          )}
         </div>
       )}
 
@@ -176,12 +204,24 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
 
       {/* Grid */}
       <div className="overflow-auto rounded-lg border border-border bg-card" style={{ boxShadow: 'var(--shadow-md)' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gw}, ${cellSize}px)`, gap: '1px', padding: '4px', backgroundColor: 'hsl(33 26% 52%)' }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${gw}, ${cellSize}px)`,
+          gap: '1px',
+          padding: '4px',
+          backgroundColor: 'hsl(33 26% 52%)',
+          ...(state?.backgroundImage ? {
+            backgroundImage: `url(/api/files/${state.backgroundImage})`,
+            backgroundSize: `${gw * cellSize}px ${gh * cellSize}px`,
+            backgroundRepeat: 'no-repeat',
+          } : {}),
+        }}>
           {Array.from({ length: gh }, (_, row) =>
             Array.from({ length: gw }, (_, col) => {
               const fogged = isFogged(col, row);
               const tokensHere = (state?.tokens ?? []).filter((t: Token) => t.x === col && t.y === row);
               const showFog = !isDM && fogged;
+              const hasBg = !!state?.backgroundImage;
 
               return (
                 <div key={`${col}-${row}`}
@@ -189,8 +229,14 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={() => handleDrop(col, row)}
                   className={`relative flex items-center justify-center transition-colors ${
-                    showFog ? 'bg-background' : 'bg-card hover:bg-muted/50'
-                  } ${isDM && fogged ? 'bg-background/60' : ''}`}
+                    showFog
+                      ? 'bg-background'
+                      : isDM && fogged
+                        ? 'bg-background/60'
+                        : hasBg
+                          ? 'bg-transparent hover:bg-white/10'
+                          : 'bg-card hover:bg-muted/50'
+                  }`}
                   style={{ width: cellSize, height: cellSize, cursor: isDM ? 'pointer' : 'default' }}>
                   {!showFog && tokensHere.map((t: Token) => (
                     <div key={t.id}

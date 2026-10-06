@@ -195,6 +195,7 @@ model WikiPage {
   updatedAt  DateTime @updatedAt
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  pins     WorldMapPin[]
 
   @@index([campaignId])
 }
@@ -209,8 +210,10 @@ model WorldMapPin {
   category    String @default("POI") // City, Dungeon, Wilderness, POI
   visibility  String @default("dm_only") // dm_only or shared
   createdAt   DateTime @default(now())
+  wikiPageId  String?
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  wikiPage WikiPage? @relation(fields: [wikiPageId], references: [id], onDelete: SetNull)
 
   @@index([campaignId])
 }
