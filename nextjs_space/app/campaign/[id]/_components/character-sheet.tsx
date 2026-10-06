@@ -191,15 +191,11 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
 
   const uploadPortrait = async (file: File) => {
     try {
-      const presRes = await fetch('/api/upload/presigned', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName: file.name, contentType: file.type, isPublic: true }),
-      });
-      if (!presRes.ok) { toast.error('Upload failed'); return; }
-      const { uploadUrl, cloud_storage_path } = await presRes.json();
-      const putRes = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
-      if (!putRes.ok) { toast.error('Upload failed'); return; }
+      const form = new FormData();
+      form.append('file', file);
+      const upRes = await fetch('/api/upload', { method: 'POST', body: form });
+      if (!upRes.ok) { toast.error('Upload failed'); return; }
+      const { cloud_storage_path } = await upRes.json();
       // Save path to character
       await fetch('/api/characters', {
         method: 'PUT',

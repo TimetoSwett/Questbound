@@ -46,14 +46,11 @@ export function WorldMapView({ campaignId, isDM }: { campaignId: string; isDM: b
   useEffect(() => { loadMap(); loadPins(); }, [loadMap, loadPins]);
 
   const uploadMap = async (file: File) => {
-    const presRes = await fetch('/api/upload/presigned', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileName: file.name, contentType: file.type, isPublic: true }),
-    });
-    if (!presRes.ok) { toast.error('Upload failed'); return; }
-    const { uploadUrl, cloud_storage_path } = await presRes.json();
-    await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+    const form = new FormData();
+    form.append('file', file);
+    const upRes = await fetch('/api/upload', { method: 'POST', body: form });
+    if (!upRes.ok) { toast.error('Upload failed'); return; }
+    const { cloud_storage_path } = await upRes.json();
     await fetch('/api/maps/world-image', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
