@@ -1,26 +1,47 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X } from 'lucide-react';
+import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, ChevronDown, ChevronRight, SkipBack, SkipForward } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 
-interface Token { id: string; label: string; color: string; x: number; y: number; size: number; }
+interface Token { id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; }
 interface Highlight { id: string; x: number; y: number; w: number; h: number; color: string; label: string; }
-interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; }
+interface TurnEntry { id: string; label: string; initiative: number; characterId?: string; }
+interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; }
 
 const TOKEN_COLORS = ['#D4A547', '#E04040', '#40A040', '#60B5FF', '#C080D0', '#FF9149', '#FF6363', '#80D8C3'];
 
+// PF1e creature footprints in grid squares (Tiny takes half a square)
+const CREATURE_SIZES = [
+  { label: 'Tiny or smaller', footprint: 0.5 },
+  { label: 'Small', footprint: 1 },
+  { label: 'Medium', footprint: 1 },
+  { label: 'Large (2×2)', footprint: 2 },
+  { label: 'Huge (3×3)', footprint: 3 },
+  { label: 'Gargantuan (4×4)', footprint: 4 },
+  { label: 'Colossal (6×6)', footprint: 6 },
+];
+
+const EMPTY_BATTLE: BattleState = { gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null, turnOrder: [], activeId: null };
+
+function sortTurns(turns: TurnEntry[]): TurnEntry[] {
+  return [...turns].sort((a, b) => (b.initiative - a.initiative) || a.label.localeCompare(b.label));
+}
+
 export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: boolean }) {
-  const [state, setState] = useState<BattleState>({ gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null });
+  const [state, setState] = useState<BattleState>(EMPTY_BATTLE);
   const [dragging, setDragging] = useState<string | null>(null);
   const [fogMode, setFogMode] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [newToken, setNewToken] = useState({ label: '', color: TOKEN_COLORS[0], size: 1 });
+  const [newToken, setNewToken] = useState({ label: '', color: TOKEN_COLORS[0], size: 1, characterId: '', characterName: '' });
   const [newTokenOpen, setNewTokenOpen] = useState(false);
+  const [chars, setChars] = useState<Array<{ id: string; name: string }>>([]);
+  const [initOpen, setInitOpen] = useState(true);
+  const [newEntry, setNewEntry] = useState({ label: '', initiative: '' });
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/maps/battle?campaignId=${campaignId}`);
@@ -33,6 +54,8 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
         highlights: d?.highlights ?? [],
         fog: d?.fog ?? [],
         backgroundImage: d?.backgroundImage ?? null,
+        turnOrder: d?.turnOrder ?? [],
+        activeId: d?.activeId ?? null,
       });
     }
   }, [campaignId]);
@@ -47,6 +70,15 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     const id = setInterval(() => { load(); }, 3000);
     return () => clearInterval(id);
   }, [isDM, load]);
+
+  // Character list for the "link character" dropdown (DM only)
+  useEffect(() => {
+    if (!newTokenOpen || !isDM) return;
+    fetch(`/api/characters?campaignId=${campaignId}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setChars(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, [newTokenOpen, isDM, campaignId]);
 
   const save = async (s: BattleState) => {
     await fetch('/api/maps/battle', {
@@ -92,12 +124,13 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       color: newToken.color,
       x: 0, y: 0,
       size: newToken.size || 1,
+      ...(newToken.characterId ? { characterId: newToken.characterId, characterName: newToken.characterName } : {}),
     };
     const ns = { ...state, tokens: [...(state?.tokens ?? []), t] };
     setState(ns);
     save(ns);
     setNewTokenOpen(false);
-    setNewToken({ label: '', color: TOKEN_COLORS[0], size: 1 });
+    setNewToken({ label: '', color: TOKEN_COLORS[0], size: 1, characterId: '', characterName: '' });
     toast.success('Token added');
   };
 
@@ -125,6 +158,60 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     save(ns);
   };
 
+  // ---- Initiative tracker ----
+  const sortedTurns = sortTurns(state?.turnOrder ?? []);
+
+  // Persist a turn order, guarding activeId against removed entries
+  const commitTurns = (turnOrder: TurnEntry[], activeId: string | null) => {
+    const sorted = sortTurns(turnOrder);
+    const safeActive = sorted.some((e) => e.id === activeId) ? activeId : (sorted[0]?.id ?? null);
+    const ns = { ...state, turnOrder, activeId: safeActive };
+    setState(ns);
+    save(ns);
+  };
+
+  const addManualEntry = () => {
+    if (!newEntry.label.trim()) { toast.error('Enter a name'); return; }
+    const e: TurnEntry = {
+      id: `te_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      label: newEntry.label.trim(),
+      initiative: parseInt(newEntry.initiative) || 0,
+    };
+    commitTurns([...(state?.turnOrder ?? []), e], state?.activeId ?? null);
+    setNewEntry({ label: '', initiative: '' });
+  };
+
+  const addTokensToOrder = () => {
+    const order = state?.turnOrder ?? [];
+    const fresh: TurnEntry[] = (state?.tokens ?? [])
+      .filter((t: Token) => {
+        if (t.characterId) return !order.some((e) => e.characterId === t.characterId);
+        return !order.some((e) => !e.characterId && e.label === t.label);
+      })
+      .map((t: Token) => ({
+        id: `te_${Date.now()}_${t.id}`,
+        label: t.characterName ?? t.label,
+        initiative: 0,
+        ...(t.characterId ? { characterId: t.characterId } : {}),
+      }));
+    if (!fresh.length) { toast.success('All tokens already in the order'); return; }
+    commitTurns([...order, ...fresh], state?.activeId ?? null);
+    toast.success(`Added ${fresh.length} to initiative`);
+  };
+
+  const removeEntry = (id: string) => {
+    commitTurns((state?.turnOrder ?? []).filter((e) => e.id !== id), state?.activeId ?? null);
+  };
+
+  const stepTurn = (dir: 1 | -1) => {
+    if (!sortedTurns.length) return;
+    const idx = Math.max(0, sortedTurns.findIndex((e) => e.id === state?.activeId));
+    const next = sortedTurns[(idx + dir + sortedTurns.length) % sortedTurns.length];
+    const ns = { ...state, activeId: next.id };
+    setState(ns);
+    save(ns);
+  };
+
   const isFogged = (x: number, y: number) => (state?.fog ?? []).includes(`${x},${y}`);
 
   return (
@@ -138,6 +225,16 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
               <div className="space-y-3 mt-2">
                 <div><Label>Label (initials or emoji)</Label><Input value={newToken.label} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewToken({ ...newToken, label: e.target.value })} className="mt-1" maxLength={4} /></div>
                 <div>
+                  <Label>Link character (optional)</Label>
+                  <select value={newToken.characterId} onChange={(e) => {
+                    const c = chars.find((x) => x.id === e.target.value);
+                    setNewToken({ ...newToken, characterId: c?.id ?? '', characterName: c?.name ?? '', label: c ? c.name : newToken.label });
+                  }} className="mt-1 h-8 w-full rounded-md bg-card border border-input px-2 text-sm">
+                    <option value="">— none —</option>
+                    {chars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div>
                   <Label>Color</Label>
                   <div className="flex gap-2 mt-1">
                     {TOKEN_COLORS.map((c) => (
@@ -147,7 +244,9 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                     ))}
                   </div>
                 </div>
-                <div><Label>Size</Label><select value={newToken.size} onChange={(e) => setNewToken({ ...newToken, size: parseInt(e.target.value) })} className="mt-1 h-8 w-full rounded-md bg-card border border-input px-2 text-sm"><option value={1}>1×1</option><option value={2}>2×2</option><option value={3}>3×3</option></select></div>
+                <div><Label>Size</Label><select value={String(newToken.size)} onChange={(e) => setNewToken({ ...newToken, size: parseFloat(e.target.value) || 1 })} className="mt-1 h-8 w-full rounded-md bg-card border border-input px-2 text-sm">
+                  {CREATURE_SIZES.map((s) => <option key={s.label} value={String(s.footprint)}>{s.label}</option>)}
+                </select></div>
                 <Button onClick={addToken} className="w-full">Add</Button>
               </div>
             </DialogContent>
@@ -189,13 +288,64 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
         </div>
       )}
 
+      {/* Initiative tracker */}
+      {isDM ? (
+        <div className="rounded-lg border border-border bg-card">
+          <button onClick={() => setInitOpen((v) => !v)} className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium hover:bg-muted/40 rounded-lg">
+            <span className="flex items-center gap-2"><ListOrdered className="w-4 h-4" /> Initiative{sortedTurns.length > 0 && <span className="text-xs text-muted-foreground">({sortedTurns.length})</span>}</span>
+            {initOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          </button>
+          {initOpen && (
+            <div className="px-3 pb-3 space-y-2">
+              <div className="flex gap-2">
+                <Input placeholder="Name" value={newEntry.label} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewEntry({ ...newEntry, label: e.target.value })} className="h-8 text-sm" />
+                <Input type="number" placeholder="Init" value={newEntry.initiative} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewEntry({ ...newEntry, initiative: e.target.value })} className="h-8 text-sm w-20" />
+                <Button size="sm" onClick={addManualEntry} title="Add entry"><Plus className="w-4 h-4" /></Button>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <Button size="sm" variant="secondary" onClick={addTokensToOrder}>Add tokens</Button>
+                <Button size="sm" variant="secondary" onClick={() => stepTurn(-1)} disabled={!sortedTurns.length}><SkipBack className="w-4 h-4 mr-1" /> Prev</Button>
+                <Button size="sm" variant="secondary" onClick={() => stepTurn(1)} disabled={!sortedTurns.length}>Next <SkipForward className="w-4 h-4 ml-1" /></Button>
+                <Button size="sm" variant="ghost" onClick={() => commitTurns([], null)}>Clear</Button>
+              </div>
+              <div className="space-y-1">
+                {sortedTurns.map((e) => (
+                  <div key={e.id} className={`flex items-center gap-2 px-2 py-1 rounded text-sm ${e.id === state?.activeId ? 'bg-primary/20 font-semibold' : 'bg-muted/30'}`}>
+                    <span className="font-mono w-8 text-center">{e.initiative}</span>
+                    <span className="flex-1 truncate" title={e.label}>{e.label}</span>
+                    {e.id === state?.activeId && <span className="text-[10px] uppercase tracking-wide text-primary">active</span>}
+                    <button onClick={() => removeEntry(e.id)} className="text-destructive hover:text-red-400" title="Remove"><Trash2 className="w-3 h-3" /></button>
+                  </div>
+                ))}
+                {!sortedTurns.length && <p className="text-xs text-muted-foreground">No entries yet — add combatants above.</p>}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        sortedTurns.length > 0 && (
+          <div className="rounded-lg border border-border bg-card px-3 py-2">
+            <p className="text-sm font-medium flex items-center gap-2 mb-1"><ListOrdered className="w-4 h-4" /> Initiative</p>
+            <div className="space-y-1">
+              {sortedTurns.map((e) => (
+                <div key={e.id} className={`flex items-center gap-2 px-2 py-1 rounded text-sm ${e.id === state?.activeId ? 'bg-primary/20 font-semibold' : ''}`}>
+                  <span className="font-mono w-8 text-center">{e.initiative}</span>
+                  <span className="flex-1 truncate">{e.label}</span>
+                  {e.id === state?.activeId && <span className="text-[10px] uppercase tracking-wide text-primary">active</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      )}
+
       {/* Token list */}
       {isDM && (state?.tokens ?? []).length > 0 && (
         <div className="flex flex-wrap gap-2">
           {(state?.tokens ?? []).map((t: Token) => (
             <div key={t.id} className="flex items-center gap-1 bg-card px-2 py-1 rounded border border-border text-xs">
               <div className="w-4 h-4 rounded-full" style={{ backgroundColor: t.color }} />
-              <span>{t?.label ?? '?'}</span>
+              <span>{t?.characterName ?? t?.label ?? '?'}</span>
               <button onClick={() => removeToken(t.id)} className="text-destructive hover:text-red-400"><Trash2 className="w-3 h-3" /></button>
             </div>
           ))}
@@ -238,15 +388,28 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                           : 'bg-card hover:bg-muted/50'
                   }`}
                   style={{ width: cellSize, height: cellSize, cursor: isDM ? 'pointer' : 'default' }}>
-                  {!showFog && tokensHere.map((t: Token) => (
-                    <div key={t.id}
-                      draggable={isDM}
-                      onDragStart={() => setDragging(t.id)}
-                      className="absolute inset-0.5 rounded-full flex items-center justify-center text-[10px] font-bold text-white cursor-grab shadow-md"
-                      style={{ backgroundColor: t.color, fontSize: cellSize < 25 ? '8px' : '10px' }}>
-                      {t?.label?.[0] ?? '?'}
-                    </div>
-                  ))}
+                  {!showFog && tokensHere.map((t: Token) => {
+                    const fp = t.size || 1;
+                    const dim = fp >= 1 ? fp * cellSize + (fp - 1) : cellSize / 2;
+                    const off = fp >= 1 ? 0 : cellSize / 4;
+                    return (
+                      <div key={t.id}
+                        draggable={isDM}
+                        onDragStart={() => setDragging(t.id)}
+                        title={t.characterName ?? undefined}
+                        className="absolute z-10 rounded-full flex items-center justify-center font-bold text-white cursor-grab shadow-md"
+                        style={{
+                          backgroundColor: t.color,
+                          width: dim,
+                          height: dim,
+                          left: off,
+                          top: off,
+                          fontSize: dim < 25 ? '8px' : dim < 48 ? '12px' : '16px',
+                        }}>
+                        {t?.label?.[0] ?? '?'}
+                      </div>
+                    );
+                  })}
                   {isDM && fogged && !showFog && (
                     <div className="absolute inset-0 bg-background/40 pointer-events-none" />
                   )}
