@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { DiceRoller } from './dice-roller';
 
 interface Token { id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; }
 interface Highlight { id: string; x: number; y: number; w: number; h: number; color: string; label: string; }
@@ -37,7 +38,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   const [dragging, setDragging] = useState<string | null>(null);
   const [fogMode, setFogMode] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [newToken, setNewToken] = useState({ label: '', color: TOKEN_COLORS[0], size: 1, characterId: '', characterName: '' });
+  const [newToken, setNewToken] = useState({ label: '', color: TOKEN_COLORS[0], size: 'Medium', characterId: '', characterName: '' });
   const [newTokenOpen, setNewTokenOpen] = useState(false);
   const [chars, setChars] = useState<Array<{ id: string; name: string }>>([]);
   const [initOpen, setInitOpen] = useState(true);
@@ -123,14 +124,14 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       label: newToken.label,
       color: newToken.color,
       x: 0, y: 0,
-      size: newToken.size || 1,
+      size: CREATURE_SIZES.find((cs) => cs.label === newToken.size)?.footprint ?? 1,
       ...(newToken.characterId ? { characterId: newToken.characterId, characterName: newToken.characterName } : {}),
     };
     const ns = { ...state, tokens: [...(state?.tokens ?? []), t] };
     setState(ns);
     save(ns);
     setNewTokenOpen(false);
-    setNewToken({ label: '', color: TOKEN_COLORS[0], size: 1, characterId: '', characterName: '' });
+    setNewToken({ label: '', color: TOKEN_COLORS[0], size: 'Medium', characterId: '', characterName: '' });
     toast.success('Token added');
   };
 
@@ -244,13 +245,14 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                     ))}
                   </div>
                 </div>
-                <div><Label>Size</Label><select value={String(newToken.size)} onChange={(e) => setNewToken({ ...newToken, size: parseFloat(e.target.value) || 1 })} className="mt-1 h-8 w-full rounded-md bg-card border border-input px-2 text-sm">
-                  {CREATURE_SIZES.map((s) => <option key={s.label} value={String(s.footprint)}>{s.label}</option>)}
+                <div><Label>Size</Label><select value={newToken.size} onChange={(e) => setNewToken({ ...newToken, size: e.target.value })} className="mt-1 h-8 w-full rounded-md bg-card border border-input px-2 text-sm">
+                  {CREATURE_SIZES.map((s) => <option key={s.label} value={s.label}>{s.label}</option>)}
                 </select></div>
                 <Button onClick={addToken} className="w-full">Add</Button>
               </div>
             </DialogContent>
           </Dialog>
+          <DiceRoller />
           <Button variant={fogMode ? 'default' : 'secondary'} size="sm" onClick={() => setFogMode(!fogMode)}>
             {fogMode ? <Eye className="w-4 h-4 mr-1" /> : <EyeOff className="w-4 h-4 mr-1" />}
             {fogMode ? 'Fog: Click to toggle' : 'Toggle Fog'}
@@ -281,6 +283,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       {/* Player live-update controls (DM view is always current) */}
       {!isDM && (
         <div className="flex items-center gap-2">
+          <DiceRoller />
           <Button variant="secondary" size="sm" onClick={() => load()}>
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh
           </Button>
