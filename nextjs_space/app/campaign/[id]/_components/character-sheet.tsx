@@ -20,6 +20,49 @@ interface FeatEntry { name: string; description: string; }
 interface SpellEntry { name: string; level: number; school: string; description: string; cast: number; maxCast: number; }
 interface ClassEntry { name: string; level: number; }
 
+function NumField({ label, value, onChange, disabled, className }: {
+  label: string;
+  value: string | number;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <Input
+        type="number"
+        value={value ?? 0}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
+        disabled={disabled}
+        className="mt-0.5 h-8 text-center font-mono text-sm"
+      />
+    </div>
+  );
+}
+
+function TextField({ label, value, onChange, disabled, className, placeholder }: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  className?: string;
+  placeholder?: string;
+}) {
+  return (
+    <div className={className}>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <Input
+        value={value ?? ''}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
+        disabled={disabled}
+        placeholder={placeholder}
+        className="mt-0.5 h-8 text-sm"
+      />
+    </div>
+  );
+}
+
 export function CharacterSheet({ characterId, editable }: { characterId: string; editable: boolean }) {
   const [data, setData] = useState<any>(null);
   const [saving, setSaving] = useState(false);
@@ -204,31 +247,7 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
 
   if (!data) return <div className="text-center py-20 text-muted-foreground">Loading character...</div>;
 
-  const NumField = ({ label, field, className }: { label: string; field: string; className?: string }) => (
-    <div className={className}>
-      <Label className="text-xs text-muted-foreground">{label}</Label>
-      <Input
-        type="number"
-        value={data?.[field] ?? 0}
-        onChange={(e: React.ChangeEvent<HTMLInputElement>) => { update(field, e.target.value); autoSave(); }}
-        disabled={!editable}
-        className="mt-0.5 h-8 text-center font-mono text-sm"
-      />
-    </div>
-  );
 
-  const TextField = ({ label, field, className, placeholder }: { label: string; field: string; className?: string; placeholder?: string }) => (
-    <div className={className}>
-      <Label className="text-xs text-muted-foreground">{label}</Label>
-      <Input
-        value={data?.[field] ?? ''}
-        onChange={(e: React.ChangeEvent<HTMLInputElement>) => { update(field, e.target.value); autoSave(); }}
-        disabled={!editable}
-        placeholder={placeholder}
-        className="mt-0.5 h-8 text-sm"
-      />
-    </div>
-  );
 
   const sections = [
     { key: 'core', label: 'Core', icon: User },
@@ -265,9 +284,9 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
           {/* Name + Portrait */}
           <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4">
             <div className="space-y-3">
-              <TextField label="Character Name" field="name" placeholder="Unnamed Hero" />
+              <TextField label="Character Name" value={data?.name ?? ''} onChange={(v: string) => { update('name', v); autoSave(); }} disabled={!editable} placeholder="Unnamed Hero" />
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <TextField label="Race" field="race" placeholder="Human" />
+                <TextField label="Race" value={data?.race ?? ''} onChange={(v: string) => { update('race', v); autoSave(); }} disabled={!editable} placeholder="Human" />
                 <div>
                   <Label className="text-xs text-muted-foreground">Alignment</Label>
                   <select value={data?.alignment ?? ''} onChange={(e) => { update('alignment', e.target.value); autoSave(); }} disabled={!editable} className="mt-0.5 h-8 w-full rounded-md bg-card border border-input px-2 text-sm">
@@ -275,24 +294,24 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
                     {ALIGNMENTS.map((a) => <option key={a} value={a}>{a}</option>)}
                   </select>
                 </div>
-                <TextField label="Deity" field="deity" />
+                <TextField label="Deity" value={data?.deity ?? ''} onChange={(v: string) => { update('deity', v); autoSave(); }} disabled={!editable} />
                 <div>
                   <Label className="text-xs text-muted-foreground">Size</Label>
                   <select value={data?.size ?? 'Medium'} onChange={(e) => { update('size', e.target.value); autoSave(); }} disabled={!editable} className="mt-0.5 h-8 w-full rounded-md bg-card border border-input px-2 text-sm">
                     {SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
-                <TextField label="Gender" field="gender" />
+                <TextField label="Gender" value={data?.gender ?? ''} onChange={(v: string) => { update('gender', v); autoSave(); }} disabled={!editable} />
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <TextField label="Age" field="age" />
-                <TextField label="Height" field="height" />
-                <TextField label="Weight" field="weight" />
-                <TextField label="Homeland" field="homeland" />
+                <TextField label="Age" value={data?.age ?? ''} onChange={(v: string) => { update('age', v); autoSave(); }} disabled={!editable} />
+                <TextField label="Height" value={data?.height ?? ''} onChange={(v: string) => { update('height', v); autoSave(); }} disabled={!editable} />
+                <TextField label="Weight" value={data?.weight ?? ''} onChange={(v: string) => { update('weight', v); autoSave(); }} disabled={!editable} />
+                <TextField label="Homeland" value={data?.homeland ?? ''} onChange={(v: string) => { update('homeland', v); autoSave(); }} disabled={!editable} />
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <NumField label="XP" field="xp" />
-                <NumField label="Speed (ft)" field="speed" />
+                <NumField label="XP" value={data?.xp ?? 0} onChange={(v: string) => { update('xp', v); autoSave(); }} disabled={!editable} />
+                <NumField label="Speed (ft)" value={data?.speed ?? 0} onChange={(v: string) => { update('speed', v); autoSave(); }} disabled={!editable} />
               </div>
             </div>
             {/* Portrait */}
@@ -361,9 +380,9 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
           <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
             <h3 className="font-display font-semibold text-sm mb-3 flex items-center gap-1"><Heart className="w-4 h-4 text-red-400" /> Hit Points</h3>
             <div className="grid grid-cols-3 gap-3">
-              <NumField label="Max HP" field="hpMax" />
-              <NumField label="Current HP" field="hpCurrent" />
-              <NumField label="Temp HP" field="hpTemp" />
+              <NumField label="Max HP" value={data?.hpMax ?? 0} onChange={(v: string) => { update('hpMax', v); autoSave(); }} disabled={!editable} />
+              <NumField label="Current HP" value={data?.hpCurrent ?? 0} onChange={(v: string) => { update('hpCurrent', v); autoSave(); }} disabled={!editable} />
+              <NumField label="Temp HP" value={data?.hpTemp ?? 0} onChange={(v: string) => { update('hpTemp', v); autoSave(); }} disabled={!editable} />
             </div>
             {data?.hpMax > 0 && (
               <div className="mt-2 h-2 bg-muted rounded-full overflow-hidden">
@@ -394,14 +413,14 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
               </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <NumField label="Armor Bonus" field="armorBonus" />
-              <NumField label="Shield Bonus" field="shieldBonus" />
-              <NumField label="Natural Armor" field="naturalArmor" />
-              <NumField label="Deflection" field="deflection" />
-              <NumField label="Size Mod" field="sizeMod" />
-              <NumField label="Misc AC" field="miscAC" />
-              <NumField label="Misc Touch" field="miscTouchAC" />
-              <NumField label="Misc Flat-Footed" field="miscFlatAC" />
+              <NumField label="Armor Bonus" value={data?.armorBonus ?? 0} onChange={(v: string) => { update('armorBonus', v); autoSave(); }} disabled={!editable} />
+              <NumField label="Shield Bonus" value={data?.shieldBonus ?? 0} onChange={(v: string) => { update('shieldBonus', v); autoSave(); }} disabled={!editable} />
+              <NumField label="Natural Armor" value={data?.naturalArmor ?? 0} onChange={(v: string) => { update('naturalArmor', v); autoSave(); }} disabled={!editable} />
+              <NumField label="Deflection" value={data?.deflection ?? 0} onChange={(v: string) => { update('deflection', v); autoSave(); }} disabled={!editable} />
+              <NumField label="Size Mod" value={data?.sizeMod ?? 0} onChange={(v: string) => { update('sizeMod', v); autoSave(); }} disabled={!editable} />
+              <NumField label="Misc AC" value={data?.miscAC ?? 0} onChange={(v: string) => { update('miscAC', v); autoSave(); }} disabled={!editable} />
+              <NumField label="Misc Touch" value={data?.miscTouchAC ?? 0} onChange={(v: string) => { update('miscTouchAC', v); autoSave(); }} disabled={!editable} />
+              <NumField label="Misc Flat-Footed" value={data?.miscFlatAC ?? 0} onChange={(v: string) => { update('miscFlatAC', v); autoSave(); }} disabled={!editable} />
             </div>
           </div>
 
@@ -409,21 +428,21 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
             <div className="bg-card rounded-lg p-4 border border-border text-center" style={{ boxShadow: 'var(--shadow-sm)' }}>
               <div className="text-2xl font-mono font-bold">{formatMod(stats?.init ?? 0)}</div>
               <div className="text-xs text-muted-foreground">Initiative</div>
-              <NumField label="Misc Init" field="miscInit" className="mt-2" />
+              <NumField label="Misc Init" value={data?.miscInit ?? 0} onChange={(v: string) => { update('miscInit', v); autoSave(); }} disabled={!editable} className="mt-2" />
             </div>
             <div className="bg-card rounded-lg p-4 border border-border text-center" style={{ boxShadow: 'var(--shadow-sm)' }}>
               <div className="text-2xl font-mono font-bold">{formatMod(stats?.cmb ?? 0)}</div>
               <div className="text-xs text-muted-foreground">CMB</div>
-              <NumField label="Misc CMB" field="miscCMB" className="mt-2" />
+              <NumField label="Misc CMB" value={data?.miscCMB ?? 0} onChange={(v: string) => { update('miscCMB', v); autoSave(); }} disabled={!editable} className="mt-2" />
             </div>
             <div className="bg-card rounded-lg p-4 border border-border text-center" style={{ boxShadow: 'var(--shadow-sm)' }}>
               <div className="text-2xl font-mono font-bold">{stats?.cmd ?? 10}</div>
               <div className="text-xs text-muted-foreground">CMD</div>
-              <NumField label="Misc CMD" field="miscCMD" className="mt-2" />
+              <NumField label="Misc CMD" value={data?.miscCMD ?? 0} onChange={(v: string) => { update('miscCMD', v); autoSave(); }} disabled={!editable} className="mt-2" />
             </div>
             <div className="bg-card rounded-lg p-4 border border-border text-center" style={{ boxShadow: 'var(--shadow-sm)' }}>
-              <NumField label="BAB" field="bab" />
-              <NumField label="SR" field="sr" className="mt-2" />
+              <NumField label="BAB" value={data?.bab ?? 0} onChange={(v: string) => { update('bab', v); autoSave(); }} disabled={!editable} />
+              <NumField label="SR" value={data?.sr ?? 0} onChange={(v: string) => { update('sr', v); autoSave(); }} disabled={!editable} className="mt-2" />
             </div>
           </div>
 
@@ -441,9 +460,9 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
                     <div className="text-xl font-mono font-bold">{formatMod(sv.total)}</div>
                     <div className="text-xs text-muted-foreground">{sv.name}</div>
                   </div>
-                  <NumField label={`Base ${sv.name}`} field={sv.base} />
+                  <NumField label={`Base ${sv.name}`} value={data?.[sv.base] ?? 0} onChange={(v: string) => { update(sv.base, v); autoSave(); }} disabled={!editable} />
                   <div className="text-xs text-muted-foreground text-center mt-1">{sv.ab} mod: {formatMod(sv.mod)}</div>
-                  <NumField label="Misc" field={sv.misc} />
+                  <NumField label="Misc" value={data?.[sv.misc] ?? 0} onChange={(v: string) => { update(sv.misc, v); autoSave(); }} disabled={!editable} />
                 </div>
               ))}
             </div>
