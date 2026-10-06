@@ -365,7 +365,8 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
           backgroundColor: 'hsl(33 26% 52%)',
           ...(state?.backgroundImage ? {
             backgroundImage: `url(/api/files/${state.backgroundImage})`,
-            backgroundSize: `${gw * cellSize}px ${gh * cellSize}px`,
+            backgroundSize: `${gw * cellSize + (gw - 1)}px ${gh * cellSize + (gh - 1)}px`,
+            backgroundPosition: '4px 4px',
             backgroundRepeat: 'no-repeat',
           } : {}),
         }}>
@@ -390,7 +391,12 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                           ? 'bg-transparent hover:bg-white/10'
                           : 'bg-card hover:bg-muted/50'
                   }`}
-                  style={{ width: cellSize, height: cellSize, cursor: isDM ? 'pointer' : 'default' }}>
+                  style={{
+                    width: cellSize,
+                    height: cellSize,
+                    cursor: isDM ? 'pointer' : 'default',
+                    ...(hasBg ? { boxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.35)' } : {}),
+                  }}>
                   {!showFog && tokensHere.map((t: Token) => {
                     const fp = t.size || 1;
                     const dim = fp >= 1 ? fp * cellSize + (fp - 1) : cellSize / 2;
