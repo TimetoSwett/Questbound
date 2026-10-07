@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, SkipBack, SkipForward, Ruler } from 'lucide-react';
+import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, SkipBack, SkipForward, Ruler, MonitorUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,7 +12,7 @@ import { DiceRoller } from './dice-roller';
 interface Token { id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; }
 interface Highlight { id: string; x: number; y: number; w: number; h: number; color: string; label: string; }
 interface TurnEntry { id: string; label: string; initiative: number; characterId?: string; }
-interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; }
+interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; }
 
 const TOKEN_COLORS = ['#D4A547', '#E04040', '#40A040', '#60B5FF', '#C080D0', '#FF9149', '#FF6363', '#80D8C3'];
 
@@ -51,7 +51,7 @@ function colLabel(col: number): string {
   return label;
 }
 
-const EMPTY_BATTLE: BattleState = { gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null, turnOrder: [], activeId: null, feetPerSquare: 5, cellNumbers: true };
+const EMPTY_BATTLE: BattleState = { gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null, turnOrder: [], activeId: null, feetPerSquare: 5, cellNumbers: true, handout: null };
 
 function sortTurns(turns: TurnEntry[]): TurnEntry[] {
   return [...turns].sort((a, b) => (b.initiative - a.initiative) || a.label.localeCompare(b.label));
@@ -87,6 +87,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
         activeId: d?.activeId ?? null,
         feetPerSquare: d?.feetPerSquare ?? 5,
         cellNumbers: d?.cellNumbers ?? true,
+        handout: d?.handout ?? null,
       });
     }
   }, [campaignId]);
@@ -287,6 +288,48 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     save(ns);
   };
 
+  // ---- "Show to players" handout push (DM-only; persisted in battle state) ----
+  const [handoutOpen, setHandoutOpen] = useState(false);
+  const [pushingHandout, setPushingHandout] = useState(false);
+  const [dismissedHandout, setDismissedHandout] = useState<number | null>(null);
+
+  const pushHandoutKey = async (key: string) => {
+    setPushingHandout(true);
+    const ns = { ...state, handout: { key, pushedAt: Date.now() } };
+    setState(ns);
+    await save(ns);
+    setPushingHandout(false);
+    setHandoutOpen(false);
+    toast.success('Handout pushed to players!');
+  };
+
+  const pushUploadHandout = async () => {
+    const el = document.getElementById('handoutFile') as HTMLInputElement | null;
+    const file = el?.files?.[0];
+    if (!file) { toast.error('Choose an image first'); return; }
+    const form = new FormData();
+    form.append('file', file);
+    const upRes = await fetch('/api/upload', { method: 'POST', body: form });
+    if (!upRes.ok) { toast.error('Upload failed'); return; }
+    const { cloud_storage_path } = await upRes.json();
+    await pushHandoutKey(cloud_storage_path);
+  };
+
+  const pushBackgroundHandout = async () => {
+    if (!state?.backgroundImage) { toast.error('No background image set'); return; }
+    await pushHandoutKey(state.backgroundImage);
+  };
+
+  const clearHandout = async () => {
+    const ns = { ...state, handout: null };
+    setState(ns);
+    await save(ns);
+    setHandoutOpen(false);
+    toast.success('Handout cleared');
+  };
+
+  const dismissHandout = () => setDismissedHandout(state?.handout?.pushedAt ?? null);
+
   // ---- Initiative tracker ----
   const sortedTurns = sortTurns(state?.turnOrder ?? []);
 
@@ -433,6 +476,38 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
               <X className="w-4 h-4 mr-1" /> Remove bg
             </Button>
           )}
+          <Dialog open={handoutOpen} onOpenChange={setHandoutOpen}>
+            <DialogTrigger asChild>
+              <Button variant="secondary" size="sm">
+                <MonitorUp className="w-4 h-4 mr-1" /> Show to players
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Show image to players</DialogTitle></DialogHeader>
+              <div className="space-y-3 mt-2">
+                <div>
+                  <Label>Upload an image</Label>
+                  <Input id="handoutFile" type="file" accept="image/*" className="mt-1" />
+                </div>
+                <div className="flex gap-2">
+                  <Button disabled={pushingHandout} onClick={pushUploadHandout} className="flex-1">
+                    {pushingHandout ? 'Pushing...' : 'Push upload'}
+                  </Button>
+                  {state?.backgroundImage && (
+                    <Button disabled={pushingHandout} variant="secondary" onClick={pushBackgroundHandout} className="flex-1">
+                      Push background
+                    </Button>
+                  )}
+                </div>
+                {state?.handout && (
+                  <button onClick={clearHandout} className="text-xs text-muted-foreground underline hover:text-foreground">
+                    Clear current handout
+                  </button>
+                )}
+                <p className="text-xs text-muted-foreground">Players see it in a popup within seconds. They can dismiss it; it comes back for them on reload.</p>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
 
@@ -601,6 +676,15 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                 ))}
                 {!sortedTurns.length && <p className="text-xs text-muted-foreground">No entries yet.</p>}
               </div>
+            </div>
+          )}
+          {/* Handout modal for players: appears when the DM pushes, dismissible per session */}
+          {!isDM && state?.handout && dismissedHandout !== state.handout.pushedAt && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={dismissHandout}>
+              <button aria-label="Close handout" className="absolute top-3 right-3 rounded-full bg-black/60 p-2 text-white hover:bg-black/80" onClick={(e) => { e.stopPropagation(); dismissHandout(); }}>
+                <X className="w-5 h-5" />
+              </button>
+              <img src={`/api/files/${state.handout.key}`} alt="Handout from your DM" className="max-h-[90vh] max-w-full rounded-lg object-contain shadow-2xl" onClick={(e) => e.stopPropagation()} />
             </div>
           )}
         </div>
