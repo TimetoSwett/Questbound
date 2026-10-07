@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from 'sonner';
 import { DiceRoller } from './dice-roller';
 
-interface Token { id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; }
+interface Token { id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; portraitKey?: string; }
 interface Highlight { id: string; x: number; y: number; w: number; h: number; color: string; label: string; }
 interface TurnEntry { id: string; label: string; initiative: number; characterId?: string; }
 interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; }
@@ -246,8 +246,26 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     }).catch(() => { revert(); toast.error('Move failed'); });
   };
 
-  const addToken = () => {
+  const [addingToken, setAddingToken] = useState(false);
+
+  const addToken = async () => {
     if (!newToken.label) { toast.error('Enter a label'); return; }
+    setAddingToken(true);
+    let portraitKey: string | undefined;
+    try {
+      const el = document.getElementById('tokenPortraitFile') as HTMLInputElement | null;
+      const file = el?.files?.[0];
+      if (file) {
+        const form = new FormData();
+        form.append('file', file);
+        const upRes = await fetch('/api/upload', { method: 'POST', body: form });
+        if (!upRes.ok) { toast.error('Portrait upload failed'); setAddingToken(false); return; }
+        const { cloud_storage_path } = await upRes.json();
+        portraitKey = cloud_storage_path;
+      }
+    } catch {
+      toast.error('Portrait upload failed'); setAddingToken(false); return;
+    }
     const t: Token = {
       id: `t_${Date.now()}`,
       label: newToken.label,
@@ -255,12 +273,14 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       x: 0, y: 0,
       size: CREATURE_SIZES.find((cs) => cs.label === newToken.size)?.footprint ?? 1,
       ...(newToken.characterId ? { characterId: newToken.characterId, characterName: newToken.characterName } : {}),
+      ...(portraitKey ? { portraitKey } : {}),
     };
     const ns = { ...state, tokens: [...(state?.tokens ?? []), t] };
     setState(ns);
     save(ns);
     setNewTokenOpen(false);
     setNewToken({ label: '', color: TOKEN_COLORS[0], size: 'Medium', characterId: '', characterName: '' });
+    setAddingToken(false);
     toast.success('Token added');
   };
 
@@ -268,6 +288,30 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     const ns = { ...state, tokens: (state?.tokens ?? []).filter((t: Token) => t.id !== id) };
     setState(ns);
     save(ns);
+  };
+
+  const setTokenPortrait = async (id: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    const upRes = await fetch('/api/upload', { method: 'POST', body: form });
+    if (!upRes.ok) { toast.error('Portrait upload failed'); return; }
+    const { cloud_storage_path } = await upRes.json();
+    const ns = { ...state, tokens: (state?.tokens ?? []).map((tok: Token) => (tok.id === id ? { ...tok, portraitKey: cloud_storage_path } : tok)) };
+    setState(ns);
+    save(ns);
+    toast.success('Portrait updated');
+  };
+
+  const clearTokenPortrait = (id: string) => {
+    const ns = { ...state, tokens: (state?.tokens ?? []).map((tok: Token) => {
+      if (tok.id !== id) return tok;
+      const nt: Token = { ...tok };
+      delete nt.portraitKey;
+      return nt;
+    }) };
+    setState(ns);
+    save(ns);
+    toast.success('Portrait removed');
   };
 
   const uploadBackground = async (file: File) => {
@@ -440,7 +484,8 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                 <div><Label>Size</Label><select value={newToken.size} onChange={(e) => setNewToken({ ...newToken, size: e.target.value })} className="mt-1 h-8 w-full rounded-md bg-card border border-input px-2 text-sm">
                   {CREATURE_SIZES.map((s) => <option key={s.label} value={s.label}>{s.label}</option>)}
                 </select></div>
-                <Button onClick={addToken} className="w-full">Add</Button>
+                <div><Label>Portrait (optional)</Label><Input id="tokenPortraitFile" type="file" accept="image/*" className="mt-1" /></div>
+                <Button onClick={addToken} disabled={addingToken} className="w-full">{addingToken ? 'Adding...' : 'Add'}</Button>
               </div>
             </DialogContent>
           </Dialog>
@@ -532,8 +577,19 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
             <div className="flex flex-wrap gap-2">
               {(state?.tokens ?? []).map((t: Token) => (
                 <div key={t.id} className="flex items-center gap-1 bg-card px-2 py-1 rounded border border-border text-xs">
-                  <div className="w-4 h-4 rounded-full" style={{ backgroundColor: t.color }} />
+                  {t.portraitKey ? (
+                    <img src={`/api/files/${t.portraitKey}`} alt="" draggable={false} className="w-4 h-4 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: t.color }} />
+                  )}
                   <span>{t?.characterName ?? t?.label ?? '?'}</span>
+                  <label className="cursor-pointer text-muted-foreground hover:text-foreground" title={t.portraitKey ? 'Change portrait' : 'Add portrait'}>
+                    <ImagePlus className="w-3 h-3" />
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target?.files?.[0]; if (f) setTokenPortrait(t.id, f); e.target.value = ''; }} />
+                  </label>
+                  {t.portraitKey && (
+                    <button onClick={() => clearTokenPortrait(t.id)} className="text-muted-foreground hover:text-foreground" title="Remove portrait"><X className="w-3 h-3" /></button>
+                  )}
                   <button onClick={() => removeToken(t.id)} className="text-destructive hover:text-red-400"><Trash2 className="w-3 h-3" /></button>
                 </div>
               ))}
@@ -610,14 +666,17 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                             title={t.characterName ?? undefined}
                             className={`absolute z-10 rounded-full flex items-center justify-center font-bold text-white cursor-grab shadow-md ${!isDM && isMyToken(t) ? 'ring-2 ring-white/70' : ''}`}
                             style={{
-                              backgroundColor: t.color,
+                              backgroundColor: t.portraitKey ? 'transparent' : t.color,
+                              ...(t.portraitKey ? { boxShadow: `0 0 0 2px ${t.color}, 0 4px 6px -1px rgb(0 0 0 / 0.3)` } : {}),
                               width: dim,
                               height: dim,
                               left: off,
                               top: off,
                               fontSize: dim < 25 ? '8px' : dim < 48 ? '12px' : '16px',
                             }}>
-                            {t?.label?.[0] ?? '?'}
+                            {t.portraitKey ? (
+                              <img src={`/api/files/${t.portraitKey}`} alt="" draggable={false} className="rounded-full object-cover w-full h-full pointer-events-none" />
+                            ) : (t?.label?.[0] ?? '?')}
                           </div>
                         );
                       })}
