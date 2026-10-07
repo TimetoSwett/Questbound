@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, ChevronDown, ChevronRight, SkipBack, SkipForward, Ruler } from 'lucide-react';
+import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, SkipBack, SkipForward, Ruler } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -52,12 +52,12 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   const [fogMode, setFogMode] = useState(false);
   const [rulerMode, setRulerMode] = useState(false);
   const [ruler, setRuler] = useState<{ sx: number; sy: number; ex: number; ey: number } | null>(null);
+  const [dragRuler, setDragRuler] = useState<{ sx: number; sy: number; ex: number; ey: number } | null>(null);
   const measuringRef = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newToken, setNewToken] = useState({ label: '', color: TOKEN_COLORS[0], size: 'Medium', characterId: '', characterName: '' });
   const [newTokenOpen, setNewTokenOpen] = useState(false);
   const [chars, setChars] = useState<Array<{ id: string; name: string }>>([]);
-  const [initOpen, setInitOpen] = useState(true);
   const [newEntry, setNewEntry] = useState({ label: '', initiative: '' });
   const [myCharIds, setMyCharIds] = useState<string[]>([]);
 
@@ -182,10 +182,21 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
 
   const isMyToken = (t: Token) => !!t.characterId && myCharIds.includes(t.characterId);
 
+  // Foundry-style: show the ruler live while a token is being dragged.
+  const onTokenDragStart = (t: Token) => {
+    setDragging(t.id);
+    setDragRuler({ sx: t.x, sy: t.y, ex: t.x, ey: t.y });
+  };
+  const onTokenDragEnd = () => {
+    setDragging(null);
+    setDragRuler(null);
+  };
+
   const handleDrop = (x: number, y: number) => {
     if (!dragging) return;
     const id = dragging;
     setDragging(null);
+    setDragRuler(null);
     const token = (state?.tokens ?? []).find((t: Token) => t.id === id);
     if (!token) return;
 
@@ -319,6 +330,27 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
 
   const isFogged = (x: number, y: number) => (state?.fog ?? []).includes(`${x},${y}`);
 
+  // Shared ruler overlay: red line + endpoint dots + distance pill.
+  // Used by the free-measure ruler mode and by the live drag-ruler.
+  const renderRulerOverlay = (r: { sx: number; sy: number; ex: number; ey: number }) => {
+    const m = measureDistance(r.sx, r.sy, r.ex, r.ey);
+    const cc = (c: number) => c * (cellSize + 1) + cellSize / 2;
+    const x1 = cc(r.sx), y1 = cc(r.sy), x2 = cc(r.ex), y2 = cc(r.ey);
+    return (
+      <div className="absolute pointer-events-none z-20" style={{ left: 4, top: 4, width: gw * cellSize + (gw - 1), height: gh * cellSize + (gh - 1) }}>
+        <svg width="100%" height="100%">
+          <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#f87171" strokeWidth={3} strokeLinecap="round" />
+          <circle cx={x1} cy={y1} r={5} fill="#f87171" />
+          <circle cx={x2} cy={y2} r={5} fill="#f87171" />
+        </svg>
+        <div className="absolute whitespace-nowrap rounded bg-black/80 px-2 py-0.5 font-mono text-xs text-white"
+          style={{ left: (x1 + x2) / 2, top: (y1 + y2) / 2, transform: 'translate(-50%, -140%)' }}>
+          {m.feet} ft ({m.squares} {m.squares === 1 ? 'square' : 'squares'})
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-3">
       {isDM && (
@@ -401,165 +433,154 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
         </div>
       )}
 
-      {/* Initiative tracker */}
-      {isDM ? (
-        <div className="rounded-lg border border-border bg-card">
-          <button onClick={() => setInitOpen((v) => !v)} className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium hover:bg-muted/40 rounded-lg">
-            <span className="flex items-center gap-2"><ListOrdered className="w-4 h-4" /> Initiative{sortedTurns.length > 0 && <span className="text-xs text-muted-foreground">({sortedTurns.length})</span>}</span>
-            {initOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-          </button>
-          {initOpen && (
-            <div className="px-3 pb-3 space-y-2">
-              <div className="flex gap-2">
-                <Input placeholder="Name" value={newEntry.label} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewEntry({ ...newEntry, label: e.target.value })} className="h-8 text-sm" />
-                <Input type="number" placeholder="Init" value={newEntry.initiative} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewEntry({ ...newEntry, initiative: e.target.value })} className="h-8 text-sm w-20" />
-                <Button size="sm" onClick={addManualEntry} title="Add entry"><Plus className="w-4 h-4" /></Button>
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                <Button size="sm" variant="secondary" onClick={addTokensToOrder}>Add tokens</Button>
-                <Button size="sm" variant="secondary" onClick={() => stepTurn(-1)} disabled={!sortedTurns.length}><SkipBack className="w-4 h-4 mr-1" /> Prev</Button>
-                <Button size="sm" variant="secondary" onClick={() => stepTurn(1)} disabled={!sortedTurns.length}>Next <SkipForward className="w-4 h-4 ml-1" /></Button>
-                <Button size="sm" variant="ghost" onClick={() => commitTurns([], null)}>Clear</Button>
-              </div>
-              <div className="space-y-1">
-                {sortedTurns.map((e) => (
-                  <div key={e.id} className={`flex items-center gap-2 px-2 py-1 rounded text-sm ${e.id === state?.activeId ? 'bg-primary/20 font-semibold' : 'bg-muted/30'}`}>
-                    <span className="font-mono w-8 text-center">{e.initiative}</span>
-                    <span className="flex-1 truncate" title={e.label}>{e.label}</span>
-                    {e.id === state?.activeId && <span className="text-[10px] uppercase tracking-wide text-primary">active</span>}
-                    <button onClick={() => removeEntry(e.id)} className="text-destructive hover:text-red-400" title="Remove"><Trash2 className="w-3 h-3" /></button>
-                  </div>
-                ))}
-                {!sortedTurns.length && <p className="text-xs text-muted-foreground">No entries yet — add combatants above.</p>}
-              </div>
-            </div>
-          )}
-        </div>
-      ) : (
-        sortedTurns.length > 0 && (
-          <div className="rounded-lg border border-border bg-card px-3 py-2">
-            <p className="text-sm font-medium flex items-center gap-2 mb-1"><ListOrdered className="w-4 h-4" /> Initiative</p>
-            <div className="space-y-1">
-              {sortedTurns.map((e) => (
-                <div key={e.id} className={`flex items-center gap-2 px-2 py-1 rounded text-sm ${e.id === state?.activeId ? 'bg-primary/20 font-semibold' : ''}`}>
-                  <span className="font-mono w-8 text-center">{e.initiative}</span>
-                  <span className="flex-1 truncate">{e.label}</span>
-                  {e.id === state?.activeId && <span className="text-[10px] uppercase tracking-wide text-primary">active</span>}
+      <div className="flex flex-col lg:flex-row gap-4 items-start">
+        <div className="flex-1 min-w-0 w-full space-y-3">
+          {/* Token list */}
+          {isDM && (state?.tokens ?? []).length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {(state?.tokens ?? []).map((t: Token) => (
+                <div key={t.id} className="flex items-center gap-1 bg-card px-2 py-1 rounded border border-border text-xs">
+                  <div className="w-4 h-4 rounded-full" style={{ backgroundColor: t.color }} />
+                  <span>{t?.characterName ?? t?.label ?? '?'}</span>
+                  <button onClick={() => removeToken(t.id)} className="text-destructive hover:text-red-400"><Trash2 className="w-3 h-3" /></button>
                 </div>
               ))}
             </div>
-          </div>
-        )
-      )}
-
-      {/* Token list */}
-      {isDM && (state?.tokens ?? []).length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {(state?.tokens ?? []).map((t: Token) => (
-            <div key={t.id} className="flex items-center gap-1 bg-card px-2 py-1 rounded border border-border text-xs">
-              <div className="w-4 h-4 rounded-full" style={{ backgroundColor: t.color }} />
-              <span>{t?.characterName ?? t?.label ?? '?'}</span>
-              <button onClick={() => removeToken(t.id)} className="text-destructive hover:text-red-400"><Trash2 className="w-3 h-3" /></button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Grid */}
-      <div className="overflow-auto rounded-lg border border-border bg-card" style={{ boxShadow: 'var(--shadow-md)' }}>
-        <div style={{
-          display: 'grid',
-          position: 'relative',
-          gridTemplateColumns: `repeat(${gw}, ${cellSize}px)`,
-          gap: '1px',
-          padding: '4px',
-          backgroundColor: 'hsl(33 26% 52%)',
-          ...(rulerMode ? { touchAction: 'none' } : {}),
-          ...(state?.backgroundImage ? {
-            backgroundImage: `url(/api/files/${state.backgroundImage})`,
-            backgroundSize: `${gw * cellSize + (gw - 1)}px ${gh * cellSize + (gh - 1)}px`,
-            backgroundPosition: '4px 4px',
-            backgroundRepeat: 'no-repeat',
-          } : {}),
-        }}
-          onPointerDown={onRulerDown}
-          onPointerMove={onRulerMove}
-          onPointerUp={onRulerUp}
-          onPointerCancel={onRulerUp}>
-          {Array.from({ length: gh }, (_, row) =>
-            Array.from({ length: gw }, (_, col) => {
-              const fogged = isFogged(col, row);
-              const tokensHere = (state?.tokens ?? []).filter((t: Token) => t.x === col && t.y === row);
-              const showFog = !isDM && fogged;
-              const hasBg = !!state?.backgroundImage;
-
-              return (
-                <div key={`${col}-${row}`}
-                  onClick={() => handleCellClick(col, row)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => handleDrop(col, row)}
-                  className={`relative flex items-center justify-center transition-colors ${
-                    showFog
-                      ? 'bg-background'
-                      : isDM && fogged
-                        ? 'bg-background/60'
-                        : hasBg
-                          ? 'bg-transparent hover:bg-white/10'
-                          : 'bg-card hover:bg-muted/50'
-                  }`}
-                  style={{
-                    width: cellSize,
-                    height: cellSize,
-                    cursor: isDM ? 'pointer' : 'default',
-                    ...(hasBg ? { boxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.35)' } : {}),
-                  }}>
-                  {!showFog && tokensHere.map((t: Token) => {
-                    const fp = t.size || 1;
-                    const dim = fp >= 1 ? fp * cellSize + (fp - 1) : cellSize / 2;
-                    const off = fp >= 1 ? 0 : cellSize / 4;
-                    return (
-                      <div key={t.id}
-                        draggable={!rulerMode && (isDM || isMyToken(t))}
-                        onDragStart={() => setDragging(t.id)}
-                        title={t.characterName ?? undefined}
-                        className={`absolute z-10 rounded-full flex items-center justify-center font-bold text-white cursor-grab shadow-md ${!isDM && isMyToken(t) ? 'ring-2 ring-white/70' : ''}`}
-                        style={{
-                          backgroundColor: t.color,
-                          width: dim,
-                          height: dim,
-                          left: off,
-                          top: off,
-                          fontSize: dim < 25 ? '8px' : dim < 48 ? '12px' : '16px',
-                        }}>
-                        {t?.label?.[0] ?? '?'}
-                      </div>
-                    );
-                  })}
-                  {isDM && fogged && !showFog && (
-                    <div className="absolute inset-0 bg-background/40 pointer-events-none" />
-                  )}
-                </div>
-              );
-            })
           )}
-          {ruler && (() => {
-            const m = measureDistance(ruler.sx, ruler.sy, ruler.ex, ruler.ey);
-            const cc = (c: number) => c * (cellSize + 1) + cellSize / 2;
-            const x1 = cc(ruler.sx), y1 = cc(ruler.sy), x2 = cc(ruler.ex), y2 = cc(ruler.ey);
-            return (
-              <div className="absolute pointer-events-none z-20" style={{ left: 4, top: 4, width: gw * cellSize + (gw - 1), height: gh * cellSize + (gh - 1) }}>
-                <svg width="100%" height="100%">
-                  <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#f87171" strokeWidth={3} strokeLinecap="round" />
-                  <circle cx={x1} cy={y1} r={5} fill="#f87171" />
-                  <circle cx={x2} cy={y2} r={5} fill="#f87171" />
-                </svg>
-                <div className="absolute whitespace-nowrap rounded bg-black/80 px-2 py-0.5 font-mono text-xs text-white"
-                  style={{ left: (x1 + x2) / 2, top: (y1 + y2) / 2, transform: 'translate(-50%, -140%)' }}>
-                  {m.feet} ft ({m.squares} {m.squares === 1 ? 'square' : 'squares'})
-                </div>
+
+          {/* Grid */}
+          <div className="overflow-auto rounded-lg border border-border bg-card" style={{ boxShadow: 'var(--shadow-md)' }}>
+            <div style={{
+              display: 'grid',
+              position: 'relative',
+              gridTemplateColumns: `repeat(${gw}, ${cellSize}px)`,
+              gap: '1px',
+              padding: '4px',
+              backgroundColor: 'hsl(33 26% 52%)',
+              ...(rulerMode ? { touchAction: 'none' } : {}),
+              ...(state?.backgroundImage ? {
+                backgroundImage: `url(/api/files/${state.backgroundImage})`,
+                backgroundSize: `${gw * cellSize + (gw - 1)}px ${gh * cellSize + (gh - 1)}px`,
+                backgroundPosition: '4px 4px',
+                backgroundRepeat: 'no-repeat',
+              } : {}),
+            }}
+              onPointerDown={onRulerDown}
+              onPointerMove={onRulerMove}
+              onPointerUp={onRulerUp}
+              onPointerCancel={onRulerUp}>
+              {Array.from({ length: gh }, (_, row) =>
+                Array.from({ length: gw }, (_, col) => {
+                  const fogged = isFogged(col, row);
+                  const tokensHere = (state?.tokens ?? []).filter((t: Token) => t.x === col && t.y === row);
+                  const showFog = !isDM && fogged;
+                  const hasBg = !!state?.backgroundImage;
+
+                  return (
+                    <div key={`${col}-${row}`}
+                      onClick={() => handleCellClick(col, row)}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        if (dragging && dragRuler && !rulerMode) {
+                          setDragRuler((r) => (r && (r.ex !== col || r.ey !== row) ? { ...r, ex: col, ey: row } : r));
+                        }
+                      }}
+                      onDrop={() => handleDrop(col, row)}
+                      className={`relative flex items-center justify-center transition-colors ${
+                        showFog
+                          ? 'bg-background'
+                          : isDM && fogged
+                            ? 'bg-background/60'
+                            : hasBg
+                              ? 'bg-transparent hover:bg-white/10'
+                              : 'bg-card hover:bg-muted/50'
+                      }`}
+                      style={{
+                        width: cellSize,
+                        height: cellSize,
+                        cursor: isDM ? 'pointer' : 'default',
+                        ...(hasBg ? { boxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.35)' } : {}),
+                      }}>
+                      {!showFog && tokensHere.map((t: Token) => {
+                        const fp = t.size || 1;
+                        const dim = fp >= 1 ? fp * cellSize + (fp - 1) : cellSize / 2;
+                        const off = fp >= 1 ? 0 : cellSize / 4;
+                        return (
+                          <div key={t.id}
+                            draggable={!rulerMode && (isDM || isMyToken(t))}
+                            onDragStart={() => onTokenDragStart(t)}
+                            onDragEnd={onTokenDragEnd}
+                            title={t.characterName ?? undefined}
+                            className={`absolute z-10 rounded-full flex items-center justify-center font-bold text-white cursor-grab shadow-md ${!isDM && isMyToken(t) ? 'ring-2 ring-white/70' : ''}`}
+                            style={{
+                              backgroundColor: t.color,
+                              width: dim,
+                              height: dim,
+                              left: off,
+                              top: off,
+                              fontSize: dim < 25 ? '8px' : dim < 48 ? '12px' : '16px',
+                            }}>
+                            {t?.label?.[0] ?? '?'}
+                          </div>
+                        );
+                      })}
+                      {isDM && fogged && !showFog && (
+                        <div className="absolute inset-0 bg-background/40 pointer-events-none" />
+                      )}
+                    </div>
+                  );
+                })
+              )}
+              {ruler && renderRulerOverlay(ruler)}
+              {dragRuler && !rulerMode && renderRulerOverlay(dragRuler)}
+            </div>
+          </div>
+        </div>
+        {/* Initiative tracker — side column */}
+        <div className="lg:w-72 shrink-0 w-full">
+          {isDM ? (
+            <div className="rounded-lg border border-border bg-card px-3 py-2">
+              <p className="text-sm font-medium flex items-center gap-2 mb-2"><ListOrdered className="w-4 h-4" /> Initiative{sortedTurns.length > 0 && <span className="text-xs text-muted-foreground">({sortedTurns.length})</span>}</p>
+              <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Input placeholder="Name" value={newEntry.label} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewEntry({ ...newEntry, label: e.target.value })} className="h-8 text-sm" />
+                    <Input type="number" placeholder="Init" value={newEntry.initiative} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewEntry({ ...newEntry, initiative: e.target.value })} className="h-8 text-sm w-20" />
+                    <Button size="sm" onClick={addManualEntry} title="Add entry"><Plus className="w-4 h-4" /></Button>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button size="sm" variant="secondary" onClick={addTokensToOrder}>Add combatants</Button>
+                    <Button size="sm" variant="secondary" onClick={() => stepTurn(-1)} disabled={!sortedTurns.length}><SkipBack className="w-4 h-4 mr-1" /> Prev</Button>
+                    <Button size="sm" variant="secondary" onClick={() => stepTurn(1)} disabled={!sortedTurns.length}>Next <SkipForward className="w-4 h-4 ml-1" /></Button>
+                    <Button size="sm" variant="ghost" onClick={() => commitTurns([], null)}>Clear</Button>
+                  </div>
+                  <div className="space-y-1">
+                    {sortedTurns.map((e) => (
+                      <div key={e.id} className={`flex items-center gap-2 px-2 py-1 rounded text-sm ${e.id === state?.activeId ? 'bg-primary/20 font-semibold' : 'bg-muted/30'}`}>
+                        <span className="font-mono w-8 text-center">{e.initiative}</span>
+                        <span className="flex-1 truncate" title={e.label}>{e.label}</span>
+                        {e.id === state?.activeId && <span className="text-[10px] uppercase tracking-wide text-primary">active</span>}
+                        <button onClick={() => removeEntry(e.id)} className="text-destructive hover:text-red-400" title="Remove"><Trash2 className="w-3 h-3" /></button>
+                      </div>
+                    ))}
+                    {!sortedTurns.length && <p className="text-xs text-muted-foreground">No entries yet — add combatants above.</p>}
+                  </div>
               </div>
-            );
-          })()}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-border bg-card px-3 py-2">
+              <p className="text-sm font-medium flex items-center gap-2 mb-1"><ListOrdered className="w-4 h-4" /> Initiative</p>
+              <div className="space-y-1">
+                {sortedTurns.map((e) => (
+                  <div key={e.id} className={`flex items-center gap-2 px-2 py-1 rounded text-sm ${e.id === state?.activeId ? 'bg-primary/20 font-semibold' : ''}`}>
+                    <span className="font-mono w-8 text-center">{e.initiative}</span>
+                    <span className="flex-1 truncate">{e.label}</span>
+                    {e.id === state?.activeId && <span className="text-[10px] uppercase tracking-wide text-primary">active</span>}
+                  </div>
+                ))}
+                {!sortedTurns.length && <p className="text-xs text-muted-foreground">No entries yet.</p>}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
