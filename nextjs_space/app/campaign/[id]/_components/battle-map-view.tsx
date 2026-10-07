@@ -43,6 +43,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   const [chars, setChars] = useState<Array<{ id: string; name: string }>>([]);
   const [initOpen, setInitOpen] = useState(true);
   const [newEntry, setNewEntry] = useState({ label: '', initiative: '' });
+  const [myCharIds, setMyCharIds] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/maps/battle?campaignId=${campaignId}`);
@@ -71,6 +72,16 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     const id = setInterval(() => { load(); }, 3000);
     return () => clearInterval(id);
   }, [isDM, load]);
+
+  // The player's own characters in this campaign (server scopes to owner
+  // for non-DM), used to decide which tokens they may drag.
+  useEffect(() => {
+    if (isDM) return;
+    fetch(`/api/characters?campaignId=${campaignId}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setMyCharIds(Array.isArray(d) ? d.map((c: any) => c.id) : []))
+      .catch(() => setMyCharIds([]));
+  }, [isDM, campaignId]);
 
   // Character list for the "link character" dropdown (DM only)
   useEffect(() => {
@@ -108,13 +119,45 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     }
   };
 
+  const isMyToken = (t: Token) => !!t.characterId && myCharIds.includes(t.characterId);
+
   const handleDrop = (x: number, y: number) => {
-    if (!dragging || !isDM) return;
-    const tokens = (state?.tokens ?? []).map((t: Token) => t.id === dragging ? { ...t, x, y } : t);
-    const ns = { ...state, tokens };
-    setState(ns);
-    save(ns);
+    if (!dragging) return;
+    const id = dragging;
     setDragging(null);
+    const token = (state?.tokens ?? []).find((t: Token) => t.id === id);
+    if (!token) return;
+
+    if (isDM) {
+      const tokens = (state?.tokens ?? []).map((t: Token) => t.id === id ? { ...t, x, y } : t);
+      const ns = { ...state, tokens };
+      setState(ns);
+      save(ns);
+      return;
+    }
+
+    // Player: only their own character-linked tokens, via the move endpoint.
+    if (!isMyToken(token)) { toast.error('You can only move your own token'); return; }
+    const prev = { x: token.x, y: token.y };
+    const revert = () => setState((s: BattleState) => ({
+      ...s,
+      tokens: (s?.tokens ?? []).map((t: Token) => t.id === id ? { ...t, ...prev } : t),
+    }));
+    setState((s: BattleState) => ({
+      ...s,
+      tokens: (s?.tokens ?? []).map((t: Token) => t.id === id ? { ...t, x, y } : t),
+    }));
+    fetch('/api/maps/battle/tokens', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ campaignId, tokenId: id, x, y }),
+    }).then(async (r) => {
+      if (!r.ok) {
+        revert();
+        const d = await r.json().catch(() => ({}));
+        toast.error(d?.error ?? 'Move rejected');
+      }
+    }).catch(() => { revert(); toast.error('Move failed'); });
   };
 
   const addToken = () => {
@@ -403,10 +446,10 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                     const off = fp >= 1 ? 0 : cellSize / 4;
                     return (
                       <div key={t.id}
-                        draggable={isDM}
+                        draggable={isDM || isMyToken(t)}
                         onDragStart={() => setDragging(t.id)}
                         title={t.characterName ?? undefined}
-                        className="absolute z-10 rounded-full flex items-center justify-center font-bold text-white cursor-grab shadow-md"
+                        className={`absolute z-10 rounded-full flex items-center justify-center font-bold text-white cursor-grab shadow-md ${!isDM && isMyToken(t) ? 'ring-2 ring-white/70' : ''}`}
                         style={{
                           backgroundColor: t.color,
                           width: dim,
