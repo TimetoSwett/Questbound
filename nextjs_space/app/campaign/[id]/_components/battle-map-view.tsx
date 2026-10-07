@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, SkipBack, SkipForward, Ruler, MonitorUp } from 'lucide-react';
+import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, SkipBack, SkipForward, Ruler, MonitorUp, Skull, Heart, Minus, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from 'sonner';
 import { DiceRoller } from './dice-roller';
 
-interface Token { id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; portraitKey?: string; }
+interface Token { id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; portraitKey?: string; hp?: number; maxHp?: number; }
 interface Highlight { id: string; x: number; y: number; w: number; h: number; color: string; label: string; }
 interface TurnEntry { id: string; label: string; initiative: number; characterId?: string; }
 interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; }
@@ -26,6 +26,15 @@ const CREATURE_SIZES = [
   { label: 'Gargantuan (4×4)', footprint: 4 },
   { label: 'Colossal (6×6)', footprint: 6 },
 ];
+
+// Parse optional HP inputs from the Add Token dialog. Returns {} when Max HP is blank/invalid (no tracking).
+function parseTokenHp(hpStr: string, maxHpStr: string): Partial<Pick<Token, 'hp' | 'maxHp'>> {
+  const maxHp = parseInt(maxHpStr, 10);
+  if (!Number.isFinite(maxHp) || maxHp <= 0) return {};
+  const hpRaw = parseInt(hpStr, 10);
+  const hp = Number.isFinite(hpRaw) ? Math.max(0, Math.min(maxHp, hpRaw)) : maxHp;
+  return { hp, maxHp };
+}
 
 // PF1e: feet per 5-ft square (v1.1 step 3 will make this a per-map setting)
 const DEFAULT_FEET_PER_SQUARE = 5;
@@ -66,7 +75,8 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   const [dragRuler, setDragRuler] = useState<{ sx: number; sy: number; ex: number; ey: number } | null>(null);
   const measuringRef = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [newToken, setNewToken] = useState({ label: '', color: TOKEN_COLORS[0], size: 'Medium', characterId: '', characterName: '' });
+  const [newToken, setNewToken] = useState({ label: '', color: TOKEN_COLORS[0], size: 'Medium', characterId: '', characterName: '', hp: '', maxHp: '' });
+  const [hpEditId, setHpEditId] = useState<string | null>(null);
   const [newTokenOpen, setNewTokenOpen] = useState(false);
   const [chars, setChars] = useState<Array<{ id: string; name: string }>>([]);
   const [newEntry, setNewEntry] = useState({ label: '', initiative: '' });
@@ -274,12 +284,13 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       size: CREATURE_SIZES.find((cs) => cs.label === newToken.size)?.footprint ?? 1,
       ...(newToken.characterId ? { characterId: newToken.characterId, characterName: newToken.characterName } : {}),
       ...(portraitKey ? { portraitKey } : {}),
+      ...parseTokenHp(newToken.hp, newToken.maxHp),
     };
     const ns = { ...state, tokens: [...(state?.tokens ?? []), t] };
     setState(ns);
     save(ns);
     setNewTokenOpen(false);
-    setNewToken({ label: '', color: TOKEN_COLORS[0], size: 'Medium', characterId: '', characterName: '' });
+    setNewToken({ label: '', color: TOKEN_COLORS[0], size: 'Medium', characterId: '', characterName: '', hp: '', maxHp: '' });
     setAddingToken(false);
     toast.success('Token added');
   };
@@ -312,6 +323,31 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     setState(ns);
     save(ns);
     toast.success('Portrait removed');
+  };
+
+  const setTokenHp = (id: string, hp: number, maxHp: number) => {
+    const m = Math.max(0, Math.round(maxHp) || 0);
+    const ns = {
+      ...state,
+      tokens: (state?.tokens ?? []).map((tok: Token) => {
+        if (tok.id !== id) return tok;
+        if (m <= 0) {
+          const nt: Token = { ...tok };
+          delete nt.hp;
+          delete nt.maxHp;
+          return nt;
+        }
+        return { ...tok, hp: Math.max(0, Math.min(m, Math.round(hp))), maxHp: m };
+      }),
+    };
+    setState(ns);
+    save(ns);
+  };
+
+  const adjustTokenHp = (id: string, delta: number) => {
+    const t = (state?.tokens ?? []).find((tok: Token) => tok.id === id);
+    if (!t || !(t.maxHp && t.maxHp > 0)) return;
+    setTokenHp(id, (t.hp ?? t.maxHp) + delta, t.maxHp);
   };
 
   const uploadBackground = async (file: File) => {
@@ -485,6 +521,10 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                   {CREATURE_SIZES.map((s) => <option key={s.label} value={s.label}>{s.label}</option>)}
                 </select></div>
                 <div><Label>Portrait (optional)</Label><Input id="tokenPortraitFile" type="file" accept="image/*" className="mt-1" /></div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div><Label>HP (optional)</Label><Input type="number" min={0} value={newToken.hp} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewToken({ ...newToken, hp: e.target.value })} className="mt-1" placeholder="—" /></div>
+                  <div><Label>Max HP (optional)</Label><Input type="number" min={1} value={newToken.maxHp} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewToken({ ...newToken, maxHp: e.target.value })} className="mt-1" placeholder="—" /></div>
+                </div>
                 <Button onClick={addToken} disabled={addingToken} className="w-full">{addingToken ? 'Adding...' : 'Add'}</Button>
               </div>
             </DialogContent>
@@ -583,6 +623,28 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                     <div className="w-4 h-4 rounded-full" style={{ backgroundColor: t.color }} />
                   )}
                   <span>{t?.characterName ?? t?.label ?? '?'}</span>
+                  {t.maxHp != null && t.maxHp > 0 ? (
+                    <span className="flex items-center gap-0.5 ml-1">
+                      <button onClick={(e) => adjustTokenHp(t.id, e.shiftKey ? -5 : -1)} className="px-0.5 text-muted-foreground hover:text-foreground" title="Damage 1 (Shift-click: 5)"><Minus className="w-3 h-3" /></button>
+                      <button onClick={() => setHpEditId(hpEditId === t.id ? null : t.id)} className="font-mono tabular-nums" title="Edit HP">{t.hp ?? t.maxHp}/{t.maxHp}</button>
+                      <button onClick={(e) => adjustTokenHp(t.id, e.shiftKey ? 5 : 1)} className="px-0.5 text-muted-foreground hover:text-foreground" title="Heal 1 (Shift-click: 5)"><Plus className="w-3 h-3" /></button>
+                    </span>
+                  ) : (
+                    <button onClick={() => setHpEditId(t.id)} className="text-muted-foreground hover:text-foreground ml-1" title="Track HP"><Heart className="w-3 h-3" /></button>
+                  )}
+                  {hpEditId === t.id && (
+                    <span className="flex items-center gap-1 ml-1">
+                      <input id={`hpEdit-${t.id}`} type="number" min={0} defaultValue={t.hp ?? t.maxHp ?? ''} className="h-6 w-12 rounded border border-input bg-background px-1 text-xs" aria-label="Current HP" />
+                      <span className="text-muted-foreground">/</span>
+                      <input id={`maxHpEdit-${t.id}`} type="number" min={0} defaultValue={t.maxHp ?? ''} className="h-6 w-12 rounded border border-input bg-background px-1 text-xs" aria-label="Max HP" />
+                      <button onClick={() => {
+                        const hpEl = document.getElementById(`hpEdit-${t.id}`) as HTMLInputElement | null;
+                        const maxEl = document.getElementById(`maxHpEdit-${t.id}`) as HTMLInputElement | null;
+                        setTokenHp(t.id, parseInt(hpEl?.value ?? '', 10) || 0, parseInt(maxEl?.value ?? '', 10) || 0);
+                        setHpEditId(null);
+                      }} className="text-muted-foreground hover:text-foreground" title="Save HP"><Check className="w-3 h-3" /></button>
+                    </span>
+                  )}
                   <label className="cursor-pointer text-muted-foreground hover:text-foreground" title={t.portraitKey ? 'Change portrait' : 'Add portrait'}>
                     <ImagePlus className="w-3 h-3" />
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target?.files?.[0]; if (f) setTokenPortrait(t.id, f); e.target.value = ''; }} />
@@ -658,12 +720,19 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                         const fp = t.size || 1;
                         const dim = fp >= 1 ? fp * cellSize + (fp - 1) : cellSize / 2;
                         const off = fp >= 1 ? 0 : cellSize / 4;
+                        const maxHp = t.maxHp ?? 0;
+                        const hpTracked = maxHp > 0;
+                        const curHp = hpTracked ? Math.max(0, Math.min(maxHp, t.hp ?? maxHp)) : 0;
+                        const hpPct = hpTracked ? Math.max(0, Math.min(100, (curHp / maxHp) * 100)) : 0;
+                        const hpColor = hpPct > 50 ? '#4ade80' : hpPct >= 25 ? '#fbbf24' : '#ef4444';
+                        const isDead = hpTracked && curHp <= 0;
+                        const barH = Math.max(3, Math.round(dim * 0.09));
                         return (
                           <div key={t.id}
                             draggable={!rulerMode && (isDM || isMyToken(t))}
                             onDragStart={() => onTokenDragStart(t)}
                             onDragEnd={onTokenDragEnd}
-                            title={t.characterName ?? undefined}
+                            title={`${t.characterName ?? t.label ?? '?'}${hpTracked ? ` — ${curHp}/${maxHp} HP` : ''}`}
                             className={`absolute z-10 rounded-full flex items-center justify-center font-bold text-white cursor-grab shadow-md ${!isDM && isMyToken(t) ? 'ring-2 ring-white/70' : ''}`}
                             style={{
                               backgroundColor: t.portraitKey ? 'transparent' : t.color,
@@ -673,10 +742,21 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                               left: off,
                               top: off,
                               fontSize: dim < 25 ? '8px' : dim < 48 ? '12px' : '16px',
+                              ...(isDead ? { filter: 'grayscale(1)' } : {}),
                             }}>
                             {t.portraitKey ? (
                               <img src={`/api/files/${t.portraitKey}`} alt="" draggable={false} className="rounded-full object-cover w-full h-full pointer-events-none" />
                             ) : (t?.label?.[0] ?? '?')}
+                            {hpTracked && (
+                              <div className="absolute pointer-events-none" style={{ bottom: Math.max(1, barH * 0.4), left: '10%', right: '10%', height: barH, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: barH / 2, overflow: 'hidden' }}>
+                                <div style={{ width: `${hpPct}%`, height: '100%', backgroundColor: hpColor }} />
+                              </div>
+                            )}
+                            {isDead && (
+                              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <Skull style={{ width: dim * 0.45, height: dim * 0.45, color: '#fff', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.85))' }} />
+                              </div>
+                            )}
                           </div>
                         );
                       })}
