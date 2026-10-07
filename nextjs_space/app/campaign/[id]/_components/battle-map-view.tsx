@@ -12,7 +12,7 @@ import { DiceRoller } from './dice-roller';
 interface Token { id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; }
 interface Highlight { id: string; x: number; y: number; w: number; h: number; color: string; label: string; }
 interface TurnEntry { id: string; label: string; initiative: number; characterId?: string; }
-interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; }
+interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; }
 
 const TOKEN_COLORS = ['#D4A547', '#E04040', '#40A040', '#60B5FF', '#C080D0', '#FF9149', '#FF6363', '#80D8C3'];
 
@@ -28,19 +28,30 @@ const CREATURE_SIZES = [
 ];
 
 // PF1e: feet per 5-ft square (v1.1 step 3 will make this a per-map setting)
-const FEET_PER_SQUARE = 5;
+const DEFAULT_FEET_PER_SQUARE = 5;
 
 // PF1e diagonal movement: 1-2-1-2 counting (first diagonal 5 ft, second 10 ft, alternating)
-function measureDistance(sx: number, sy: number, ex: number, ey: number): { squares: number; feet: number } {
+function measureDistance(sx: number, sy: number, ex: number, ey: number, feetPerSquare: number = DEFAULT_FEET_PER_SQUARE): { squares: number; feet: number } {
   const dx = Math.abs(ex - sx);
   const dy = Math.abs(ey - sy);
   const diag = Math.min(dx, dy);
   const straight = Math.abs(dx - dy);
   const squares = straight + diag + Math.floor(diag / 2);
-  return { squares, feet: squares * FEET_PER_SQUARE };
+  return { squares, feet: squares * feetPerSquare };
 }
 
-const EMPTY_BATTLE: BattleState = { gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null, turnOrder: [], activeId: null };
+// Spreadsheet-style column letters: 0 -> A, 25 -> Z, 26 -> AA, 27 -> AB, ...
+function colLabel(col: number): string {
+  let label = '';
+  let n = col;
+  do {
+    label = String.fromCharCode(65 + (n % 26)) + label;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return label;
+}
+
+const EMPTY_BATTLE: BattleState = { gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null, turnOrder: [], activeId: null, feetPerSquare: 5, cellNumbers: true };
 
 function sortTurns(turns: TurnEntry[]): TurnEntry[] {
   return [...turns].sort((a, b) => (b.initiative - a.initiative) || a.label.localeCompare(b.label));
@@ -74,6 +85,8 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
         backgroundImage: d?.backgroundImage ?? null,
         turnOrder: d?.turnOrder ?? [],
         activeId: d?.activeId ?? null,
+        feetPerSquare: d?.feetPerSquare ?? 5,
+        cellNumbers: d?.cellNumbers ?? true,
       });
     }
   }, [campaignId]);
@@ -333,7 +346,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   // Shared ruler overlay: red line + endpoint dots + distance pill.
   // Used by the free-measure ruler mode and by the live drag-ruler.
   const renderRulerOverlay = (r: { sx: number; sy: number; ex: number; ey: number }) => {
-    const m = measureDistance(r.sx, r.sy, r.ex, r.ey);
+    const m = measureDistance(r.sx, r.sy, r.ex, r.ey, state?.feetPerSquare ?? DEFAULT_FEET_PER_SQUARE);
     const cc = (c: number) => c * (cellSize + 1) + cellSize / 2;
     const x1 = cc(r.sx), y1 = cc(r.sy), x2 = cc(r.ex), y2 = cc(r.ey);
     return (
@@ -403,6 +416,10 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
               <div className="grid grid-cols-2 gap-3 mt-2">
                 <div><Label>Width</Label><Input type="number" value={state.gridWidth} min={5} max={40} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const ns = { ...state, gridWidth: Math.min(40, Math.max(5, parseInt(e.target.value) || 20)) }; setState(ns); }} className="mt-1" /></div>
                 <div><Label>Height</Label><Input type="number" value={state.gridHeight} min={5} max={40} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const ns = { ...state, gridHeight: Math.min(40, Math.max(5, parseInt(e.target.value) || 20)) }; setState(ns); }} className="mt-1" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <div><Label>Feet per square</Label><Input type="number" value={state.feetPerSquare} min={1} max={100} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const ns = { ...state, feetPerSquare: Math.min(100, Math.max(1, parseInt(e.target.value) || 5)) }; setState(ns); }} className="mt-1" /></div>
+                <div className="flex items-end gap-2 pb-2"><input id="cellNumbers" type="checkbox" checked={state.cellNumbers} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setState({ ...state, cellNumbers: e.target.checked })} className="h-4 w-4 accent-primary" /><Label htmlFor="cellNumbers">Cell labels (A1, B2&hellip;)</Label></div>
               </div>
               <Button onClick={() => { save(state); setSettingsOpen(false); toast.success('Grid updated'); }} className="w-full mt-3">Save</Button>
             </DialogContent>
@@ -501,6 +518,11 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                         cursor: isDM ? 'pointer' : 'default',
                         ...(hasBg ? { boxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.35)' } : {}),
                       }}>
+                      {(state?.cellNumbers ?? true) && (
+                        <span className="absolute top-0 left-0.5 pointer-events-none select-none font-mono" style={{ fontSize: '8px', lineHeight: 1.3, color: 'rgba(140,140,140,0.9)', textShadow: '0 1px 2px rgba(0,0,0,0.6)', zIndex: 1 }}>
+                          {colLabel(col)}{row + 1}
+                        </span>
+                      )}
                       {!showFog && tokensHere.map((t: Token) => {
                         const fp = t.size || 1;
                         const dim = fp >= 1 ? fp * cellSize + (fp - 1) : cellSize / 2;
