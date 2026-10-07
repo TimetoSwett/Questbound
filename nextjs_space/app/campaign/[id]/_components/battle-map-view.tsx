@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, ChevronDown, ChevronRight, SkipBack, SkipForward } from 'lucide-react';
+import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, ChevronDown, ChevronRight, SkipBack, SkipForward, Ruler } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,6 +27,19 @@ const CREATURE_SIZES = [
   { label: 'Colossal (6×6)', footprint: 6 },
 ];
 
+// PF1e: feet per 5-ft square (v1.1 step 3 will make this a per-map setting)
+const FEET_PER_SQUARE = 5;
+
+// PF1e diagonal movement: 1-2-1-2 counting (first diagonal 5 ft, second 10 ft, alternating)
+function measureDistance(sx: number, sy: number, ex: number, ey: number): { squares: number; feet: number } {
+  const dx = Math.abs(ex - sx);
+  const dy = Math.abs(ey - sy);
+  const diag = Math.min(dx, dy);
+  const straight = Math.abs(dx - dy);
+  const squares = straight + diag + Math.floor(diag / 2);
+  return { squares, feet: squares * FEET_PER_SQUARE };
+}
+
 const EMPTY_BATTLE: BattleState = { gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null, turnOrder: [], activeId: null };
 
 function sortTurns(turns: TurnEntry[]): TurnEntry[] {
@@ -37,6 +50,9 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   const [state, setState] = useState<BattleState>(EMPTY_BATTLE);
   const [dragging, setDragging] = useState<string | null>(null);
   const [fogMode, setFogMode] = useState(false);
+  const [rulerMode, setRulerMode] = useState(false);
+  const [ruler, setRuler] = useState<{ sx: number; sy: number; ex: number; ey: number } | null>(null);
+  const measuringRef = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newToken, setNewToken] = useState({ label: '', color: TOKEN_COLORS[0], size: 'Medium', characterId: '', characterName: '' });
   const [newTokenOpen, setNewTokenOpen] = useState(false);
@@ -83,6 +99,16 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       .catch(() => setMyCharIds([]));
   }, [isDM, campaignId]);
 
+  // Escape exits ruler mode.
+  useEffect(() => {
+    if (!rulerMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setRulerMode(false); setRuler(null); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [rulerMode]);
+
   // Character list for the "link character" dropdown (DM only)
   useEffect(() => {
     if (!newTokenOpen || !isDM) return;
@@ -106,6 +132,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
 
   const handleCellClick = (x: number, y: number) => {
     if (!isDM) return;
+    if (rulerMode) return;
     if (fogMode) {
       const key = `${x},${y}`;
       const fog = [...(state?.fog ?? [])];
@@ -118,6 +145,40 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       return;
     }
   };
+
+  const toggleFog = () => {
+    if (!fogMode) { setRulerMode(false); setRuler(null); }
+    setFogMode(!fogMode);
+  };
+
+  const toggleRuler = () => {
+    if (rulerMode) { setRulerMode(false); setRuler(null); }
+    else { setFogMode(false); setRulerMode(true); }
+  };
+
+  // Cell under a pointer event on the grid container (4px padding, 1px gaps).
+  const cellFromPointer = (e: React.PointerEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const col = Math.max(0, Math.min(gw - 1, Math.floor((e.clientX - rect.left - 4) / (cellSize + 1))));
+    const row = Math.max(0, Math.min(gh - 1, Math.floor((e.clientY - rect.top - 4) / (cellSize + 1))));
+    return { col, row };
+  };
+
+  const onRulerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!rulerMode) return;
+    const { col, row } = cellFromPointer(e);
+    measuringRef.current = true;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    setRuler({ sx: col, sy: row, ex: col, ey: row });
+  };
+
+  const onRulerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!rulerMode || !measuringRef.current) return;
+    const { col, row } = cellFromPointer(e);
+    setRuler((r) => (r && (r.ex !== col || r.ey !== row) ? { ...r, ex: col, ey: row } : r));
+  };
+
+  const onRulerUp = () => { measuringRef.current = false; };
 
   const isMyToken = (t: Token) => !!t.characterId && myCharIds.includes(t.characterId);
 
@@ -296,7 +357,10 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
             </DialogContent>
           </Dialog>
           <DiceRoller />
-          <Button variant={fogMode ? 'default' : 'secondary'} size="sm" onClick={() => setFogMode(!fogMode)}>
+          <Button variant={rulerMode ? 'default' : 'secondary'} size="sm" onClick={toggleRuler}>
+            <Ruler className="w-4 h-4 mr-1" /> Ruler
+          </Button>
+          <Button variant={fogMode ? 'default' : 'secondary'} size="sm" onClick={toggleFog}>
             {fogMode ? <Eye className="w-4 h-4 mr-1" /> : <EyeOff className="w-4 h-4 mr-1" />}
             {fogMode ? 'Fog: Click to toggle' : 'Toggle Fog'}
           </Button>
@@ -327,6 +391,9 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       {!isDM && (
         <div className="flex items-center gap-2">
           <DiceRoller />
+          <Button variant={rulerMode ? 'default' : 'secondary'} size="sm" onClick={toggleRuler}>
+            <Ruler className="w-4 h-4 mr-1" /> Ruler
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => load()}>
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh
           </Button>
@@ -402,17 +469,23 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       <div className="overflow-auto rounded-lg border border-border bg-card" style={{ boxShadow: 'var(--shadow-md)' }}>
         <div style={{
           display: 'grid',
+          position: 'relative',
           gridTemplateColumns: `repeat(${gw}, ${cellSize}px)`,
           gap: '1px',
           padding: '4px',
           backgroundColor: 'hsl(33 26% 52%)',
+          ...(rulerMode ? { touchAction: 'none' } : {}),
           ...(state?.backgroundImage ? {
             backgroundImage: `url(/api/files/${state.backgroundImage})`,
             backgroundSize: `${gw * cellSize + (gw - 1)}px ${gh * cellSize + (gh - 1)}px`,
             backgroundPosition: '4px 4px',
             backgroundRepeat: 'no-repeat',
           } : {}),
-        }}>
+        }}
+          onPointerDown={onRulerDown}
+          onPointerMove={onRulerMove}
+          onPointerUp={onRulerUp}
+          onPointerCancel={onRulerUp}>
           {Array.from({ length: gh }, (_, row) =>
             Array.from({ length: gw }, (_, col) => {
               const fogged = isFogged(col, row);
@@ -446,7 +519,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                     const off = fp >= 1 ? 0 : cellSize / 4;
                     return (
                       <div key={t.id}
-                        draggable={isDM || isMyToken(t)}
+                        draggable={!rulerMode && (isDM || isMyToken(t))}
                         onDragStart={() => setDragging(t.id)}
                         title={t.characterName ?? undefined}
                         className={`absolute z-10 rounded-full flex items-center justify-center font-bold text-white cursor-grab shadow-md ${!isDM && isMyToken(t) ? 'ring-2 ring-white/70' : ''}`}
@@ -469,6 +542,24 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
               );
             })
           )}
+          {ruler && (() => {
+            const m = measureDistance(ruler.sx, ruler.sy, ruler.ex, ruler.ey);
+            const cc = (c: number) => c * (cellSize + 1) + cellSize / 2;
+            const x1 = cc(ruler.sx), y1 = cc(ruler.sy), x2 = cc(ruler.ex), y2 = cc(ruler.ey);
+            return (
+              <div className="absolute pointer-events-none z-20" style={{ left: 4, top: 4, width: gw * cellSize + (gw - 1), height: gh * cellSize + (gh - 1) }}>
+                <svg width="100%" height="100%">
+                  <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#f87171" strokeWidth={3} strokeLinecap="round" />
+                  <circle cx={x1} cy={y1} r={5} fill="#f87171" />
+                  <circle cx={x2} cy={y2} r={5} fill="#f87171" />
+                </svg>
+                <div className="absolute whitespace-nowrap rounded bg-black/80 px-2 py-0.5 font-mono text-xs text-white"
+                  style={{ left: (x1 + x2) / 2, top: (y1 + y2) / 2, transform: 'translate(-50%, -140%)' }}>
+                  {m.feet} ft ({m.squares} {m.squares === 1 ? 'square' : 'squares'})
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>
