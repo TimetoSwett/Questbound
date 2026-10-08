@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, SkipBack, SkipForward, Ruler, MonitorUp, Skull, Heart, Minus, Check } from 'lucide-react';
+import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, SkipBack, SkipForward, Ruler, MonitorUp, Skull, Heart, Minus, Check, Tag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from 'sonner';
 import { DiceRoller } from './dice-roller';
 
-interface Token { id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; portraitKey?: string; hp?: number; maxHp?: number; }
+interface Token { id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; portraitKey?: string; hp?: number; maxHp?: number; conditions?: string[]; }
 interface Highlight { id: string; x: number; y: number; w: number; h: number; color: string; label: string; }
 interface TurnEntry { id: string; label: string; initiative: number; characterId?: string; }
 interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; }
@@ -48,6 +48,25 @@ function measureDistance(sx: number, sy: number, ex: number, ey: number, feetPer
   const squares = straight + diag + Math.floor(diag / 2);
   return { squares, feet: squares * feetPerSquare };
 }
+
+// Standard PF1e combat conditions (Energy Drained / Incorporeal omitted — rarely tracked at the table)
+const PF1E_CONDITIONS = [
+  'Bleed', 'Blinded', 'Confused', 'Cowering', 'Dazed', 'Dazzled', 'Dead', 'Deafened',
+  'Disabled', 'Dying', 'Entangled', 'Exhausted', 'Fascinated', 'Fatigued', 'Frightened',
+  'Grappled', 'Helpless', 'Invisible', 'Nauseated', 'Panicked', 'Paralyzed', 'Petrified',
+  'Pinned', 'Prone', 'Shaken', 'Sickened', 'Stable', 'Staggered', 'Stunned', 'Unconscious',
+];
+
+// Recognizable short labels for the tiny on-token badges
+const COND_SHORT: Record<string, string> = {
+  Bleed: 'Bld', Blinded: 'Blind', Confused: 'Conf', Cowering: 'Cow', Dazed: 'Daze',
+  Dazzled: 'Dazz', Dead: 'Dead', Deafened: 'Deaf', Disabled: 'Dis', Dying: 'Dyng',
+  Entangled: 'Ent', Exhausted: 'Exh', Fascinated: 'Fasc', Fatigued: 'Fatg',
+  Frightened: 'Fright', Grappled: 'Grap', Helpless: 'Help', Invisible: 'Inv',
+  Nauseated: 'Nau', Panicked: 'Panic', Paralyzed: 'Par', Petrified: 'Petr',
+  Pinned: 'Pin', Prone: 'Prone', Shaken: 'Shak', Sickened: 'Sick', Stable: 'Stbl',
+  Staggered: 'Stag', Stunned: 'Stun', Unconscious: 'Unc',
+};
 
 // Spreadsheet-style column letters: 0 -> A, 25 -> Z, 26 -> AA, 27 -> AB, ...
 function colLabel(col: number): string {
@@ -350,6 +369,25 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     setTokenHp(id, (t.hp ?? t.maxHp) + delta, t.maxHp);
   };
 
+  const [condOpenId, setCondOpenId] = useState<string | null>(null);
+
+  const toggleTokenCondition = (id: string, cond: string) => {
+    const ns = {
+      ...state,
+      tokens: (state?.tokens ?? []).map((tok: Token) => {
+        if (tok.id !== id) return tok;
+        const cur = tok.conditions ?? [];
+        const next = cur.includes(cond) ? cur.filter((c) => c !== cond) : [...cur, cond];
+        const nt: Token = { ...tok };
+        if (next.length === 0) delete nt.conditions;
+        else nt.conditions = next;
+        return nt;
+      }),
+    };
+    setState(ns);
+    save(ns);
+  };
+
   const uploadBackground = async (file: File) => {
     const form = new FormData();
     form.append('file', file);
@@ -616,7 +654,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
           {isDM && (state?.tokens ?? []).length > 0 && (
             <div className="flex flex-wrap gap-2">
               {(state?.tokens ?? []).map((t: Token) => (
-                <div key={t.id} className="flex items-center gap-1 bg-card px-2 py-1 rounded border border-border text-xs">
+                <div key={t.id} className="relative flex items-center gap-1 bg-card px-2 py-1 rounded border border-border text-xs">
                   {t.portraitKey ? (
                     <img src={`/api/files/${t.portraitKey}`} alt="" draggable={false} className="w-4 h-4 rounded-full object-cover" />
                   ) : (
@@ -644,6 +682,24 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                         setHpEditId(null);
                       }} className="text-muted-foreground hover:text-foreground" title="Save HP"><Check className="w-3 h-3" /></button>
                     </span>
+                  )}
+                  <button onClick={() => setCondOpenId(condOpenId === t.id ? null : t.id)} className="text-muted-foreground hover:text-foreground" title="Conditions"><Tag className="w-3 h-3" /></button>
+                  {(t.conditions ?? []).map((c) => (
+                    <button key={c} onClick={() => toggleTokenCondition(t.id, c)} title={`Remove ${c}`} className="rounded bg-amber-500/20 px-1 text-[10px] leading-4 text-amber-200 hover:bg-amber-500/40">{COND_SHORT[c] ?? c.slice(0, 4)}</button>
+                  ))}
+                  {condOpenId === t.id && (
+                    <>
+                      <div className="fixed inset-0 z-30" onClick={() => setCondOpenId(null)} />
+                      <div className="absolute z-40 top-full left-0 mt-1 w-44 max-h-52 overflow-auto rounded-md border border-border bg-card p-1.5 shadow-lg">
+                        <p className="px-1 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground">Conditions</p>
+                        {PF1E_CONDITIONS.map((c) => (
+                          <label key={c} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-xs hover:bg-muted/60">
+                            <input type="checkbox" checked={(t.conditions ?? []).includes(c)} onChange={() => toggleTokenCondition(t.id, c)} className="h-3 w-3 accent-amber-500" />
+                            <span>{c}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </>
                   )}
                   <label className="cursor-pointer text-muted-foreground hover:text-foreground" title={t.portraitKey ? 'Change portrait' : 'Add portrait'}>
                     <ImagePlus className="w-3 h-3" />
@@ -752,6 +808,24 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                                 <div style={{ width: `${hpPct}%`, height: '100%', backgroundColor: hpColor }} />
                               </div>
                             )}
+                            {(t.conditions ?? []).length > 0 && (() => {
+                              const conds = t.conditions ?? [];
+                              const vis = conds.slice(0, 4);
+                              const extra = conds.length - vis.length;
+                              const fs = Math.max(6, Math.round(dim * 0.16));
+                              return (
+                                <div className="absolute pointer-events-none" style={{ left: '50%', top: 0, transform: 'translate(-50%, calc(-100% - 2px))', zIndex: 20 }} title={conds.join(', ')}>
+                                  <div className="flex gap-0.5 justify-center">
+                                    {vis.map((c) => (
+                                      <span key={c} className="rounded px-1 font-mono whitespace-nowrap" style={{ fontSize: fs, lineHeight: 1.5, backgroundColor: 'rgba(120, 53, 15, 0.92)', color: '#fde68a' }}>{COND_SHORT[c] ?? c.slice(0, 4)}</span>
+                                    ))}
+                                    {extra > 0 && (
+                                      <span className="rounded px-1 font-mono" style={{ fontSize: fs, lineHeight: 1.5, backgroundColor: 'rgba(0,0,0,0.75)', color: '#fff' }}>+{extra}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })()}
                             {isDead && (
                               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                 <Skull style={{ width: dim * 0.45, height: dim * 0.45, color: '#fff', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.85))' }} />
