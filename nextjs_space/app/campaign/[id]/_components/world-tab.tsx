@@ -40,7 +40,7 @@ export function WorldTab({ campaignId, role }: { campaignId: string; role: strin
 
       {subTab === 'wiki' && <WikiView campaignId={campaignId} isDM={isDM} initialPageId={wikiPageId} />}
       {subTab === 'world-map' && <WorldMapView campaignId={campaignId} isDM={isDM} onOpenWikiPage={openWikiPage} />}
-      {subTab === 'battle-map' && <BattleMapView campaignId={campaignId} isDM={isDM} />}
+      {subTab === 'battle-map' && <BattleMapView campaignId={campaignId} isDM={isDM} onOpenWikiPage={openWikiPage} />}
       {subTab === 'region-map' && <RegionMapView campaignId={campaignId} isDM={isDM} />}
     </div>
   );

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, SkipBack, SkipForward, Ruler, MonitorUp, Skull, Heart, Minus, Check, Tag, ChevronDown, ChevronRight, Undo2, Redo2, Pencil, Eraser, Type } from 'lucide-react';
+import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, SkipBack, SkipForward, Ruler, MonitorUp, Skull, Heart, Minus, Check, Tag, ChevronDown, ChevronRight, Undo2, Redo2, Pencil, Eraser, Type, MapPin, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,9 +15,10 @@ interface TurnEntry { id: string; label: string; initiative: number; characterId
 interface Encounter { id: string; name: string; tokens: Token[]; }
 interface DrawStroke { id: string; color: string; points: Array<{ x: number; y: number }>; }
 interface MapText { id: string; x: number; y: number; text: string; color: string; }
-interface SnapshotState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; drawings: DrawStroke[]; texts: MapText[]; }
+interface BattlePin { id: string; x: number; y: number; label?: string; wikiArticleId?: string; wikiArticle?: { id: string; title: string } | null; }
+interface SnapshotState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; drawings: DrawStroke[]; texts: MapText[]; pins: BattlePin[]; }
 interface Snapshot { id: string; name: string; createdAt: number; state: SnapshotState; }
-interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; encounters: Encounter[]; snapshots: Snapshot[]; drawings: DrawStroke[]; texts: MapText[]; }
+interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; encounters: Encounter[]; snapshots: Snapshot[]; drawings: DrawStroke[]; texts: MapText[]; pins: BattlePin[]; }
 
 const TOKEN_COLORS = ['#D4A547', '#E04040', '#40A040', '#60B5FF', '#C080D0', '#FF9149', '#FF6363', '#80D8C3'];
 
@@ -95,17 +96,22 @@ function colLabel(col: number): string {
   return label;
 }
 
-const EMPTY_BATTLE: BattleState = { gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null, turnOrder: [], activeId: null, feetPerSquare: 5, cellNumbers: true, handout: null, encounters: [], snapshots: [], drawings: [], texts: [] };
+const EMPTY_BATTLE: BattleState = { gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null, turnOrder: [], activeId: null, feetPerSquare: 5, cellNumbers: true, handout: null, encounters: [], snapshots: [], drawings: [], texts: [], pins: [] };
 
 function sortTurns(turns: TurnEntry[]): TurnEntry[] {
   return [...turns].sort((a, b) => (b.initiative - a.initiative) || a.label.localeCompare(b.label));
 }
 
-export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: boolean }) {
+export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId: string; isDM: boolean; onOpenWikiPage?: (pageId: string) => void }) {
   const [state, setState] = useState<BattleState>(EMPTY_BATTLE);
   const [dragging, setDragging] = useState<string | null>(null);
   const [fogMode, setFogMode] = useState(false);
   const [rulerMode, setRulerMode] = useState(false);
+  const [pinMode, setPinMode] = useState(false);
+  const [pinDialog, setPinDialog] = useState<{ pin: BattlePin; mode: 'edit' | 'view'; isNew: boolean } | null>(null);
+  const [pinLabel, setPinLabel] = useState('');
+  const [pinArticleId, setPinArticleId] = useState('');
+  const [wikiPages, setWikiPages] = useState<Array<{ id: string; title: string; visibility: string }>>([]);
   const [drawTool, setDrawTool] = useState<'pen' | 'eraser' | 'text' | null>(null);
   const [drawColor, setDrawColor] = useState('#ef4444');
   const [drawing, setDrawing] = useState<Array<{ x: number; y: number }> | null>(null);
@@ -156,6 +162,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
         snapshots: d?.snapshots ?? [],
         drawings: d?.drawings ?? [],
         texts: d?.texts ?? [],
+        pins: d?.pins ?? [],
       });
     }
   }, [campaignId]);
@@ -181,9 +188,9 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       .catch(() => setMyCharIds([]));
   }, [isDM, campaignId]);
 
-  // Escape exits ruler/draw modes and cancels any in-progress annotation.
+  // Escape exits ruler/draw/pin modes and cancels any in-progress annotation.
   useEffect(() => {
-    if (!rulerMode && !drawTool) return;
+    if (!rulerMode && !drawTool && !pinMode) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setRulerMode(false); setRuler(null);
@@ -191,11 +198,12 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
         penDownRef.current = false; drawingPtsRef.current = [];
         erasingRef.current = false; eraseIdsRef.current = new Set(); setEraseIds([]);
         setTextDraft(null);
+        setPinMode(false); setPinDialog(null);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rulerMode, drawTool]);
+  }, [rulerMode, drawTool, pinMode]);
 
   // Character list for the "link character" dropdown (DM only)
   useEffect(() => {
@@ -207,10 +215,12 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   }, [newTokenOpen, isDM, campaignId]);
 
   const save = async (s: BattleState) => {
+    // Strip server-resolved article titles: the blob stores id refs only; titles re-resolve on GET.
+    const clean: BattleState = { ...s, pins: (s.pins ?? []).map((p) => { const { wikiArticle, ...rest } = p; return rest; }) };
     await fetch('/api/maps/battle', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ campaignId, state: s }),
+      body: JSON.stringify({ campaignId, state: clean }),
     });
   };
 
@@ -289,6 +299,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   const handleCellClick = (x: number, y: number) => {
     if (!isDM) return;
     if (rulerMode || drawTool) return;
+    if (pinMode) { openPinEditor({ id: `p_${Date.now()}`, x, y }, true); return; }
     if (fogMode) {
       const key = `${x},${y}`;
       const fog = [...(state?.fog ?? [])];
@@ -302,13 +313,13 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   };
 
   const toggleFog = () => {
-    if (!fogMode) { setRulerMode(false); setRuler(null); setDrawTool(null); }
+    if (!fogMode) { setRulerMode(false); setRuler(null); setDrawTool(null); setPinMode(false); }
     setFogMode(!fogMode);
   };
 
   const toggleRuler = () => {
     if (rulerMode) { setRulerMode(false); setRuler(null); }
-    else { setFogMode(false); setDrawTool(null); setRulerMode(true); }
+    else { setFogMode(false); setDrawTool(null); setPinMode(false); setRulerMode(true); }
   };
 
   const toggleDrawTool = (tool: 'pen' | 'eraser' | 'text') => {
@@ -320,8 +331,50 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       penDownRef.current = false; drawingPtsRef.current = []; setDrawing(null);
       erasingRef.current = false; eraseIdsRef.current = new Set(); setEraseIds([]);
       setTextDraft(null);
+      setPinMode(false); setPinDialog(null);
       setDrawTool(tool);
     }
+  };
+
+  const togglePin = () => {
+    if (pinMode) { setPinMode(false); setPinDialog(null); }
+    else { setFogMode(false); setRulerMode(false); setRuler(null); setDrawTool(null); setPinMode(true); }
+  };
+
+  // ---- Battle-map note pins (DM only, all mutations undo/redo aware) ----
+  const openPinEditor = (pin: BattlePin, isNew: boolean) => {
+    setPinLabel(pin.label ?? '');
+    setPinArticleId(pin.wikiArticleId ?? '');
+    setPinDialog({ pin, mode: 'edit', isNew });
+    if (isDM) {
+      fetch(`/api/wiki?campaignId=${campaignId}`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((d) => setWikiPages((Array.isArray(d) ? d : []).map((pg: any) => ({ id: pg.id, title: pg.title ?? 'Untitled', visibility: pg.visibility ?? 'dm_only' }))))
+        .catch(() => {});
+    }
+  };
+
+  const savePin = () => {
+    if (!pinDialog || !isDM || !state) return;
+    const { pin, isNew } = pinDialog;
+    const updated: BattlePin = { ...pin, label: pinLabel.trim(), wikiArticleId: pinArticleId || undefined };
+    const pg = wikiPages.find((w) => w.id === updated.wikiArticleId);
+    updated.wikiArticle = pg ? { id: pg.id, title: pg.title } : null;
+    const pins = isNew ? [...(state.pins ?? []), updated] : (state.pins ?? []).map((p) => (p.id === updated.id ? updated : p));
+    commitState({ ...state, pins });
+    setPinDialog(null);
+  };
+
+  const deletePin = () => {
+    if (!pinDialog || !isDM || !state) return;
+    commitState({ ...state, pins: (state.pins ?? []).filter((p) => p.id !== pinDialog.pin.id) });
+    setPinDialog(null);
+  };
+
+  const onPinMarkerClick = (p: BattlePin, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isDM && pinMode) openPinEditor(p, false);
+    else setPinDialog({ pin: p, mode: 'view', isNew: false });
   };
 
   // Cell under a pointer event on the grid container (4px padding, 1px gaps).
@@ -608,7 +661,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     toast.success('Encounter deleted');
   };
 
-  const SNAPSHOT_FIELDS = ['gridWidth', 'gridHeight', 'tokens', 'highlights', 'fog', 'backgroundImage', 'turnOrder', 'activeId', 'feetPerSquare', 'cellNumbers', 'handout', 'drawings', 'texts'] as const;
+  const SNAPSHOT_FIELDS = ['gridWidth', 'gridHeight', 'tokens', 'highlights', 'fog', 'backgroundImage', 'turnOrder', 'activeId', 'feetPerSquare', 'cellNumbers', 'handout', 'drawings', 'texts', 'pins'] as const;
 
   const saveSnapshot = () => {
     const name = snapName.trim();
@@ -972,6 +1025,9 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                 style={{ backgroundColor: c.value }} />
             ))}
           </div>
+          <Button variant={pinMode ? 'default' : 'secondary'} size="sm" onClick={togglePin} title="Note pins — click the map to drop a pin">
+            <MapPin className="w-4 h-4 mr-1" /> Pin
+          </Button>
           <Button variant={fogMode ? 'default' : 'secondary'} size="sm" onClick={toggleFog}>
             {fogMode ? <Eye className="w-4 h-4 mr-1" /> : <EyeOff className="w-4 h-4 mr-1" />}
             {fogMode ? 'Fog: Click to toggle' : 'Toggle Fog'}
@@ -1277,6 +1333,18 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                           {colLabel(col)}{row + 1}
                         </span>
                       )}
+                      {!showFog && (state?.pins ?? []).filter((p: BattlePin) => p.x === col && p.y === row).map((p: BattlePin) => (
+                        <button
+                          key={p.id}
+                          onClick={(e) => onPinMarkerClick(p, e)}
+                          title={p.label || 'Note pin'}
+                          aria-label={p.label || 'Note pin'}
+                          className="absolute z-[6] p-1 cursor-pointer"
+                          style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}
+                        >
+                          <MapPin className="w-4 h-4 text-amber-300" fill="currentColor" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.8))' }} />
+                        </button>
+                      ))}
                       {!showFog && tokensHere.map((t: Token) => {
                         const fp = t.size || 1;
                         const dim = fp >= 1 ? fp * cellSize + (fp - 1) : cellSize / 2;
@@ -1290,7 +1358,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                         const barH = Math.max(3, Math.round(dim * 0.09));
                         return (
                           <div key={t.id}
-                            draggable={!rulerMode && !drawTool && (isDM || isMyToken(t))}
+                            draggable={!rulerMode && !drawTool && !pinMode && (isDM || isMyToken(t))}
                             onDragStart={() => onTokenDragStart(t)}
                             onDragEnd={onTokenDragEnd}
                             title={`${t.characterName ?? t.label ?? '?'}${hpTracked ? ` — ${curHp}/${maxHp} HP` : ''}`}
@@ -1408,6 +1476,55 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
           )}
         </div>
       </div>
+
+      {/* Note pin dialog: view (DM + players) and edit (DM only) */}
+      <Dialog open={!!pinDialog} onOpenChange={(open) => { if (!open) setPinDialog(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{pinDialog?.mode === 'edit' ? (pinDialog?.isNew ? 'New note pin' : 'Edit note pin') : 'Note pin'}</DialogTitle>
+          </DialogHeader>
+          {pinDialog && (
+            <div className="space-y-3 mt-2">
+              {pinDialog.mode === 'view' ? (
+                <>
+                  {pinDialog.pin.label ? (
+                    <p className="text-sm font-medium">{pinDialog.pin.label}</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Unlabeled pin.</p>
+                  )}
+                  {pinDialog.pin.wikiArticle && onOpenWikiPage && (
+                    <button
+                      onClick={() => { const pid = pinDialog.pin.wikiArticleId; setPinDialog(null); if (pid && onOpenWikiPage) onOpenWikiPage(pid); }}
+                      className="flex items-center gap-1.5 text-sm text-primary hover:underline w-fit"
+                    >
+                      <BookOpen className="w-4 h-4" /> Read article: {pinDialog.pin.wikiArticle.title}
+                    </button>
+                  )}
+                  <div className="flex gap-2">
+                    <Button variant="secondary" onClick={() => setPinDialog(null)} className="flex-1">Close</Button>
+                    {isDM && <Button onClick={() => openPinEditor(pinDialog.pin, false)} className="flex-1">Edit</Button>}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div><Label>Label</Label><Input value={pinLabel} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPinLabel(e.target.value)} className="mt-1" maxLength={60} placeholder="e.g. Old shrine" /></div>
+                  <div><Label>Linked wiki article (optional)</Label>
+                    <select value={pinArticleId} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPinArticleId(e.target.value)} className="mt-1 h-8 w-full rounded-md bg-card border border-input px-2 text-sm">
+                      <option value="">None</option>
+                      {wikiPages.map((pg) => <option key={pg.id} value={pg.id}>{pg.title}{pg.visibility !== 'shared' ? ' (DM only)' : ''}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button onClick={savePin} className="flex-1">Save</Button>
+                    {!pinDialog.isNew && <Button variant="destructive" onClick={deletePin}>Delete</Button>}
+                    <Button variant="secondary" onClick={() => setPinDialog(null)}>Cancel</Button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
