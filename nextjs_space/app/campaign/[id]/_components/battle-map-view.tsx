@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, SkipBack, SkipForward, Ruler, MonitorUp, Skull, Heart, Minus, Check, Tag, ChevronDown, ChevronRight, Undo2, Redo2 } from 'lucide-react';
+import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, SkipBack, SkipForward, Ruler, MonitorUp, Skull, Heart, Minus, Check, Tag, ChevronDown, ChevronRight, Undo2, Redo2, Pencil, Eraser, Type } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,11 +13,21 @@ interface Token { id: string; label: string; color: string; x: number; y: number
 interface Highlight { id: string; x: number; y: number; w: number; h: number; color: string; label: string; }
 interface TurnEntry { id: string; label: string; initiative: number; characterId?: string; }
 interface Encounter { id: string; name: string; tokens: Token[]; }
-interface SnapshotState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; }
+interface DrawStroke { id: string; color: string; points: Array<{ x: number; y: number }>; }
+interface MapText { id: string; x: number; y: number; text: string; color: string; }
+interface SnapshotState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; drawings: DrawStroke[]; texts: MapText[]; }
 interface Snapshot { id: string; name: string; createdAt: number; state: SnapshotState; }
-interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; encounters: Encounter[]; snapshots: Snapshot[]; }
+interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; encounters: Encounter[]; snapshots: Snapshot[]; drawings: DrawStroke[]; texts: MapText[]; }
 
 const TOKEN_COLORS = ['#D4A547', '#E04040', '#40A040', '#60B5FF', '#C080D0', '#FF9149', '#FF6363', '#80D8C3'];
+
+// Preset colors for freehand drawing / text annotations
+const DRAW_COLORS = [
+  { name: 'Red', value: '#ef4444' },
+  { name: 'White', value: '#ffffff' },
+  { name: 'Yellow', value: '#fbbf24' },
+  { name: 'Blue', value: '#60a5fa' },
+];
 
 // Undo/redo history depth for DM map edits (client-side only).
 const MAX_HISTORY = 50;
@@ -85,7 +95,7 @@ function colLabel(col: number): string {
   return label;
 }
 
-const EMPTY_BATTLE: BattleState = { gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null, turnOrder: [], activeId: null, feetPerSquare: 5, cellNumbers: true, handout: null, encounters: [], snapshots: [] };
+const EMPTY_BATTLE: BattleState = { gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null, turnOrder: [], activeId: null, feetPerSquare: 5, cellNumbers: true, handout: null, encounters: [], snapshots: [], drawings: [], texts: [] };
 
 function sortTurns(turns: TurnEntry[]): TurnEntry[] {
   return [...turns].sort((a, b) => (b.initiative - a.initiative) || a.label.localeCompare(b.label));
@@ -96,6 +106,15 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   const [dragging, setDragging] = useState<string | null>(null);
   const [fogMode, setFogMode] = useState(false);
   const [rulerMode, setRulerMode] = useState(false);
+  const [drawTool, setDrawTool] = useState<'pen' | 'eraser' | 'text' | null>(null);
+  const [drawColor, setDrawColor] = useState('#ef4444');
+  const [drawing, setDrawing] = useState<Array<{ x: number; y: number }> | null>(null);
+  const [eraseIds, setEraseIds] = useState<string[]>([]);
+  const [textDraft, setTextDraft] = useState<{ id?: string; x: number; y: number; text: string; color: string } | null>(null);
+  const penDownRef = useRef(false);
+  const drawingPtsRef = useRef<Array<{ x: number; y: number }>>([]);
+  const erasingRef = useRef(false);
+  const eraseIdsRef = useRef<Set<string>>(new Set());
   const [ruler, setRuler] = useState<{ sx: number; sy: number; ex: number; ey: number } | null>(null);
   const [dragRuler, setDragRuler] = useState<{ sx: number; sy: number; ex: number; ey: number } | null>(null);
   const measuringRef = useRef(false);
@@ -135,6 +154,8 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
         handout: d?.handout ?? null,
         encounters: d?.encounters ?? [],
         snapshots: d?.snapshots ?? [],
+        drawings: d?.drawings ?? [],
+        texts: d?.texts ?? [],
       });
     }
   }, [campaignId]);
@@ -160,15 +181,21 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       .catch(() => setMyCharIds([]));
   }, [isDM, campaignId]);
 
-  // Escape exits ruler mode.
+  // Escape exits ruler/draw modes and cancels any in-progress annotation.
   useEffect(() => {
-    if (!rulerMode) return;
+    if (!rulerMode && !drawTool) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setRulerMode(false); setRuler(null); }
+      if (e.key === 'Escape') {
+        setRulerMode(false); setRuler(null);
+        setDrawTool(null); setDrawing(null);
+        penDownRef.current = false; drawingPtsRef.current = [];
+        erasingRef.current = false; eraseIdsRef.current = new Set(); setEraseIds([]);
+        setTextDraft(null);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rulerMode]);
+  }, [rulerMode, drawTool]);
 
   // Character list for the "link character" dropdown (DM only)
   useEffect(() => {
@@ -261,7 +288,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
 
   const handleCellClick = (x: number, y: number) => {
     if (!isDM) return;
-    if (rulerMode) return;
+    if (rulerMode || drawTool) return;
     if (fogMode) {
       const key = `${x},${y}`;
       const fog = [...(state?.fog ?? [])];
@@ -275,13 +302,26 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   };
 
   const toggleFog = () => {
-    if (!fogMode) { setRulerMode(false); setRuler(null); }
+    if (!fogMode) { setRulerMode(false); setRuler(null); setDrawTool(null); }
     setFogMode(!fogMode);
   };
 
   const toggleRuler = () => {
     if (rulerMode) { setRulerMode(false); setRuler(null); }
-    else { setFogMode(false); setRulerMode(true); }
+    else { setFogMode(false); setDrawTool(null); setRulerMode(true); }
+  };
+
+  const toggleDrawTool = (tool: 'pen' | 'eraser' | 'text') => {
+    if (drawTool === tool) {
+      setDrawTool(null);
+    } else {
+      setFogMode(false);
+      setRulerMode(false); setRuler(null);
+      penDownRef.current = false; drawingPtsRef.current = []; setDrawing(null);
+      erasingRef.current = false; eraseIdsRef.current = new Set(); setEraseIds([]);
+      setTextDraft(null);
+      setDrawTool(tool);
+    }
   };
 
   // Cell under a pointer event on the grid container (4px padding, 1px gaps).
@@ -307,6 +347,123 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   };
 
   const onRulerUp = () => { measuringRef.current = false; };
+
+  // ---- Freehand drawing + text annotations (DM-only) ----
+  // Pointer position in cell units (floats), so strokes stay correct at any cellSize.
+  const drawPointFromPointer = (e: React.PointerEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = Math.max(0, Math.min(gw, (e.clientX - rect.left - 4) / (cellSize + 1)));
+    const y = Math.max(0, Math.min(gh, (e.clientY - rect.top - 4) / (cellSize + 1)));
+    return { x, y };
+  };
+
+  // Eraser: collect ids of strokes with any point within ~0.5 cell of the pointer.
+  const eraseAt = (pt: { x: number; y: number }) => {
+    const hits: string[] = [];
+    for (const s of state?.drawings ?? []) {
+      if (eraseIdsRef.current.has(s.id)) continue;
+      for (const p of s.points) {
+        if (Math.hypot(p.x - pt.x, p.y - pt.y) < 0.55) { hits.push(s.id); break; }
+      }
+    }
+    if (hits.length > 0) {
+      hits.forEach((id) => eraseIdsRef.current.add(id));
+      setEraseIds([...eraseIdsRef.current]);
+    }
+  };
+
+  const onDrawDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!drawTool || !isDM) return;
+    if (drawTool === 'text') {
+      const { x, y } = drawPointFromPointer(e);
+      setTextDraft({ x, y, text: '', color: drawColor });
+      return;
+    }
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    if (drawTool === 'pen') {
+      penDownRef.current = true;
+      const pt = drawPointFromPointer(e);
+      drawingPtsRef.current = [pt];
+      setDrawing([pt]);
+    } else if (drawTool === 'eraser') {
+      erasingRef.current = true;
+      eraseIdsRef.current = new Set();
+      setEraseIds([]);
+      eraseAt(drawPointFromPointer(e));
+    }
+  };
+
+  const onDrawMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!drawTool || !isDM) return;
+    if (drawTool === 'pen' && penDownRef.current) {
+      const pt = drawPointFromPointer(e);
+      const pts = drawingPtsRef.current;
+      const last = pts[pts.length - 1];
+      if (!last || Math.hypot(pt.x - last.x, pt.y - last.y) > 0.08) {
+        drawingPtsRef.current = [...pts, pt];
+        setDrawing(drawingPtsRef.current);
+      }
+    } else if (drawTool === 'eraser' && erasingRef.current) {
+      eraseAt(drawPointFromPointer(e));
+    }
+  };
+
+  // One undo unit per finished stroke (not per point).
+  const onDrawUp = () => {
+    if (drawTool === 'pen' && penDownRef.current) {
+      penDownRef.current = false;
+      const pts = drawingPtsRef.current;
+      drawingPtsRef.current = [];
+      setDrawing(null);
+      if (pts.length > 0 && state) {
+        const ns = { ...state, drawings: [...(state.drawings ?? []), { id: `d_${Date.now()}`, color: drawColor, points: pts }] };
+        commitState(ns);
+      }
+    }
+    if (drawTool === 'eraser' && erasingRef.current) {
+      erasingRef.current = false;
+      const ids = eraseIdsRef.current;
+      eraseIdsRef.current = new Set();
+      setEraseIds([]);
+      if (ids.size > 0 && state) {
+        const ns = { ...state, drawings: (state.drawings ?? []).filter((s) => !ids.has(s.id)) };
+        commitState(ns);
+        toast.success(`Erased ${ids.size} ${ids.size === 1 ? 'stroke' : 'strokes'}`);
+      }
+    }
+  };
+
+  const onDrawCancel = () => {
+    penDownRef.current = false;
+    erasingRef.current = false;
+    eraseIdsRef.current = new Set();
+    setEraseIds([]);
+    drawingPtsRef.current = [];
+    setDrawing(null);
+  };
+
+  const saveTextDraft = () => {
+    const td = textDraft;
+    if (!td || !state) { setTextDraft(null); return; }
+    const text = td.text.trim().slice(0, 60);
+    if (!text) { setTextDraft(null); return; }
+    let texts = [...(state.texts ?? [])];
+    if (td.id) {
+      texts = texts.map((t) => (t.id === td.id ? { ...t, text, color: td.color } : t));
+    } else {
+      texts.push({ id: `txt_${Date.now()}`, x: td.x, y: td.y, text, color: td.color });
+    }
+    commitState({ ...state, texts });
+    setTextDraft(null);
+  };
+
+  const deleteTextDraft = () => {
+    const td = textDraft;
+    if (!td?.id || !state) { setTextDraft(null); return; }
+    commitState({ ...state, texts: (state.texts ?? []).filter((t) => t.id !== td.id) });
+    setTextDraft(null);
+    toast.success('Annotation deleted');
+  };
 
   const isMyToken = (t: Token) => !!t.characterId && myCharIds.includes(t.characterId);
 
@@ -451,7 +608,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     toast.success('Encounter deleted');
   };
 
-  const SNAPSHOT_FIELDS = ['gridWidth', 'gridHeight', 'tokens', 'highlights', 'fog', 'backgroundImage', 'turnOrder', 'activeId', 'feetPerSquare', 'cellNumbers', 'handout'] as const;
+  const SNAPSHOT_FIELDS = ['gridWidth', 'gridHeight', 'tokens', 'highlights', 'fog', 'backgroundImage', 'turnOrder', 'activeId', 'feetPerSquare', 'cellNumbers', 'handout', 'drawings', 'texts'] as const;
 
   const saveSnapshot = () => {
     const name = snapName.trim();
@@ -686,6 +843,67 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     );
   };
 
+  // Freehand drawings + text annotations. Points are stored in cell units and
+  // scaled to px at render so strokes stay correct regardless of cellSize.
+  // DM annotations — read-only for players via the normal state sync.
+  const renderAnnotationLayer = () => {
+    const W = gw * cellSize + (gw - 1);
+    const H = gh * cellSize + (gh - 1);
+    const px = (v: number) => v * (cellSize + 1);
+    const hidden = new Set(eraseIds);
+    const strokes = (state?.drawings ?? []).filter((d) => !hidden.has(d.id));
+    const draft = drawing && drawing.length > 0 ? [{ id: '__draft', color: drawColor, points: drawing }] : [];
+    return (
+      <div className="absolute pointer-events-none" style={{ left: 4, top: 4, width: W, height: H, zIndex: 5 }}>
+        <svg width={W} height={H} style={{ overflow: 'visible', display: 'block' }}>
+          {[...strokes, ...draft].map((d) => d.points.length === 1 ? (
+            <circle key={d.id} cx={px(d.points[0].x)} cy={px(d.points[0].y)} r={3} fill={d.color} />
+          ) : (
+            <polyline key={d.id} points={d.points.map((p) => `${px(p.x).toFixed(1)},${px(p.y).toFixed(1)}`).join(' ')}
+              fill="none" stroke={d.color} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+          ))}
+          {(state?.texts ?? []).map((t) => (
+            <text key={t.id} x={px(t.x)} y={px(t.y)} textAnchor="middle" dominantBaseline="central"
+              fontSize={14} fontWeight={700} fill={t.color}
+              style={{
+                paintOrder: 'stroke', stroke: 'rgba(0,0,0,0.85)', strokeWidth: 3,
+                pointerEvents: drawTool === 'text' && isDM ? 'auto' : 'none',
+                cursor: drawTool === 'text' ? 'pointer' : 'default',
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); if (drawTool === 'text' && isDM) setTextDraft({ id: t.id, x: t.x, y: t.y, text: t.text, color: t.color }); }}>
+              {t.text}
+            </text>
+          ))}
+        </svg>
+        {textDraft && isDM && (
+          <div className="absolute z-30 w-52 rounded-lg border border-border bg-card p-2 shadow-lg space-y-2 pointer-events-auto"
+            style={{
+              left: Math.max(0, Math.min(W - 208, px(textDraft.x) - 104)),
+              top: Math.max(0, Math.min(H - 160, px(textDraft.y) + 14)),
+            }}
+            onPointerDown={(e) => e.stopPropagation()}>
+            <Input autoFocus value={textDraft.text} maxLength={60} placeholder="Annotation…"
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTextDraft({ ...textDraft, text: e.target.value })}
+              onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') saveTextDraft(); else if (e.key === 'Escape') setTextDraft(null); }} />
+            <div className="flex gap-1.5">
+              {DRAW_COLORS.map((c) => (
+                <button key={c.value} title={c.name} onClick={() => setTextDraft({ ...textDraft, color: c.value })}
+                  className={`w-6 h-6 rounded-full border-2 transition-transform ${textDraft.color === c.value ? 'border-foreground scale-110' : 'border-transparent'}`}
+                  style={{ backgroundColor: c.value }} />
+              ))}
+            </div>
+            <div className="flex gap-1">
+              <Button size="sm" onClick={saveTextDraft}>Save</Button>
+              {textDraft.id && <Button size="sm" variant="destructive" onClick={deleteTextDraft} title="Delete annotation"><Trash2 className="w-4 h-4" /></Button>}
+              <Button size="sm" variant="secondary" onClick={() => setTextDraft(null)}>Cancel</Button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-3">
       {isDM && (
@@ -738,6 +956,22 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
           <Button variant={rulerMode ? 'default' : 'secondary'} size="sm" onClick={toggleRuler}>
             <Ruler className="w-4 h-4 mr-1" /> Ruler
           </Button>
+          <div className="flex items-center gap-1 rounded-md border border-border px-1 py-0.5">
+            <Button variant={drawTool === 'pen' ? 'default' : 'ghost'} size="sm" onClick={() => toggleDrawTool('pen')} title="Freehand draw">
+              <Pencil className="w-4 h-4" />
+            </Button>
+            <Button variant={drawTool === 'eraser' ? 'default' : 'ghost'} size="sm" onClick={() => toggleDrawTool('eraser')} title="Eraser — drag over strokes to delete them">
+              <Eraser className="w-4 h-4" />
+            </Button>
+            <Button variant={drawTool === 'text' ? 'default' : 'ghost'} size="sm" onClick={() => toggleDrawTool('text')} title="Text annotation — click the map">
+              <Type className="w-4 h-4" />
+            </Button>
+            {(drawTool === 'pen' || drawTool === 'text') && DRAW_COLORS.map((c) => (
+              <button key={c.value} title={c.name} onClick={() => setDrawColor(c.value)}
+                className={`w-6 h-6 rounded-full border-2 transition-transform ${drawColor === c.value ? 'border-foreground scale-110' : 'border-transparent'}`}
+                style={{ backgroundColor: c.value }} />
+            ))}
+          </div>
           <Button variant={fogMode ? 'default' : 'secondary'} size="sm" onClick={toggleFog}>
             {fogMode ? <Eye className="w-4 h-4 mr-1" /> : <EyeOff className="w-4 h-4 mr-1" />}
             {fogMode ? 'Fog: Click to toggle' : 'Toggle Fog'}
@@ -994,7 +1228,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
               gap: '1px',
               padding: '4px',
               backgroundColor: 'hsl(33 26% 52%)',
-              ...(rulerMode ? { touchAction: 'none' } : {}),
+              ...((rulerMode || drawTool === 'pen' || drawTool === 'eraser') ? { touchAction: 'none' } : {}),
               ...(state?.backgroundImage ? {
                 backgroundImage: `url(/api/files/${state.backgroundImage})`,
                 backgroundSize: `${gw * cellSize + (gw - 1)}px ${gh * cellSize + (gh - 1)}px`,
@@ -1002,10 +1236,10 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                 backgroundRepeat: 'no-repeat',
               } : {}),
             }}
-              onPointerDown={onRulerDown}
-              onPointerMove={onRulerMove}
-              onPointerUp={onRulerUp}
-              onPointerCancel={onRulerUp}>
+              onPointerDown={(e) => { onRulerDown(e); onDrawDown(e); }}
+              onPointerMove={(e) => { onRulerMove(e); onDrawMove(e); }}
+              onPointerUp={() => { onRulerUp(); onDrawUp(); }}
+              onPointerCancel={() => { onRulerUp(); onDrawCancel(); }}>
               {Array.from({ length: gh }, (_, row) =>
                 Array.from({ length: gw }, (_, col) => {
                   const fogged = isFogged(col, row);
@@ -1056,7 +1290,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                         const barH = Math.max(3, Math.round(dim * 0.09));
                         return (
                           <div key={t.id}
-                            draggable={!rulerMode && (isDM || isMyToken(t))}
+                            draggable={!rulerMode && !drawTool && (isDM || isMyToken(t))}
                             onDragStart={() => onTokenDragStart(t)}
                             onDragEnd={onTokenDragEnd}
                             title={`${t.characterName ?? t.label ?? '?'}${hpTracked ? ` — ${curHp}/${maxHp} HP` : ''}`}
@@ -1114,6 +1348,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
               )}
               {ruler && renderRulerOverlay(ruler)}
               {dragRuler && !rulerMode && renderRulerOverlay(dragRuler)}
+              {renderAnnotationLayer()}
             </div>
           </div>
         </div>
