@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, SkipBack, SkipForward, Ruler, MonitorUp, Skull, Heart, Minus, Check, Tag, ChevronDown, ChevronRight } from 'lucide-react';
+import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, SkipBack, SkipForward, Ruler, MonitorUp, Skull, Heart, Minus, Check, Tag, ChevronDown, ChevronRight, Undo2, Redo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,6 +18,9 @@ interface Snapshot { id: string; name: string; createdAt: number; state: Snapsho
 interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; encounters: Encounter[]; snapshots: Snapshot[]; }
 
 const TOKEN_COLORS = ['#D4A547', '#E04040', '#40A040', '#60B5FF', '#C080D0', '#FF9149', '#FF6363', '#80D8C3'];
+
+// Undo/redo history depth for DM map edits (client-side only).
+const MAX_HISTORY = 50;
 
 // PF1e creature footprints in grid squares (Tiny takes half a square)
 const CREATURE_SIZES = [
@@ -110,6 +113,9 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   const [snapNameOpen, setSnapNameOpen] = useState(false);
   const [snapName, setSnapName] = useState('');
   const [confirmRestore, setConfirmRestore] = useState<string | null>(null);
+  const [past, setPast] = useState<string[]>([]);
+  const [future, setFuture] = useState<string[]>([]);
+  const settingsBeforeRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/maps/battle?campaignId=${campaignId}`);
@@ -181,6 +187,74 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     });
   };
 
+  // ---- Undo/redo for DM map edits (client-side only, DM-only) ----
+  // Push a serialized "before" image onto the undo stack: deduped, capped, clears redo.
+  const pushHistory = (snap: string) => {
+    setPast((p) => {
+      if (p.length && p[p.length - 1] === snap) return p;
+      const np = [...p, snap];
+      return np.length > MAX_HISTORY ? np.slice(np.length - MAX_HISTORY) : np;
+    });
+    setFuture([]);
+  };
+
+  // Central choke point for ALL DM mutations: record history, then apply + persist.
+  const commitState = (ns: BattleState) => {
+    if (state) pushHistory(JSON.stringify(state));
+    setState(ns);
+    save(ns);
+  };
+
+  // The grid settings dialog live-edits state without saving; capture the
+  // "before" image when the dialog opens so Save is a single undo unit.
+  const commitSettings = () => {
+    const before = settingsBeforeRef.current;
+    const now = state ? JSON.stringify(state) : null;
+    if (before && now && before !== now) pushHistory(before);
+    if (state) save(state);
+    setSettingsOpen(false);
+    toast.success('Grid updated');
+  };
+
+  const undo = () => {
+    if (!isDM || !past.length || !state) return;
+    const snap = past[past.length - 1];
+    setPast(past.slice(0, -1));
+    setFuture((f) => [...f, JSON.stringify(state)]);
+    const ns = JSON.parse(snap) as BattleState;
+    setState(ns);
+    save(ns);
+  };
+
+  const redo = () => {
+    if (!isDM || !future.length || !state) return;
+    const snap = future[future.length - 1];
+    setFuture(future.slice(0, -1));
+    setPast((p) => [...p, JSON.stringify(state)]);
+    const ns = JSON.parse(snap) as BattleState;
+    setState(ns);
+    save(ns);
+  };
+
+  // Undo/redo deliberately bypass commitState (no history push) so redo keeps working.
+  const undoRef = useRef(undo);
+  const redoRef = useRef(redo);
+  undoRef.current = undo;
+  redoRef.current = redo;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) return;
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); undoRef.current(); }
+      else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redoRef.current(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const cellSize = Math.min(30, Math.floor(800 / (state?.gridWidth ?? 20)));
   const gw = state?.gridWidth ?? 20;
   const gh = state?.gridHeight ?? 20;
@@ -195,8 +269,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       if (idx >= 0) fog.splice(idx, 1);
       else fog.push(key);
       const ns = { ...state, fog };
-      setState(ns);
-      save(ns);
+      commitState(ns);
       return;
     }
   };
@@ -258,8 +331,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     if (isDM) {
       const tokens = (state?.tokens ?? []).map((t: Token) => t.id === id ? { ...t, x, y } : t);
       const ns = { ...state, tokens };
-      setState(ns);
-      save(ns);
+      commitState(ns);
       return;
     }
 
@@ -318,8 +390,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       ...parseTokenHp(newToken.hp, newToken.maxHp),
     };
     const ns = { ...state, tokens: [...(state?.tokens ?? []), t] };
-    setState(ns);
-    save(ns);
+    commitState(ns);
     setNewTokenOpen(false);
     setNewToken({ label: '', color: TOKEN_COLORS[0], size: 'Medium', characterId: '', characterName: '', hp: '', maxHp: '' });
     setAddingToken(false);
@@ -328,8 +399,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
 
   const removeToken = (id: string) => {
     const ns = { ...state, tokens: (state?.tokens ?? []).filter((t: Token) => t.id !== id) };
-    setState(ns);
-    save(ns);
+    commitState(ns);
   };
 
   const saveEncounter = () => {
@@ -343,8 +413,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       tokens: JSON.parse(JSON.stringify(tokens)),
     };
     const ns = { ...state, encounters: [...(state?.encounters ?? []), enc] };
-    setState(ns);
-    save(ns);
+    commitState(ns);
     setEncName('');
     setEncNameOpen(false);
     toast.success(`Encounter "${name}" saved`);
@@ -372,15 +441,13 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       return c;
     });
     const ns = { ...state, tokens: [...(state?.tokens ?? []), ...clones] };
-    setState(ns);
-    save(ns);
+    commitState(ns);
     toast.success(`Spawned "${enc.name}" (${clones.length} token${clones.length === 1 ? '' : 's'})`);
   };
 
   const deleteEncounter = (id: string) => {
     const ns = { ...state, encounters: (state?.encounters ?? []).filter((e: Encounter) => e.id !== id) };
-    setState(ns);
-    save(ns);
+    commitState(ns);
     toast.success('Encounter deleted');
   };
 
@@ -395,8 +462,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     ));
     const snap: Snapshot = { id: `snap_${Date.now()}`, name, createdAt: Date.now(), state: snapState };
     const ns = { ...s, snapshots: [...(s.snapshots ?? []), snap] };
-    setState(ns);
-    save(ns);
+    commitState(ns);
     setSnapName('');
     setSnapNameOpen(false);
     toast.success(`Snapshot "${name}" saved`);
@@ -414,15 +480,13 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     const restored: SnapshotState = JSON.parse(JSON.stringify(snap.state));
     // Encounters and the snapshot library itself survive the restore untouched.
     const ns: BattleState = { ...EMPTY_BATTLE, ...restored, encounters: state?.encounters ?? [], snapshots: state?.snapshots ?? [] };
-    setState(ns);
-    save(ns);
+    commitState(ns);
     toast.success(`Restored snapshot "${snap.name}"`);
   };
 
   const deleteSnapshot = (id: string) => {
     const ns = { ...state, snapshots: (state?.snapshots ?? []).filter((x: Snapshot) => x.id !== id) };
-    setState(ns);
-    save(ns);
+    commitState(ns);
     if (confirmRestore === id) setConfirmRestore(null);
     toast.success('Snapshot deleted');
   };
@@ -434,8 +498,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     if (!upRes.ok) { toast.error('Portrait upload failed'); return; }
     const { cloud_storage_path } = await upRes.json();
     const ns = { ...state, tokens: (state?.tokens ?? []).map((tok: Token) => (tok.id === id ? { ...tok, portraitKey: cloud_storage_path } : tok)) };
-    setState(ns);
-    save(ns);
+    commitState(ns);
     toast.success('Portrait updated');
   };
 
@@ -446,8 +509,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
       delete nt.portraitKey;
       return nt;
     }) };
-    setState(ns);
-    save(ns);
+    commitState(ns);
     toast.success('Portrait removed');
   };
 
@@ -466,8 +528,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
         return { ...tok, hp: Math.max(0, Math.min(m, Math.round(hp))), maxHp: m };
       }),
     };
-    setState(ns);
-    save(ns);
+    commitState(ns);
   };
 
   const adjustTokenHp = (id: string, delta: number) => {
@@ -491,8 +552,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
         return nt;
       }),
     };
-    setState(ns);
-    save(ns);
+    commitState(ns);
   };
 
   const uploadBackground = async (file: File) => {
@@ -502,15 +562,13 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     if (!upRes.ok) { toast.error('Upload failed'); return; }
     const { cloud_storage_path } = await upRes.json();
     const ns = { ...state, backgroundImage: cloud_storage_path };
-    setState(ns);
-    save(ns);
+    commitState(ns);
     toast.success('Background uploaded!');
   };
 
   const removeBackground = () => {
     const ns = { ...state, backgroundImage: null };
-    setState(ns);
-    save(ns);
+    commitState(ns);
   };
 
   // ---- "Show to players" handout push (DM-only; persisted in battle state) ----
@@ -521,8 +579,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   const pushHandoutKey = async (key: string) => {
     setPushingHandout(true);
     const ns = { ...state, handout: { key, pushedAt: Date.now() } };
-    setState(ns);
-    await save(ns);
+    commitState(ns);
     setPushingHandout(false);
     setHandoutOpen(false);
     toast.success('Handout pushed to players!');
@@ -547,8 +604,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
 
   const clearHandout = async () => {
     const ns = { ...state, handout: null };
-    setState(ns);
-    await save(ns);
+    commitState(ns);
     setHandoutOpen(false);
     toast.success('Handout cleared');
   };
@@ -563,8 +619,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     const sorted = sortTurns(turnOrder);
     const safeActive = sorted.some((e) => e.id === activeId) ? activeId : (sorted[0]?.id ?? null);
     const ns = { ...state, turnOrder, activeId: safeActive };
-    setState(ns);
-    save(ns);
+    commitState(ns);
   };
 
   const addManualEntry = () => {
@@ -605,8 +660,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     const idx = Math.max(0, sortedTurns.findIndex((e) => e.id === state?.activeId));
     const next = sortedTurns[(idx + dir + sortedTurns.length) % sortedTurns.length];
     const ns = { ...state, activeId: next.id };
-    setState(ns);
-    save(ns);
+    commitState(ns);
   };
 
   const isFogged = (x: number, y: number) => (state?.fog ?? []).includes(`${x},${y}`);
@@ -636,6 +690,12 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     <div className="space-y-3">
       {isDM && (
         <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="secondary" size="sm" onClick={undo} disabled={!past.length} title="Undo (Ctrl+Z)">
+            <Undo2 className="w-4 h-4" />
+          </Button>
+          <Button variant="secondary" size="sm" onClick={redo} disabled={!future.length} title="Redo (Ctrl+Shift+Z)">
+            <Redo2 className="w-4 h-4" />
+          </Button>
           <Dialog open={newTokenOpen} onOpenChange={setNewTokenOpen}>
             <DialogTrigger asChild><Button size="sm"><Plus className="w-4 h-4 mr-1" /> Add Token</Button></DialogTrigger>
             <DialogContent>
@@ -682,7 +742,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
             {fogMode ? <Eye className="w-4 h-4 mr-1" /> : <EyeOff className="w-4 h-4 mr-1" />}
             {fogMode ? 'Fog: Click to toggle' : 'Toggle Fog'}
           </Button>
-          <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+          <Dialog open={settingsOpen} onOpenChange={(open) => { if (open && state) settingsBeforeRef.current = JSON.stringify(state); setSettingsOpen(open); }}>
             <DialogTrigger asChild><Button variant="secondary" size="sm"><Settings className="w-4 h-4 mr-1" /> Grid Size</Button></DialogTrigger>
             <DialogContent>
               <DialogHeader><DialogTitle>Grid Settings</DialogTitle></DialogHeader>
@@ -694,7 +754,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                 <div><Label>Feet per square</Label><Input type="number" value={state.feetPerSquare} min={1} max={100} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const ns = { ...state, feetPerSquare: Math.min(100, Math.max(1, parseInt(e.target.value) || 5)) }; setState(ns); }} className="mt-1" /></div>
                 <div className="flex items-end gap-2 pb-2"><input id="cellNumbers" type="checkbox" checked={state.cellNumbers} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setState({ ...state, cellNumbers: e.target.checked })} className="h-4 w-4 accent-primary" /><Label htmlFor="cellNumbers">Cell labels (A1, B2&hellip;)</Label></div>
               </div>
-              <Button onClick={() => { save(state); setSettingsOpen(false); toast.success('Grid updated'); }} className="w-full mt-3">Save</Button>
+              <Button onClick={commitSettings} className="w-full mt-3">Save</Button>
             </DialogContent>
           </Dialog>
           <label className="cursor-pointer">
