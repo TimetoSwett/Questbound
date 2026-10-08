@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, SkipBack, SkipForward, Ruler, MonitorUp, Skull, Heart, Minus, Check, Tag } from 'lucide-react';
+import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, SkipBack, SkipForward, Ruler, MonitorUp, Skull, Heart, Minus, Check, Tag, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,7 +12,8 @@ import { DiceRoller } from './dice-roller';
 interface Token { id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; portraitKey?: string; hp?: number; maxHp?: number; conditions?: string[]; }
 interface Highlight { id: string; x: number; y: number; w: number; h: number; color: string; label: string; }
 interface TurnEntry { id: string; label: string; initiative: number; characterId?: string; }
-interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; }
+interface Encounter { id: string; name: string; tokens: Token[]; }
+interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; encounters: Encounter[]; }
 
 const TOKEN_COLORS = ['#D4A547', '#E04040', '#40A040', '#60B5FF', '#C080D0', '#FF9149', '#FF6363', '#80D8C3'];
 
@@ -79,7 +80,7 @@ function colLabel(col: number): string {
   return label;
 }
 
-const EMPTY_BATTLE: BattleState = { gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null, turnOrder: [], activeId: null, feetPerSquare: 5, cellNumbers: true, handout: null };
+const EMPTY_BATTLE: BattleState = { gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null, turnOrder: [], activeId: null, feetPerSquare: 5, cellNumbers: true, handout: null, encounters: [] };
 
 function sortTurns(turns: TurnEntry[]): TurnEntry[] {
   return [...turns].sort((a, b) => (b.initiative - a.initiative) || a.label.localeCompare(b.label));
@@ -100,6 +101,9 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   const [chars, setChars] = useState<Array<{ id: string; name: string }>>([]);
   const [newEntry, setNewEntry] = useState({ label: '', initiative: '' });
   const [myCharIds, setMyCharIds] = useState<string[]>([]);
+  const [encOpen, setEncOpen] = useState(false);
+  const [encNameOpen, setEncNameOpen] = useState(false);
+  const [encName, setEncName] = useState('');
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/maps/battle?campaignId=${campaignId}`);
@@ -117,6 +121,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
         feetPerSquare: d?.feetPerSquare ?? 5,
         cellNumbers: d?.cellNumbers ?? true,
         handout: d?.handout ?? null,
+        encounters: d?.encounters ?? [],
       });
     }
   }, [campaignId]);
@@ -318,6 +323,58 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     const ns = { ...state, tokens: (state?.tokens ?? []).filter((t: Token) => t.id !== id) };
     setState(ns);
     save(ns);
+  };
+
+  const saveEncounter = () => {
+    const tokens = state?.tokens ?? [];
+    if (tokens.length === 0) { toast.error('No tokens on the map to save'); return; }
+    const name = encName.trim();
+    if (!name) { toast.error('Name the encounter first'); return; }
+    const enc: Encounter = {
+      id: `enc_${Date.now()}`,
+      name,
+      tokens: JSON.parse(JSON.stringify(tokens)),
+    };
+    const ns = { ...state, encounters: [...(state?.encounters ?? []), enc] };
+    setState(ns);
+    save(ns);
+    setEncName('');
+    setEncNameOpen(false);
+    toast.success(`Encounter "${name}" saved`);
+  };
+
+  const spawnEncounter = (id: string) => {
+    const enc = (state?.encounters ?? []).find((e: Encounter) => e.id === id);
+    if (!enc) { toast.error('Encounter not found'); return; }
+    const now = Date.now();
+    // Clone as fresh monster/NPC tokens: new ids, full HP, no conditions,
+    // and never carry over a PC character link.
+    const clones: Token[] = enc.tokens.map((t: Token, i: number) => {
+      const c: Token = {
+        id: `t_${now}_${i}`,
+        label: t.label,
+        color: t.color,
+        x: t.x,
+        y: t.y,
+        size: t.size,
+        hp: t.maxHp != null ? t.maxHp : t.hp,
+        maxHp: t.maxHp,
+        conditions: [],
+      };
+      if (t.portraitKey) c.portraitKey = t.portraitKey;
+      return c;
+    });
+    const ns = { ...state, tokens: [...(state?.tokens ?? []), ...clones] };
+    setState(ns);
+    save(ns);
+    toast.success(`Spawned "${enc.name}" (${clones.length} token${clones.length === 1 ? '' : 's'})`);
+  };
+
+  const deleteEncounter = (id: string) => {
+    const ns = { ...state, encounters: (state?.encounters ?? []).filter((e: Encounter) => e.id !== id) };
+    setState(ns);
+    save(ns);
+    toast.success('Encounter deleted');
   };
 
   const setTokenPortrait = async (id: string, file: File) => {
@@ -711,6 +768,55 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                   <button onClick={() => removeToken(t.id)} className="text-destructive hover:text-red-400"><Trash2 className="w-3 h-3" /></button>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Encounters (DM-only) */}
+          {isDM && (
+            <div className="rounded-lg border border-border bg-card p-2">
+              <button onClick={() => setEncOpen(!encOpen)} className="flex w-full items-center gap-1 text-sm font-medium">
+                {encOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                Encounters
+                {(state?.encounters ?? []).length > 0 && (
+                  <span className="text-xs text-muted-foreground">({(state?.encounters ?? []).length})</span>
+                )}
+              </button>
+              {encOpen && (
+                <div className="mt-2 space-y-2">
+                  {encNameOpen ? (
+                    <div className="flex gap-1">
+                      <Input
+                        value={encName}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEncName(e.target.value)}
+                        placeholder="Encounter name"
+                        maxLength={40}
+                        className="h-8 text-sm"
+                      />
+                      <Button size="sm" onClick={saveEncounter}>Save</Button>
+                      <Button size="sm" variant="ghost" onClick={() => { setEncNameOpen(false); setEncName(''); }}>Cancel</Button>
+                    </div>
+                  ) : (
+                    <Button size="sm" variant="secondary" onClick={() => setEncNameOpen(true)}>
+                      <Save className="w-4 h-4 mr-1" /> Save encounter
+                    </Button>
+                  )}
+                  {(state?.encounters ?? []).map((enc: Encounter) => (
+                    <div key={enc.id} className="flex items-center gap-2 rounded border border-border px-2 py-1 text-xs">
+                      <span className="font-medium truncate">{enc.name}</span>
+                      <span className="text-muted-foreground whitespace-nowrap">{enc.tokens.length} token{enc.tokens.length === 1 ? '' : 's'}</span>
+                      <span className="ml-auto flex items-center gap-1">
+                        <Button size="sm" variant="secondary" onClick={() => spawnEncounter(enc.id)}>Spawn</Button>
+                        <button onClick={() => deleteEncounter(enc.id)} className="text-destructive hover:text-red-400 p-1" title="Delete encounter">
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                  {(state?.encounters ?? []).length === 0 && (
+                    <p className="text-xs text-muted-foreground">No saved encounters yet. Arrange tokens on the map, then save them here to reuse later.</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
