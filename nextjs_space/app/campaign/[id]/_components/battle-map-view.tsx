@@ -13,7 +13,9 @@ interface Token { id: string; label: string; color: string; x: number; y: number
 interface Highlight { id: string; x: number; y: number; w: number; h: number; color: string; label: string; }
 interface TurnEntry { id: string; label: string; initiative: number; characterId?: string; }
 interface Encounter { id: string; name: string; tokens: Token[]; }
-interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; encounters: Encounter[]; }
+interface SnapshotState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; }
+interface Snapshot { id: string; name: string; createdAt: number; state: SnapshotState; }
+interface BattleState { gridWidth: number; gridHeight: number; tokens: Token[]; highlights: Highlight[]; fog: string[]; backgroundImage: string | null; turnOrder: TurnEntry[]; activeId: string | null; feetPerSquare: number; cellNumbers: boolean; handout: { key: string; pushedAt: number } | null; encounters: Encounter[]; snapshots: Snapshot[]; }
 
 const TOKEN_COLORS = ['#D4A547', '#E04040', '#40A040', '#60B5FF', '#C080D0', '#FF9149', '#FF6363', '#80D8C3'];
 
@@ -80,7 +82,7 @@ function colLabel(col: number): string {
   return label;
 }
 
-const EMPTY_BATTLE: BattleState = { gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null, turnOrder: [], activeId: null, feetPerSquare: 5, cellNumbers: true, handout: null, encounters: [] };
+const EMPTY_BATTLE: BattleState = { gridWidth: 20, gridHeight: 20, tokens: [], highlights: [], fog: [], backgroundImage: null, turnOrder: [], activeId: null, feetPerSquare: 5, cellNumbers: true, handout: null, encounters: [], snapshots: [] };
 
 function sortTurns(turns: TurnEntry[]): TurnEntry[] {
   return [...turns].sort((a, b) => (b.initiative - a.initiative) || a.label.localeCompare(b.label));
@@ -104,6 +106,10 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   const [encOpen, setEncOpen] = useState(false);
   const [encNameOpen, setEncNameOpen] = useState(false);
   const [encName, setEncName] = useState('');
+  const [snapOpen, setSnapOpen] = useState(false);
+  const [snapNameOpen, setSnapNameOpen] = useState(false);
+  const [snapName, setSnapName] = useState('');
+  const [confirmRestore, setConfirmRestore] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/maps/battle?campaignId=${campaignId}`);
@@ -122,6 +128,7 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
         cellNumbers: d?.cellNumbers ?? true,
         handout: d?.handout ?? null,
         encounters: d?.encounters ?? [],
+        snapshots: d?.snapshots ?? [],
       });
     }
   }, [campaignId]);
@@ -375,6 +382,49 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
     setState(ns);
     save(ns);
     toast.success('Encounter deleted');
+  };
+
+  const SNAPSHOT_FIELDS = ['gridWidth', 'gridHeight', 'tokens', 'highlights', 'fog', 'backgroundImage', 'turnOrder', 'activeId', 'feetPerSquare', 'cellNumbers', 'handout'] as const;
+
+  const saveSnapshot = () => {
+    const name = snapName.trim();
+    if (!name) { toast.error('Name the snapshot first'); return; }
+    const s = state ?? EMPTY_BATTLE;
+    const snapState: SnapshotState = JSON.parse(JSON.stringify(
+      Object.fromEntries(SNAPSHOT_FIELDS.map((f) => [f, (s as any)[f]]))
+    ));
+    const snap: Snapshot = { id: `snap_${Date.now()}`, name, createdAt: Date.now(), state: snapState };
+    const ns = { ...s, snapshots: [...(s.snapshots ?? []), snap] };
+    setState(ns);
+    save(ns);
+    setSnapName('');
+    setSnapNameOpen(false);
+    toast.success(`Snapshot "${name}" saved`);
+  };
+
+  const restoreSnapshot = (id: string) => {
+    const snap = (state?.snapshots ?? []).find((x: Snapshot) => x.id === id);
+    if (!snap) { toast.error('Snapshot not found'); return; }
+    if (confirmRestore !== id) {
+      setConfirmRestore(id);
+      toast('Click Restore again to confirm — this replaces the current map');
+      return;
+    }
+    setConfirmRestore(null);
+    const restored: SnapshotState = JSON.parse(JSON.stringify(snap.state));
+    // Encounters and the snapshot library itself survive the restore untouched.
+    const ns: BattleState = { ...EMPTY_BATTLE, ...restored, encounters: state?.encounters ?? [], snapshots: state?.snapshots ?? [] };
+    setState(ns);
+    save(ns);
+    toast.success(`Restored snapshot "${snap.name}"`);
+  };
+
+  const deleteSnapshot = (id: string) => {
+    const ns = { ...state, snapshots: (state?.snapshots ?? []).filter((x: Snapshot) => x.id !== id) };
+    setState(ns);
+    save(ns);
+    if (confirmRestore === id) setConfirmRestore(null);
+    toast.success('Snapshot deleted');
   };
 
   const setTokenPortrait = async (id: string, file: File) => {
@@ -814,6 +864,61 @@ export function BattleMapView({ campaignId, isDM }: { campaignId: string; isDM: 
                   ))}
                   {(state?.encounters ?? []).length === 0 && (
                     <p className="text-xs text-muted-foreground">No saved encounters yet. Arrange tokens on the map, then save them here to reuse later.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Snapshots (DM-only) */}
+          {isDM && (
+            <div className="rounded-lg border border-border bg-card p-2">
+              <button onClick={() => setSnapOpen(!snapOpen)} className="flex w-full items-center gap-1 text-sm font-medium">
+                {snapOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                Snapshots
+                {(state?.snapshots ?? []).length > 0 && (
+                  <span className="text-xs text-muted-foreground">({(state?.snapshots ?? []).length})</span>
+                )}
+              </button>
+              {snapOpen && (
+                <div className="mt-2 space-y-2">
+                  {snapNameOpen ? (
+                    <div className="flex gap-1">
+                      <Input
+                        value={snapName}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSnapName(e.target.value)}
+                        placeholder="Snapshot name"
+                        maxLength={40}
+                        className="h-8 text-sm"
+                      />
+                      <Button size="sm" onClick={saveSnapshot}>Save</Button>
+                      <Button size="sm" variant="ghost" onClick={() => { setSnapNameOpen(false); setSnapName(''); }}>Cancel</Button>
+                    </div>
+                  ) : (
+                    <Button size="sm" variant="secondary" onClick={() => setSnapNameOpen(true)}>
+                      <Save className="w-4 h-4 mr-1" /> Save snapshot
+                    </Button>
+                  )}
+                  {(state?.snapshots ?? []).map((snap: Snapshot) => (
+                    <div key={snap.id} className="flex items-center gap-2 rounded border border-border px-2 py-1 text-xs">
+                      <span className="font-medium truncate">{snap.name}</span>
+                      <span className="text-muted-foreground whitespace-nowrap">{new Date(snap.createdAt).toLocaleString()}</span>
+                      <span className="ml-auto flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant={confirmRestore === snap.id ? 'destructive' : 'secondary'}
+                          onClick={() => restoreSnapshot(snap.id)}
+                        >
+                          {confirmRestore === snap.id ? 'Confirm restore' : 'Restore'}
+                        </Button>
+                        <button onClick={() => deleteSnapshot(snap.id)} className="text-destructive hover:text-red-400 p-1" title="Delete snapshot">
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                  {(state?.snapshots ?? []).length === 0 && (
+                    <p className="text-xs text-muted-foreground">No snapshots yet. Save the full map state to restore it later.</p>
                   )}
                 </div>
               )}
