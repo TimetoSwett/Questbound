@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   if (!role) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { worldMapImage: true, worldMapImageIsPublic: true } });
   if (!campaign?.worldMapImage) return NextResponse.json({ url: null });
-  const url = await getFileUrl(campaign.worldMapImage, 'image/png', campaign.worldMapImageIsPublic);
+  const url = await getFileUrl(campaign.worldMapImage);
   return NextResponse.json({ url });
 }
 
