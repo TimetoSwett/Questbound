@@ -3,12 +3,15 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'next-auth/react';
-import { Shield, Swords, Globe, Users, LogOut, ChevronLeft, Copy, Check } from 'lucide-react';
+import { Shield, Swords, Globe, Users, BookOpen, LogOut, ChevronLeft, Copy, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { CharactersTab } from './characters-tab';
 import { WorldTab } from './world-tab';
 import { PlayersTab } from './players-tab';
+import { BestiaryTab } from './bestiary-tab';
+
+type TabKey = 'characters' | 'world' | 'bestiary' | 'players';
 
 interface Props {
   campaignId: string;
@@ -17,11 +20,17 @@ interface Props {
   role: string;
   userId: string;
   userName: string;
+  initialTab?: string;
 }
 
-export function CampaignShell({ campaignId, campaignName, inviteCode, role, userId, userName }: Props) {
+const VALID_TABS: TabKey[] = ['characters', 'world', 'bestiary', 'players'];
+
+export function CampaignShell({ campaignId, campaignName, inviteCode, role, userId, userName, initialTab }: Props) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'characters' | 'world' | 'players'>('characters');
+  const startTab: TabKey = VALID_TABS.includes(initialTab as TabKey) && (initialTab !== 'players' || role === 'dm')
+    ? (initialTab as TabKey)
+    : 'characters';
+  const [activeTab, setActiveTab] = useState<TabKey>(startTab);
   const [copied, setCopied] = useState(false);
 
   const copyCode = () => {
@@ -34,6 +43,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
   const tabs = [
     { key: 'characters' as const, label: 'Characters', icon: Swords },
     { key: 'world' as const, label: 'World', icon: Globe },
+    { key: 'bestiary' as const, label: 'Bestiary', icon: BookOpen },
     ...(role === 'dm' ? [{ key: 'players' as const, label: 'Players', icon: Users }] : []),
   ];
 
@@ -86,6 +96,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
       <main className="flex-1">
         {activeTab === 'characters' && <CharactersTab campaignId={campaignId} role={role} userId={userId} />}
         {activeTab === 'world' && <WorldTab campaignId={campaignId} role={role} />}
+        {activeTab === 'bestiary' && <BestiaryTab campaignId={campaignId} role={role} />}
         {activeTab === 'players' && role === 'dm' && <PlayersTab campaignId={campaignId} />}
       </main>
     </div>
