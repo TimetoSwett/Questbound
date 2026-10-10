@@ -70,7 +70,7 @@ export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: s
   const [wikiPages, setWikiPages] = useState<any[]>([]);
   const saveTimer = useRef<any>(null);
   const dataRef = useRef<any>(null);
-  dataRef.current = data;
+  useEffect(() => { dataRef.current = data; }, [data]);
 
   const load = useCallback(async () => {
     try {
@@ -124,7 +124,10 @@ export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: s
     saveTimer.current = setTimeout(() => { void saveNow(); }, 2000);
   }, [saveNow]);
 
-  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
+  // Flush a pending debounced save on unmount (e.g. "Back to Bestiary" within 2s of an edit).
+  useEffect(() => () => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; void saveNow(); }
+  }, [saveNow]);
 
   const update = useCallback((field: string, value: any) => {
     setData((prev: any) => ({ ...(prev ?? {}), [field]: value }));
@@ -185,7 +188,7 @@ export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: s
   }
 
   // Players only ever see the basic card the API returns.
-  if (!isDM) return <PlayerCard data={data} campaignId={campaignId} onBack={() => router.push(`/campaign/${campaignId}?tab=bestiary`)} />;
+  if (!isDM) return <PlayerCard data={data} onBack={() => router.push(`/campaign/${campaignId}?tab=bestiary`)} />;
 
   const wikiTitle = (wikiPages ?? []).find((p) => p?.id === data.wikiPageId)?.title ?? data?.wikiPage?.title;
 
@@ -431,7 +434,7 @@ export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: s
   );
 }
 
-function PlayerCard({ data, campaignId, onBack }: { data: any; campaignId: string; onBack: () => void }) {
+function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-2xl mx-auto px-4 py-6">
@@ -487,14 +490,14 @@ function TextField({ label, value, onChange, placeholder, mono }: {
 function NumField({ label, value, onChange, signed }: {
   label: string; value: number | null | undefined; onChange: (v: string) => void; signed?: boolean;
 }) {
-  const display = value ?? '';
-  const shown = signed && typeof value === 'number' ? `${value >= 0 ? '+' : ''}${value}` : display;
+  // type="number" inputs reject a leading "+", so show the sign in the label instead.
+  const sign = signed && typeof value === 'number' ? ` (${value >= 0 ? '+' : ''}${value})` : '';
   return (
     <div>
-      <label className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</label>
+      <label className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}{sign}</label>
       <Input
         type="number"
-        value={shown}
+        value={value ?? ''}
         onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
         className="h-8 mt-0.5 text-sm font-mono text-center"
       />

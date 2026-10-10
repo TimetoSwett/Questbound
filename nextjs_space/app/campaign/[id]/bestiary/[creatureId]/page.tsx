@@ -1,7 +1,6 @@
 import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
+import { redirect, notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
-import { getUserRole } from '@/lib/campaign-helpers';
 import { CreatureDetail } from './_components/creature-detail';
 
 export default async function CreaturePage({ params }: { params: Promise<{ id: string; creatureId: string }> }) {
@@ -15,8 +14,10 @@ export default async function CreaturePage({ params }: { params: Promise<{ id: s
   });
   if (!membership) redirect('/dashboard');
 
-  const role = await getUserRole(session.user.id ?? '', id);
-  if (!role) redirect('/dashboard');
+  // The creature must belong to this campaign; otherwise the role from the URL's
+  // campaign would be applied to another campaign's creature.
+  const creature = await prisma.creature.findUnique({ where: { id: creatureId }, select: { campaignId: true } });
+  if (!creature || creature.campaignId !== id) notFound();
 
-  return <CreatureDetail campaignId={id} creatureId={creatureId} role={role} />;
+  return <CreatureDetail campaignId={id} creatureId={creatureId} role={membership.role} />;
 }
