@@ -19,25 +19,32 @@ export async function PATCH(request: Request) {
   const role = await getUserRole(session.user.id, campaignId);
   if (!role) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
 
-  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { battleMapState: true } });
-  const st: any = campaign?.battleMapState ?? {};
-  const gw = st?.gridWidth ?? 20;
-  const gh = st?.gridHeight ?? 20;
-  if (x < 0 || y < 0 || x >= gw || y >= gh) return NextResponse.json({ error: 'Out of bounds' }, { status: 400 });
+  // Atomic read-modify-write: lock the campaign row so concurrent moves (or a
+  // DM full-state save) can't interleave, change only this token, and bump
+  // battleMapVersion so a stale DM PUT is rejected rather than undoing it.
+  type Result = { status: number; body: Record<string, unknown> };
+  const result: Result = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${campaignId} FOR UPDATE`;
+    const campaign = await tx.campaign.findUnique({ where: { id: campaignId }, select: { battleMapState: true } });
+    const st: any = campaign?.battleMapState ?? {};
+    const gw = st?.gridWidth ?? 20;
+    const gh = st?.gridHeight ?? 20;
+    if (x < 0 || y < 0 || x >= gw || y >= gh) return { status: 400, body: { error: 'Out of bounds' } };
 
-  const tokens = Array.isArray(st?.tokens) ? st.tokens : [];
-  const token = tokens.find((t: any) => t?.id === tokenId);
-  if (!token) return NextResponse.json({ error: 'Token not found' }, { status: 404 });
+    const tokens = Array.isArray(st?.tokens) ? st.tokens : [];
+    const token = tokens.find((t: any) => t?.id === tokenId);
+    if (!token) return { status: 404, body: { error: 'Token not found' } };
 
-  if (role !== 'dm') {
-    if (!token.characterId) return NextResponse.json({ error: 'You can only move your own character tokens' }, { status: 403 });
-    const character = await prisma.character.findUnique({ where: { id: token.characterId } });
-    if (!character || character.userId !== session.user.id || character.campaignId !== campaignId) {
-      return NextResponse.json({ error: 'You can only move your own character tokens' }, { status: 403 });
+    if (role !== 'dm') {
+      const denied = { status: 403, body: { error: 'You can only move your own character tokens' } };
+      if (!token.characterId) return denied;
+      const character = await tx.character.findUnique({ where: { id: token.characterId } });
+      if (!character || character.userId !== session.user!.id || character.campaignId !== campaignId) return denied;
     }
-  }
 
-  const next = { ...st, tokens: tokens.map((t: any) => (t?.id === tokenId ? { ...t, x, y } : t)) };
-  await prisma.campaign.update({ where: { id: campaignId }, data: { battleMapState: next } });
-  return NextResponse.json({ ok: true, token: { ...token, x, y } });
+    const next = { ...st, tokens: tokens.map((t: any) => (t?.id === tokenId ? { ...t, x, y } : t)) };
+    await tx.campaign.update({ where: { id: campaignId }, data: { battleMapState: next, battleMapVersion: { increment: 1 } } });
+    return { status: 200, body: { ok: true, token: { ...token, x, y } } };
+  });
+  return NextResponse.json(result.body, { status: result.status });
 }

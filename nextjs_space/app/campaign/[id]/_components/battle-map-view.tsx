@@ -142,10 +142,19 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   const [future, setFuture] = useState<string[]>([]);
   const settingsBeforeRef = useRef<string | null>(null);
 
+  // Optimistic-concurrency bookkeeping for DM saves: the server version we
+  // last saw, the tokens as of that version (merge base), and a queue so
+  // saves go out one at a time.
+  const versionRef = useRef(0);
+  const baseTokensRef = useRef<Token[]>([]);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+
   const load = useCallback(async () => {
     const res = await fetch(`/api/maps/battle?campaignId=${campaignId}`);
     if (res.ok) {
       const d = await res.json();
+      versionRef.current = Number.isInteger(d?.version) ? d.version : 0;
+      baseTokensRef.current = d?.tokens ?? [];
       setState({
         gridWidth: d?.gridWidth ?? 20,
         gridHeight: d?.gridHeight ?? 20,
@@ -217,11 +226,47 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   const save = async (s: BattleState) => {
     // Strip server-resolved article titles: the blob stores id refs only; titles re-resolve on GET.
     const clean: BattleState = { ...s, pins: (s.pins ?? []).map((p) => { const { wikiArticle, ...rest } = p; return rest; }) };
-    await fetch('/api/maps/battle', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ campaignId, state: clean }),
-    });
+    const run = async () => {
+      let body = clean;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const res = await fetch('/api/maps/battle', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ campaignId, state: body, version: versionRef.current }),
+        });
+        if (res.ok) {
+          const d = await res.json().catch(() => ({}));
+          if (Number.isInteger(d?.version)) versionRef.current = d.version;
+          baseTokensRef.current = body.tokens ?? [];
+          return;
+        }
+        if (res.status !== 409) { toast.error('Failed to save battle map'); return; }
+        // Someone (usually a player moving their token) saved in between.
+        // Refetch and keep their token moves for any token the DM didn't move.
+        const cur = await fetch(`/api/maps/battle?campaignId=${campaignId}`);
+        if (!cur.ok) { toast.error('Failed to save battle map'); return; }
+        const d = await cur.json();
+        const serverTokens: Token[] = d?.tokens ?? [];
+        const base = new Map(baseTokensRef.current.map((t) => [t.id, t]));
+        const srv = new Map(serverTokens.map((t) => [t.id, t]));
+        const adopted = new Map<string, { x: number; y: number }>();
+        const tokens = (body.tokens ?? []).map((t) => {
+          const b = base.get(t.id); const sv = srv.get(t.id);
+          if (b && sv && b.x === t.x && b.y === t.y && (sv.x !== t.x || sv.y !== t.y)) {
+            adopted.set(t.id, { x: sv.x, y: sv.y });
+            return { ...t, x: sv.x, y: sv.y };
+          }
+          return t;
+        });
+        body = { ...body, tokens };
+        versionRef.current = Number.isInteger(d?.version) ? d.version : versionRef.current;
+        baseTokensRef.current = serverTokens;
+        if (adopted.size) setState((prev: BattleState) => ({ ...prev, tokens: (prev?.tokens ?? []).map((t) => (adopted.has(t.id) ? { ...t, ...adopted.get(t.id)! } : t)) }));
+      }
+      toast.error('Battle map is busy, please try again');
+    };
+    saveQueueRef.current = saveQueueRef.current.then(run, run);
+    await saveQueueRef.current;
   };
 
   // ---- Undo/redo for DM map edits (client-side only, DM-only) ----
@@ -236,8 +281,11 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   };
 
   // Central choke point for ALL DM mutations: record history, then apply + persist.
-  const commitState = (ns: BattleState) => {
+  // persistFirst: wait for the save before rendering, used when ns references
+  // a freshly uploaded image (the file route only serves keys saved on a map).
+  const commitState = async (ns: BattleState, opts?: { persistFirst?: boolean }) => {
     if (state) pushHistory(JSON.stringify(state));
+    if (opts?.persistFirst) { await save(ns); setState(ns); return; }
     setState(ns);
     save(ns);
   };
@@ -600,7 +648,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
       ...parseTokenHp(newToken.hp, newToken.maxHp),
     };
     const ns = { ...state, tokens: [...(state?.tokens ?? []), t] };
-    commitState(ns);
+    await commitState(ns, { persistFirst: !!portraitKey });
     setNewTokenOpen(false);
     setNewToken({ label: '', color: TOKEN_COLORS[0], size: 'Medium', characterId: '', characterName: '', hp: '', maxHp: '' });
     setAddingToken(false);
@@ -708,7 +756,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
     if (!upRes.ok) { toast.error('Portrait upload failed'); return; }
     const { cloud_storage_path } = await upRes.json();
     const ns = { ...state, tokens: (state?.tokens ?? []).map((tok: Token) => (tok.id === id ? { ...tok, portraitKey: cloud_storage_path } : tok)) };
-    commitState(ns);
+    await commitState(ns, { persistFirst: true });
     toast.success('Portrait updated');
   };
 
@@ -772,7 +820,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
     if (!upRes.ok) { toast.error('Upload failed'); return; }
     const { cloud_storage_path } = await upRes.json();
     const ns = { ...state, backgroundImage: cloud_storage_path };
-    commitState(ns);
+    await commitState(ns, { persistFirst: true });
     toast.success('Background uploaded!');
   };
 
