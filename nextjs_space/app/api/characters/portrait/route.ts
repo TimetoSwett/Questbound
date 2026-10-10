@@ -17,6 +17,6 @@ export async function GET(request: Request) {
   const role = character.campaignId ? await getUserRole(session.user.id, character.campaignId) : null;
   if (!isOwner && role !== 'dm') return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
   if (!character.portraitPath) return NextResponse.json({ url: null });
-  const url = await getFileUrl(character.portraitPath, 'image/png', character.portraitIsPublic);
+  const url = await getFileUrl(character.portraitPath);
   return NextResponse.json({ url });
 }
