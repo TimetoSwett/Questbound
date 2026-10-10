@@ -77,6 +77,7 @@ model Campaign {
   battleMapVersion Int    @default(0) // optimistic-concurrency counter for battleMapState
   regionNodes   RegionNode[]
   regionEdges   RegionEdge[]
+  creatures     Creature[]
 }
 
 model CampaignMembership {
@@ -197,6 +198,7 @@ model WikiPage {
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   pins     WorldMapPin[]
+  creatures Creature[]
 
   @@index([campaignId])
 }
@@ -247,6 +249,74 @@ model RegionEdge {
   campaign Campaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   fromNode RegionNode @relation("edgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
   toNode   RegionNode @relation("edgeTo", fields: [toNodeId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+}
+
+// Bestiary / NPC stat block owned by a campaign. GM-managed; players only ever
+// see a basic card for creatures with revealedToPlayers (see lib/creatures.ts).
+model Creature {
+  id         String @id @default(cuid())
+  campaignId String
+  name       String @default("New Creature")
+  type       String @default("") // e.g. Humanoid, Undead
+  subtype    String @default("") // e.g. Goblinoid
+  cr         String @default("") // string to allow fractional CRs like "1/2"
+  alignment  String @default("")
+  size       String @default("Medium")
+  isNpc      Boolean @default(false)
+
+  // Portrait (upload key/path, same as Character.portraitPath)
+  portraitPath String?
+
+  // AC
+  acTotal      Int @default(10)
+  acTouch      Int @default(10)
+  acFlatFooted Int @default(10)
+
+  // HP
+  hpMax     Int @default(0)
+  hpCurrent Int @default(0)
+  hitDice   String @default("") // e.g. "3d8+6"
+
+  // Saves
+  fort Int @default(0)
+  ref  Int @default(0)
+  will Int @default(0)
+
+  // Ability scores (nullable: some creatures have "-" for a score)
+  str Int? @default(10)
+  dex Int? @default(10)
+  con Int? @default(10)
+  int Int? @default(10)
+  wis Int? @default(10)
+  cha Int? @default(10)
+
+  speed Int @default(30)
+
+  // Attacks: [{name, bonus, damage, critical, type, notes}]
+  attacks Json @default("[]")
+  // Skills: [{name, bonus, notes}]
+  skills Json @default("[]")
+  // Feats: [{name, description}]
+  feats Json @default("[]")
+  // Special abilities: [{name, type, description}]
+  specialAbilities Json @default("[]")
+  // Spells: {slots: {0:n,...}, known: [{name,level,school,description,cast,maxCast}]}
+  spells Json @default("{\"slots\":{},\"known\":[]}")
+  // Gear: [{name, weight, quantity, value, notes}]
+  gear Json @default("[]")
+
+  wikiPageId String?
+
+  gmNotes           String  @default("")
+  revealedToPlayers Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  campaign Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  wikiPage WikiPage? @relation(fields: [wikiPageId], references: [id], onDelete: SetNull)
 
   @@index([campaignId])
 }
