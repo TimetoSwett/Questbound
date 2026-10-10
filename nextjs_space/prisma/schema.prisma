@@ -74,6 +74,7 @@ model Campaign {
   worldMapImageIsPublic Boolean @default(true)
   worldMapPins  WorldMapPin[]
   battleMapState Json?    @default("{\"gridWidth\":20,\"gridHeight\":20,\"tokens\":[],\"highlights\":[],\"fog\":[]}")
+  battleMapVersion Int    @default(0) // optimistic-concurrency counter for battleMapState
   regionNodes   RegionNode[]
   regionEdges   RegionEdge[]
 }
