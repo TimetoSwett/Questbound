@@ -20,6 +20,7 @@ model User {
   sessions      Session[]
   memberships   CampaignMembership[]
   characters    Character[]
+  diceRolls     DiceRoll[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
@@ -78,6 +79,7 @@ model Campaign {
   regionNodes   RegionNode[]
   regionEdges   RegionEdge[]
   creatures     Creature[]
+  diceRolls     DiceRoll[]
 }
 
 model CampaignMembership {
@@ -326,4 +328,28 @@ model Creature {
   wikiPage WikiPage? @relation(fields: [wikiPageId], references: [id], onDelete: SetNull)
 
   @@index([campaignId])
+}
+
+// Shared dice roll log per campaign. Rolls are made on the server so results
+// can't be faked; the log is visible to all campaign members (secret rolls
+// only to the DM).
+model DiceRoll {
+  id         String   @id @default(cuid())
+  campaignId String
+  userId     String
+  // Display name captured at roll time.
+  userName   String   @default("Adventurer")
+  // Normalized expression, e.g. "2d20+5".
+  expression String
+  // Individual die results, e.g. [14, 7].
+  results    Json     @default("[]")
+  total      Int
+  // GM secret rolls: returned only to the DM.
+  isSecret   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, createdAt])
 }
