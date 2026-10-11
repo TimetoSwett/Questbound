@@ -12,7 +12,7 @@ import { DiceRoller } from './dice-roller';
 
 interface Token { id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; portraitKey?: string; hp?: number; maxHp?: number; conditions?: string[]; creatureId?: string; }
 interface Highlight { id: string; x: number; y: number; w: number; h: number; color: string; label: string; }
-interface TurnEntry { id: string; label: string; initiative: number; characterId?: string; }
+interface TurnEntry { id: string; label: string; initiative: number; characterId?: string; tokenId?: string; }
 interface Encounter { id: string; name: string; tokens: Token[]; }
 interface DrawStroke { id: string; color: string; points: Array<{ x: number; y: number }>; }
 interface MapText { id: string; x: number; y: number; text: string; color: string; }
@@ -103,6 +103,39 @@ function sortTurns(turns: TurnEntry[]): TurnEntry[] {
   return [...turns].sort((a, b) => (b.initiative - a.initiative) || a.label.localeCompare(b.label));
 }
 
+interface PaletteCreature { id: string; name: string; size: string; portraitPath: string | null; hpMax: number; }
+
+// Creature size label -> grid footprint.
+function creatureFootprint(size: string): number {
+  switch ((size || '').toLowerCase()) {
+    case 'tiny': return 0.5;
+    case 'small': return 1;
+    case 'medium': return 1;
+    case 'large': return 2;
+    case 'huge': return 3;
+    case 'gargantuan': return 4;
+    case 'colossal': return 6;
+    default: return 1;
+  }
+}
+
+// Build a fresh token linked to a bestiary creature. HP is per-token: every
+// token tracks its own current HP independently of the creature (so three
+// goblins get three separate health bars).
+function tokenFromCreature(c: PaletteCreature, x: number, y: number): Token {
+  const t: Token = {
+    id: `t_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    label: c.name || 'Creature',
+    color: TOKEN_COLORS[Math.floor(Math.random() * TOKEN_COLORS.length)],
+    x, y,
+    size: creatureFootprint(c.size),
+    creatureId: c.id,
+  };
+  if (c.portraitPath) t.portraitKey = c.portraitPath;
+  if (Number.isFinite(c.hpMax) && c.hpMax > 0) { t.hp = c.hpMax; t.maxHp = c.hpMax; }
+  return t;
+}
+
 export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId: string; isDM: boolean; onOpenWikiPage?: (pageId: string) => void }) {
   const router = useRouter();
   const [state, setState] = useState<BattleState>(EMPTY_BATTLE);
@@ -132,7 +165,6 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   const justDraggedRef = useRef(false);
 
   // --- Creature linking (bestiary -> battle map) ---
-  interface PaletteCreature { id: string; name: string; size: string; portraitPath: string | null; hpMax: number; }
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteCreatures, setPaletteCreatures] = useState<PaletteCreature[]>([]);
   const [paletteLoaded, setPaletteLoaded] = useState(false);
@@ -150,37 +182,6 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
     } catch { /* ignore */ }
   };
 
-  // Creature size label -> grid footprint.
-  const creatureFootprint = (size: string): number => {
-    switch ((size || '').toLowerCase()) {
-      case 'tiny': return 0.5;
-      case 'small': return 1;
-      case 'medium': return 1;
-      case 'large': return 2;
-      case 'huge': return 3;
-      case 'gargantuan': return 4;
-      case 'colossal': return 6;
-      default: return 1;
-    }
-  };
-
-  // Build a fresh token linked to a bestiary creature. HP is per-token: every
-  // token tracks its own current HP independently of the creature (so three
-  // goblins get three separate health bars).
-  const tokenFromCreature = (c: PaletteCreature, x: number, y: number): Token => {
-    const t: Token = {
-      id: `t_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      label: c.name || 'Creature',
-      color: TOKEN_COLORS[Math.floor(Math.random() * TOKEN_COLORS.length)],
-      x, y,
-      size: creatureFootprint(c.size),
-      creatureId: c.id,
-    };
-    if (c.portraitPath) t.portraitKey = c.portraitPath;
-    if (Number.isFinite(c.hpMax) && c.hpMax > 0) { t.hp = c.hpMax; t.maxHp = c.hpMax; }
-    return t;
-  };
-
   const dropCreatureToken = async (c: PaletteCreature, x: number, y: number) => {
     if (!isDM || !c?.id) return;
     const ns = { ...state, tokens: [...(state?.tokens ?? []), tokenFromCreature(c, x, y)] };
@@ -195,11 +196,10 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
     if (!c) { toast.error('Choose a creature'); return; }
     const n = Math.max(1, Math.min(12, parseInt(String(encCreatureCount), 10) || 1));
     const gw = state?.gridWidth ?? 20;
-    const now = Date.now();
     const tokens: Token[] = [];
     for (let i = 0; i < n; i++) {
       const t = tokenFromCreature(c, (i * 2) % gw, Math.floor((i * 2) / gw) % (state?.gridHeight ?? 20));
-      t.id = `t_${now}_${i}`;
+      t.id = `${t.id}_${i}`;
       tokens.push(t);
     }
     const ns = { ...state, tokens: [...(state?.tokens ?? []), ...tokens] };
@@ -1013,6 +1013,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
         id: `te_${Date.now()}_${t.id}`,
         label: t.characterName ?? t.label,
         initiative: 0,
+        tokenId: t.id,
         ...(t.characterId ? { characterId: t.characterId } : {}),
       }));
     if (!fresh.length) { toast.success('All tokens already in the order'); return; }
@@ -1433,7 +1434,8 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                     <Button size="sm" variant="secondary" onClick={() => void spawnCreaturesFromBestiary()}>Spawn</Button>
                   </div>
                   {(state?.encounters ?? []).map((enc: Encounter) => (
-                    <div key={enc.id} className="flex items-center gap-2 rounded border border-border px-2 py-1 text-xs">                      <span className="font-medium truncate">{enc.name}</span>
+                    <div key={enc.id} className="flex items-center gap-2 rounded border border-border px-2 py-1 text-xs">
+                      <span className="font-medium truncate">{enc.name}</span>
                       <span className="text-muted-foreground whitespace-nowrap">{enc.tokens.length} token{enc.tokens.length === 1 ? '' : 's'}</span>
                       <span className="ml-auto flex items-center gap-1">
                         <Button size="sm" variant="secondary" onClick={() => spawnEncounter(enc.id)}>Spawn</Button>

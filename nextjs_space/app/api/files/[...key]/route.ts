@@ -4,7 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { readUpload, isValidKey } from "@/lib/s3";
 import { getUserRole } from "@/lib/campaign-helpers";
-import { BATTLE_DEFAULTS, collectFileKeys, sanitizeForPlayer } from "@/lib/battle-map";
+import { BATTLE_DEFAULTS, collectFileKeys, filterLinkedTokensForPlayer, sanitizeForPlayer } from "@/lib/battle-map";
 
 // Serves files previously uploaded via POST /api/upload.
 // Upload keys are bare UUIDs with no campaign prefix, so access is decided by
@@ -78,7 +78,9 @@ async function canAccess(userId: string, key: string): Promise<boolean> {
     let state: Record<string, any> = { ...BATTLE_DEFAULTS, ...((campaign?.battleMapState ?? {}) as Record<string, any>) };
     if (role !== "dm") {
       const mine = await prisma.character.findMany({ where: { campaignId: id, userId }, select: { id: true } });
+      const full = state.tokens;
       state = sanitizeForPlayer(state, mine.map((c) => c.id));
+      state = await filterLinkedTokensForPlayer(state, id, full);
     }
     if (collectFileKeys(state).has(key)) return true;
   }
