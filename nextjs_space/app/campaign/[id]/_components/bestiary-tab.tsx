@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Copy, Trash2, Search, BookOpen, Eye, EyeOff } from 'lucide-react';
+import { Plus, Copy, Trash2, Search, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -19,11 +19,12 @@ interface CreatureSummary {
   cr: string;
   isNpc: boolean;
   portraitUrl?: string | null;
-  revealedToPlayers?: boolean;
+  revealLevel?: string;
   hpMax?: number;
   hpCurrent?: number;
 }
 
+/** Numeric value of a CR string like "1/2", "1/3", "2" for sorting. */
 /** Numeric value of a CR string like "1/2", "1/3", "2" for sorting. */
 function crValue(cr: string): number {
   const s = (cr ?? '').trim();
@@ -35,6 +36,14 @@ function crValue(cr: string): number {
   const v = Number(s);
   return Number.isFinite(v) ? v : 999;
 }
+
+const LEVEL_LABEL: Record<string, string> = { hidden: 'Hidden', unknown: 'Unknown', named: 'Named', full: 'Full' };
+const LEVEL_CLASS: Record<string, string> = {
+  hidden: 'text-muted-foreground',
+  unknown: 'text-amber-600 border-amber-600/40',
+  named: 'text-blue-600 border-blue-600/40',
+  full: 'text-green-700 border-green-700/40',
+};
 
 export function BestiaryTab({ campaignId, role }: { campaignId: string; role: string }) {
   const router = useRouter();
@@ -208,8 +217,8 @@ export function BestiaryTab({ campaignId, role }: { campaignId: string; role: st
                           {c.isNpc ? 'NPC' : 'Monster'}
                         </Badge>
                         {isDM && (
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex items-center gap-1">
-                            {c.revealedToPlayers ? <><Eye className="w-3 h-3" /> Revealed</> : <><EyeOff className="w-3 h-3" /> Hidden</>}
+                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${LEVEL_CLASS[c.revealLevel ?? 'hidden'] ?? ''}`}>
+                            {LEVEL_LABEL[c.revealLevel ?? 'hidden'] ?? c.revealLevel ?? 'Hidden'}
                           </Badge>
                         )}
                       </div>
