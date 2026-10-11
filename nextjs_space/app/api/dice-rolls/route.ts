@@ -10,6 +10,31 @@ const rollSelect = {
   total: true, isSecret: true, createdAt: true,
 } as const;
 
+function parseDate(v: string | null): Date | null | 'invalid' {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(+d) ? 'invalid' : d;
+}
+
+// Simple per-user, per-process rate limit for POST (single-instance app).
+const RATE_WINDOW_MS = 10_000;
+const RATE_MAX = 20;
+const recentRolls = new Map<string, number[]>();
+function rateLimited(userId: string): boolean {
+  const now = Date.now();
+  const hits = (recentRolls.get(userId) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
+  if (hits.length >= RATE_MAX) {
+    recentRolls.set(userId, hits);
+    return true;
+  }
+  hits.push(now);
+  recentRolls.set(userId, hits);
+  if (recentRolls.size > 5000) {
+    for (const [k, v] of recentRolls) if (!v.some((t) => now - t < RATE_WINDOW_MS)) recentRolls.delete(k);
+  }
+  return false;
+}
+
 // GET ?campaignId=&limit=&before=&after= — campaign members only.
 // Non-DMs never receive secret rolls. Returns chronological (oldest first).
 // `before` (ISO) pages older rolls; `after` (ISO) polls for newer ones.
@@ -23,17 +48,22 @@ export async function GET(request: Request) {
   if (!role) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
 
   const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') ?? '100', 10) || 100));
-  const before = searchParams.get('before');
-  const after = searchParams.get('after');
+  const before = parseDate(searchParams.get('before'));
+  const after = parseDate(searchParams.get('after'));
+  if (before === 'invalid' || after === 'invalid') {
+    return NextResponse.json({ error: 'Invalid before/after timestamp' }, { status: 400 });
+  }
 
   const where: Record<string, unknown> = { campaignId };
   if (role !== 'dm') where.isSecret = false;
-  if (before) where.createdAt = { lt: new Date(before) };
-  else if (after) where.createdAt = { gte: new Date(after) };
+  if (before) where.createdAt = { lt: before };
+  else if (after) where.createdAt = { gte: after };
 
+  // Polling (`after`) reads oldest-first so a burst of >limit new rolls isn't
+  // skipped; history/initial load read newest-first.
   const rolls = await prisma.diceRoll.findMany({
     where,
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: !before && after ? 'asc' : 'desc' },
     take: limit,
     select: rollSelect,
   });
@@ -46,7 +76,17 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  if (rateLimited(session.user.id)) {
+    return NextResponse.json({ error: 'Too many rolls, slow down' }, { status: 429 });
+  }
+  const raw = await request.text().catch(() => '');
+  if (raw.length > 2000) return NextResponse.json({ error: 'Request too large' }, { status: 413 });
+  let body: Record<string, unknown> | null = null;
+  try {
+    body = JSON.parse(raw) as Record<string, unknown> | null;
+  } catch {
+    body = null;
+  }
   const campaignId = body?.campaignId;
   if (typeof campaignId !== 'string' || !campaignId) {
     return NextResponse.json({ error: 'campaignId required' }, { status: 400 });

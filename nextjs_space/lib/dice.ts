@@ -11,7 +11,10 @@ export interface ParsedRoll {
 }
 
 /** Parse "2d20+5", "d6", "3d8-2". Returns null when invalid or out of bounds. */
+export const MAX_EXPRESSION_LENGTH = 32;
+
 export function parseDiceExpression(input: string): ParsedRoll | null {
+  if (typeof input !== 'string' || input.length > MAX_EXPRESSION_LENGTH) return null;
   const m = /^\s*(\d*)\s*d\s*(\d+)\s*([+-]\s*\d+)?\s*$/i.exec(input ?? '');
   if (!m) return null;
   const count = m[1] === '' ? 1 : parseInt(m[1], 10);
