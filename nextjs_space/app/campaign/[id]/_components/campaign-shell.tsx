@@ -3,13 +3,14 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'next-auth/react';
-import { Shield, Swords, Globe, Users, BookOpen, LogOut, ChevronLeft, Copy, Check, Dices } from 'lucide-react';
+import { Shield, Swords, Globe, Users, BookOpen, LogOut, ChevronLeft, Copy, Check, Dices, Castle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { CharactersTab } from './characters-tab';
 import { WorldTab } from './world-tab';
 import { PlayersTab } from './players-tab';
 import { BestiaryTab } from './bestiary-tab';
+import { TownsTab } from './towns-tab';
 import { RollLog } from './roll-log';
 
 const DESKTOP_QUERY = '(min-width: 1024px)';
@@ -22,7 +23,7 @@ function getIsDesktop() {
   return window.matchMedia(DESKTOP_QUERY).matches;
 }
 
-type TabKey = 'characters' | 'world' | 'bestiary' | 'players';
+type TabKey = 'characters' | 'world' | 'bestiary' | 'towns' | 'players';
 
 interface Props {
   campaignId: string;
@@ -34,7 +35,7 @@ interface Props {
   initialTab?: string;
 }
 
-const VALID_TABS: TabKey[] = ['characters', 'world', 'bestiary', 'players'];
+const VALID_TABS: TabKey[] = ['characters', 'world', 'bestiary', 'towns', 'players'];
 
 export function CampaignShell({ campaignId, campaignName, inviteCode, role, userId, userName, initialTab }: Props) {
   const router = useRouter();
@@ -70,6 +71,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
     { key: 'characters' as const, label: 'Characters', icon: Swords },
     { key: 'world' as const, label: 'World', icon: Globe },
     { key: 'bestiary' as const, label: 'Bestiary', icon: BookOpen },
+    { key: 'towns' as const, label: 'Towns', icon: Castle },
     ...(role === 'dm' ? [{ key: 'players' as const, label: 'Players', icon: Users }] : []),
   ];
 
@@ -127,6 +129,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
           {activeTab === 'characters' && <CharactersTab campaignId={campaignId} role={role} userId={userId} />}
           {activeTab === 'world' && <WorldTab campaignId={campaignId} role={role} />}
           {activeTab === 'bestiary' && <BestiaryTab campaignId={campaignId} role={role} />}
+          {activeTab === 'towns' && <TownsTab campaignId={campaignId} role={role} />}
           {activeTab === 'players' && role === 'dm' && <PlayersTab campaignId={campaignId} />}
         </main>
         {logOpen && (
