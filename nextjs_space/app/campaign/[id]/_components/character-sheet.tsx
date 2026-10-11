@@ -77,6 +77,14 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
     } catch { /* ignore */ }
   }, [characterId]);
 
+  const parseJson = (val: any, fallback: any) => {
+    if (!val) return fallback;
+    if (typeof val === 'string') {
+      try { return JSON.parse(val); } catch { return fallback; }
+    }
+    return val;
+  };
+
   // Load character data directly
   useEffect(() => {
     const fetchChar = async () => {
@@ -110,21 +118,8 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
     fetchChar();
   }, [characterId]);
 
-  const parseJson = (val: any, fallback: any) => {
-    if (!val) return fallback;
-    if (typeof val === 'string') {
-      try { return JSON.parse(val); } catch { return fallback; }
-    }
-    return val;
-  };
-
   const update = useCallback((field: string, value: any) => {
     setData((prev: any) => ({ ...(prev ?? {}), [field]: value }));
-  }, []);
-
-  const autoSave = useCallback(() => {
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => saveNow(), 2000);
   }, []);
 
   const saveNow = async () => {
@@ -189,6 +184,16 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
     } catch { toast.error('Save error'); } finally { setSaving(false); }
   };
 
+  const saveNowRef = useRef(saveNow);
+  useEffect(() => {
+    saveNowRef.current = saveNow;
+  }, [saveNow]);
+
+  const autoSave = useCallback(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => saveNowRef.current(), 2000);
+  }, []);
+
   const uploadPortrait = async (file: File) => {
     try {
       const form = new FormData();
@@ -242,8 +247,6 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
   }, [stats]);
 
   if (!data) return <div className="text-center py-20 text-muted-foreground">Loading character...</div>;
-
-
 
   const sections = [
     { key: 'core', label: 'Core', icon: User },
