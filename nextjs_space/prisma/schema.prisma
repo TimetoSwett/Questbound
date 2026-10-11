@@ -80,6 +80,7 @@ model Campaign {
   regionEdges   RegionEdge[]
   creatures     Creature[]
   diceRolls     DiceRoll[]
+  towns         Town[]
 }
 
 model CampaignMembership {
@@ -201,6 +202,7 @@ model WikiPage {
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   pins     WorldMapPin[]
   creatures Creature[]
+  towns    Town[]
 
   @@index([campaignId])
 }
@@ -219,6 +221,7 @@ model WorldMapPin {
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   wikiPage WikiPage? @relation(fields: [wikiPageId], references: [id], onDelete: SetNull)
+  towns    Town[]
 
   @@index([campaignId])
 }
@@ -327,6 +330,9 @@ model Creature {
   campaign Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   wikiPage WikiPage? @relation(fields: [wikiPageId], references: [id], onDelete: SetNull)
 
+  residences  TownResident[]
+  shopkeeping TownPlace[] @relation("PlaceShopkeeper")
+
   @@index([campaignId])
 }
 
@@ -352,4 +358,74 @@ model DiceRoll {
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([campaignId, createdAt])
+}
+
+// Towns per campaign, with the same reveal controls as creatures
+// (revealLevel + unlockedSections, scrambled server-side; gmNotes never
+// sent to players).
+model Town {
+  id          String   @id @default(cuid())
+  campaignId  String
+  name        String
+  // PF1e settlement size: thorp, hamlet, village, small town, large town,
+  // small city, large city, metropolis
+  size        String   @default("village")
+  population  Int?
+  government  String   @default("")
+  description String   @default("")
+  // GM-only notes, never sent to players.
+  gmNotes     String   @default("")
+  // Reveal controls, same semantics as creatures: hidden | unknown | named | full
+  revealLevel      String @default("hidden")
+  unlockedSections Json   @default("[]")
+  wikiPageId  String?
+  mapPinId    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  campaign  Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  wikiPage  WikiPage?    @relation(fields: [wikiPageId], references: [id], onDelete: SetNull)
+  mapPin    WorldMapPin? @relation(fields: [mapPinId], references: [id], onDelete: SetNull)
+  residents TownResident[]
+  places    TownPlace[]
+
+  @@index([campaignId])
+}
+
+// Resident NPCs pulled from the Bestiary. A creature can belong to at most
+// one town (enforced by the unique creatureId).
+model TownResident {
+  id         String @id @default(cuid())
+  townId     String
+  creatureId String @unique
+  // The NPC's role in the town, e.g. "Innkeeper".
+  role       String @default("")
+  // Disposition toward the party, e.g. "Friendly".
+  disposition String @default("")
+
+  town     Town     @relation(fields: [townId], references: [id], onDelete: Cascade)
+  creature Creature @relation(fields: [creatureId], references: [id], onDelete: Cascade)
+
+  @@index([townId])
+}
+
+// Shops and notable places in a town.
+model TownPlace {
+  id          String  @id @default(cuid())
+  townId      String
+  name        String
+  type        String  @default("")
+  description String  @default("")
+  // Optional shopkeeper linked to a Bestiary NPC.
+  shopkeeperId String?
+  // GM-only notes, never sent to players.
+  gmNotes     String  @default("")
+  // "hidden" | "revealed" — hidden places are invisible to players.
+  revealLevel String  @default("hidden")
+
+  town       Town      @relation(fields: [townId], references: [id], onDelete: Cascade)
+  shopkeeper Creature? @relation("PlaceShopkeeper", fields: [shopkeeperId], references: [id], onDelete: SetNull)
+
+  @@index([townId])
 }
