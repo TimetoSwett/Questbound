@@ -23,38 +23,62 @@ const CATEGORIES = ['NPC', 'Location', 'Faction', 'Lore', 'Item'];
 
 export function WikiView({ campaignId, isDM, initialPageId }: { campaignId: string; isDM: boolean; initialPageId?: string | null }) {
   const [pages, setPages] = useState<WikiPage[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialPageId ?? null);
+  const [previousInitialPageId, setPreviousInitialPageId] = useState(initialPageId);
+  if (previousInitialPageId !== initialPageId) {
+    setPreviousInitialPageId(initialPageId);
+    if (initialPageId) setSelectedId(initialPageId);
+  }
   const [search, setSearch] = useState('');
-  const [editTitle, setEditTitle] = useState('');
-  const [editCategory, setEditCategory] = useState('Lore');
-  const [editBody, setEditBody] = useState('');
-  const [editVisibility, setEditVisibility] = useState('dm_only');
   const [createOpen, setCreateOpen] = useState(false);
   const [obsidianOpen, setObsidianOpen] = useState(false);
   const [obsidianText, setObsidianText] = useState('');
 
-  const load = useCallback(async () => {
+  const request = useCallback(async () => {
     const res = await fetch(`/api/wiki?campaignId=${campaignId}`);
-    if (res.ok) setPages(await res.json() ?? []);
+    return res.ok ? (await res.json() ?? []) : null;
   }, [campaignId]);
 
-  useEffect(() => { load(); }, [load]);
+  const applyResult = useCallback((result: WikiPage[] | null) => {
+    if (result) setPages(result);
+  }, []);
 
-  // Deep link: select the article when a pin's "Read article" is clicked.
+  const load = useCallback(async () => {
+    applyResult(await request());
+  }, [request, applyResult]);
+
   useEffect(() => {
-    if (initialPageId) setSelectedId(initialPageId);
-  }, [initialPageId]);
+    let active = true;
+    request().then((result) => {
+      if (active) applyResult(result);
+    });
+    return () => { active = false; };
+  }, [request, applyResult]);
 
   const selected = (pages ?? []).find((p: WikiPage) => p.id === selectedId);
+  const [draft, setDraft] = useState<{
+    source: WikiPage | undefined;
+    title: string;
+    category: string;
+    body: string;
+    visibility: string;
+  }>({ source: undefined, title: '', category: 'Lore', body: '', visibility: 'dm_only' });
 
-  useEffect(() => {
-    if (selected) {
-      setEditTitle(selected.title ?? '');
-      setEditCategory(selected.category ?? 'Lore');
-      setEditBody(selected.body ?? '');
-      setEditVisibility(selected.visibility ?? 'dm_only');
-    }
-  }, [selectedId, selected]);
+  // A different article or a refreshed server result starts a fresh edit draft.
+  if (draft.source !== selected) {
+    setDraft({
+      source: selected,
+      title: selected ? (selected.title ?? '') : draft.title,
+      category: selected ? (selected.category ?? 'Lore') : draft.category,
+      body: selected ? (selected.body ?? '') : draft.body,
+      visibility: selected ? (selected.visibility ?? 'dm_only') : draft.visibility,
+    });
+  }
+  const { title: editTitle, category: editCategory, body: editBody, visibility: editVisibility } = draft;
+  const setEditTitle = (title: string) => setDraft((prev) => ({ ...prev, title }));
+  const setEditCategory = (category: string) => setDraft((prev) => ({ ...prev, category }));
+  const setEditBody = (body: string) => setDraft((prev) => ({ ...prev, body }));
+  const setEditVisibility = (visibility: string) => setDraft((prev) => ({ ...prev, visibility }));
 
   const savePage = async () => {
     if (!selectedId) return;
