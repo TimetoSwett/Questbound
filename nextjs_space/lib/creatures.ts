@@ -58,10 +58,13 @@ export function creatureWhereFor(role: string, campaignId: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Server-side scrambling. Locked fields are replaced with random filler of
-// similar length — the real text NEVER leaves the server, so there is nothing
-// to copy out or un-style. Filler uses Runic Unicode glyphs so it renders in a
-// runic style without any client font.
+// Server-side scrambling. Locked fields are replaced with runic filler — the
+// real text NEVER leaves the server, so there is nothing to copy out or
+// un-style. Strings get random runic filler of similar length (whitespace
+// preserved); numbers are NEVER sent — every locked number becomes the same
+// fixed 2-rune string, so no digits, signs, or magnitudes leak. Null stays
+// null. Filler uses Runic Unicode glyphs so it renders in a runic style
+// without any client font.
 // ---------------------------------------------------------------------------
 
 const RUNES = 'ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚾᛁᛃᛇᛈᛉᛊᛏᛒᛖᛗᛚᛜᛞᛟ';
@@ -95,14 +98,10 @@ function scrambleText(real: string, seed: string): string {
     .join('');
 }
 
-/** Random number with the same digit count. */
-function scrambleNumber(n: number, seed: string): number {
-  if (!Number.isFinite(n)) return n;
-  const digits = String(Math.abs(Math.trunc(n))).length || 1;
-  const rand = mulberry32(hashSeed(seed));
-  const min = digits <= 1 ? 0 : 10 ** (digits - 1);
-  const v = min + Math.floor(rand() * (10 ** digits - min));
-  return n < 0 ? -v : v;
+/** Locked numbers are never sent: fixed 2-rune filler, no digits or magnitude. */
+export const LOCKED_NUMBER_FILLER = 'ᚱᚢ';
+function scrambleNumber(_n: number, _seed: string): string {
+  return LOCKED_NUMBER_FILLER;
 }
 
 function scrambleValue(v: unknown, seed: string): unknown {
