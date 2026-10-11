@@ -309,8 +309,15 @@ model Creature {
 
   wikiPageId String?
 
-  gmNotes           String  @default("")
-  revealedToPlayers Boolean @default(false)
+  gmNotes String @default("")
+  // Player-facing notes (weaknesses, rumors) — visible when the playerNotes
+  // section is unlocked (named) or everything is revealed (full). gmNotes is GM-only.
+  playerNotes String @default("")
+  // GM-set knowledge reveal level, party-wide: hidden | unknown | named | full
+  revealLevel String @default("hidden")
+  // Section keys unlocked at the "named" level: defense, offense, statistics,
+  // specialAbilities, playerNotes, wiki
+  unlockedSections Json @default("[]")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
