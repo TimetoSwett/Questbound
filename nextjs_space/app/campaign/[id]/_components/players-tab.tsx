@@ -33,23 +33,32 @@ export function PlayersTab({ campaignId }: { campaignId: string }) {
   const [newName, setNewName] = useState('');
   const [copied, setCopied] = useState(false);
 
-  const load = useCallback(async () => {
+  const loadRequest = useCallback(async () => {
     const [campRes, charRes] = await Promise.all([
       fetch('/api/campaigns'),
       fetch(`/api/characters?campaignId=${campaignId}`),
     ]);
-    if (campRes.ok) {
-      const camps = await campRes.json();
-      const c = (camps ?? []).find((x: any) => x?.id === campaignId);
-      if (c) {
-        setCampaign(c);
-        setMembers(c.memberships ?? []);
-      }
-    }
-    if (charRes.ok) setCharacters(await charRes.json() ?? []);
+    const camps = campRes.ok ? await campRes.json() : [];
+    return { campaign: (camps ?? []).find((c: any) => c?.id === campaignId), characters: charRes.ok ? (await charRes.json() ?? []) : null };
   }, [campaignId]);
 
-  useEffect(() => { load(); }, [load]);
+  const loadResult = useCallback((result: Awaited<ReturnType<typeof loadRequest>>) => {
+    if (result.campaign) {
+      setCampaign(result.campaign);
+      setMembers(result.campaign.memberships ?? []);
+    }
+    if (result.characters) setCharacters(result.characters);
+  }, []);
+
+  const load = useCallback(async () => {
+    loadResult(await loadRequest());
+  }, [loadRequest, loadResult]);
+
+  useEffect(() => {
+    let active = true;
+    loadRequest().then((result) => { if (active) loadResult(result); });
+    return () => { active = false; };
+  }, [loadRequest, loadResult]);
 
   const regenCode = async () => {
     const res = await fetch('/api/campaigns', {

@@ -74,25 +74,43 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
   const [editingId, setEditingId] = useState<string | null>(null);
   const [attachChar, setAttachChar] = useState<VaultChar | null>(null);
 
-  const fetchCampaigns = async () => {
+  const requestCampaigns = useCallback(async () => {
+    const res = await fetch('/api/campaigns');
+    return res.ok ? (await res.json() ?? []) : null;
+  }, []);
+  const requestVault = useCallback(async () => {
+    const res = await fetch('/api/characters');
+    return res.ok ? (await res.json() ?? []) : null;
+  }, []);
+
+  const fetchCampaigns = useCallback(async () => {
     try {
-      const res = await fetch('/api/campaigns');
-      if (res.ok) {
-        const data = await res.json();
-        setCampaigns(data ?? []);
-      }
+      const result = await requestCampaigns();
+      if (result) setCampaigns(result);
     } catch { /* ignore */ } finally { setLoading(false); }
-  };
+  }, [requestCampaigns]);
 
   const fetchVault = useCallback(async () => {
     try {
-      const res = await fetch('/api/characters');
-      if (res.ok) setVault(await res.json() ?? []);
+      const result = await requestVault();
+      if (result) setVault(result);
     } catch { /* ignore */ } finally { setVaultLoading(false); }
-  }, []);
+  }, [requestVault]);
 
-  useEffect(() => { fetchCampaigns(); }, []);
-  useEffect(() => { fetchVault(); }, [fetchVault]);
+  useEffect(() => {
+    let active = true;
+    requestCampaigns().then((result) => {
+      if (active && result) setCampaigns(result);
+    }).catch(() => { /* ignore */ }).finally(() => {
+      if (active) setLoading(false);
+    });
+    requestVault().then((result) => {
+      if (active && result) setVault(result);
+    }).catch(() => { /* ignore */ }).finally(() => {
+      if (active) setVaultLoading(false);
+    });
+    return () => { active = false; };
+  }, [requestCampaigns, requestVault]);
 
   const handleCreate = async () => {
     if (!newName.trim()) { toast.error('Enter a campaign name'); return; }

@@ -23,14 +23,28 @@ export function CharactersTab({ campaignId, role, userId }: { campaignId: string
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/characters?campaignId=${campaignId}`);
-      if (res.ok) setCharacters(await res.json() ?? []);
-    } catch { /* ignore */ } finally { setLoading(false); }
+  const request = useCallback(async () => {
+    const res = await fetch(`/api/characters?campaignId=${campaignId}`);
+    return res.ok ? (await res.json() ?? []) : null;
   }, [campaignId]);
 
-  useEffect(() => { load(); }, [load]);
+  const applyResult = useCallback((result: CharSummary[] | null) => {
+    if (result) setCharacters(result);
+  }, []);
+
+  const load = useCallback(async () => {
+    try { applyResult(await request()); } catch { /* ignore */ } finally { setLoading(false); }
+  }, [request, applyResult]);
+
+  useEffect(() => {
+    let active = true;
+    request().then((result) => {
+      if (active) applyResult(result);
+    }).catch(() => { /* ignore */ }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, [request, applyResult]);
 
   const createChar = async () => {
     const res = await fetch('/api/characters', {
