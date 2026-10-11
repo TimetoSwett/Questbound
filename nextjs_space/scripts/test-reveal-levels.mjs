@@ -89,6 +89,8 @@ for (const [section, obj] of [['offense', view.offense], ['statistics', view.sta
   }
 }
 ok(view.offense.speed === C.LOCKED_NUMBER_FILLER, 'locked speed is the fixed filler');
+// Object keys too (spells.slots is keyed by spell level).
+ok(!/\d/.test(JSON.stringify(view.offense)), 'locked offense JSON (incl. keys) has no digits');
 // Identity fields (except name) stay scrambled until full.
 for (const k of ['type', 'subtype', 'size', 'cr', 'alignment']) {
   ok(isRunic(view[k]), `identity field ${k} is runic`);
