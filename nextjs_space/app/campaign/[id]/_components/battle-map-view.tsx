@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { Save, Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ImagePlus, X, ListOrdered, SkipBack, SkipForward, Ruler, MonitorUp, Skull, Heart, Minus, Check, Tag, ChevronDown, ChevronRight, Undo2, Redo2, Pencil, Eraser, Type, MapPin, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from 'sonner';
 import { DiceRoller } from './dice-roller';
 
-interface Token { id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; portraitKey?: string; hp?: number; maxHp?: number; conditions?: string[]; }
+interface Token { id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; portraitKey?: string; hp?: number; maxHp?: number; conditions?: string[]; creatureId?: string; }
 interface Highlight { id: string; x: number; y: number; w: number; h: number; color: string; label: string; }
 interface TurnEntry { id: string; label: string; initiative: number; characterId?: string; }
 interface Encounter { id: string; name: string; tokens: Token[]; }
@@ -103,6 +104,7 @@ function sortTurns(turns: TurnEntry[]): TurnEntry[] {
 }
 
 export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId: string; isDM: boolean; onOpenWikiPage?: (pageId: string) => void }) {
+  const router = useRouter();
   const [state, setState] = useState<BattleState>(EMPTY_BATTLE);
   const [dragging, setDragging] = useState<string | null>(null);
   const [fogMode, setFogMode] = useState(false);
@@ -127,6 +129,101 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newToken, setNewToken] = useState({ label: '', color: TOKEN_COLORS[0], size: 'Medium', characterId: '', characterName: '', hp: '', maxHp: '' });
   const [hpEditId, setHpEditId] = useState<string | null>(null);
+  const justDraggedRef = useRef(false);
+
+  // --- Creature linking (bestiary -> battle map) ---
+  interface PaletteCreature { id: string; name: string; size: string; portraitPath: string | null; hpMax: number; }
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteCreatures, setPaletteCreatures] = useState<PaletteCreature[]>([]);
+  const [paletteLoaded, setPaletteLoaded] = useState(false);
+  const [encCreatureId, setEncCreatureId] = useState('');
+  const [encCreatureCount, setEncCreatureCount] = useState(3);
+
+  const ensurePalette = async () => {
+    if (paletteLoaded) return;
+    try {
+      const res = await fetch(`/api/creatures?campaignId=${campaignId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setPaletteCreatures(Array.isArray(data) ? data : []);
+      setPaletteLoaded(true);
+    } catch { /* ignore */ }
+  };
+
+  // Creature size label -> grid footprint.
+  const creatureFootprint = (size: string): number => {
+    switch ((size || '').toLowerCase()) {
+      case 'tiny': return 0.5;
+      case 'small': return 1;
+      case 'medium': return 1;
+      case 'large': return 2;
+      case 'huge': return 3;
+      case 'gargantuan': return 4;
+      case 'colossal': return 6;
+      default: return 1;
+    }
+  };
+
+  // Build a fresh token linked to a bestiary creature. HP is per-token: every
+  // token tracks its own current HP independently of the creature (so three
+  // goblins get three separate health bars).
+  const tokenFromCreature = (c: PaletteCreature, x: number, y: number): Token => {
+    const t: Token = {
+      id: `t_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      label: c.name || 'Creature',
+      color: TOKEN_COLORS[Math.floor(Math.random() * TOKEN_COLORS.length)],
+      x, y,
+      size: creatureFootprint(c.size),
+      creatureId: c.id,
+    };
+    if (c.portraitPath) t.portraitKey = c.portraitPath;
+    if (Number.isFinite(c.hpMax) && c.hpMax > 0) { t.hp = c.hpMax; t.maxHp = c.hpMax; }
+    return t;
+  };
+
+  const dropCreatureToken = async (c: PaletteCreature, x: number, y: number) => {
+    if (!isDM || !c?.id) return;
+    const ns = { ...state, tokens: [...(state?.tokens ?? []), tokenFromCreature(c, x, y)] };
+    await commitState(ns);
+    toast.success(`Added ${c.name || 'creature'} to the map`);
+  };
+
+  // Encounter builder: spawn N linked tokens straight from the Bestiary.
+  const spawnCreaturesFromBestiary = async () => {
+    if (!isDM) return;
+    const c = paletteCreatures.find((p) => p.id === encCreatureId);
+    if (!c) { toast.error('Choose a creature'); return; }
+    const n = Math.max(1, Math.min(12, parseInt(String(encCreatureCount), 10) || 1));
+    const gw = state?.gridWidth ?? 20;
+    const now = Date.now();
+    const tokens: Token[] = [];
+    for (let i = 0; i < n; i++) {
+      const t = tokenFromCreature(c, (i * 2) % gw, Math.floor((i * 2) / gw) % (state?.gridHeight ?? 20));
+      t.id = `t_${now}_${i}`;
+      tokens.push(t);
+    }
+    const ns = { ...state, tokens: [...(state?.tokens ?? []), ...tokens] };
+    await commitState(ns);
+    toast.success(`Spawned ${n} × ${c.name || 'creature'}`);
+  };
+
+  // Clicking a linked token: GMs get the stat block; players get the same
+  // reveal-level card as the Bestiary (server-enforced; hidden creatures 404).
+  const openLinkedCreature = async (t: Token) => {
+    const cid = t.creatureId;
+    if (!cid || justDraggedRef.current) return;
+    if (isDM) {
+      router.push(`/campaign/${campaignId}/bestiary/${cid}`);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/creatures?id=${cid}`);
+      if (!res.ok) { toast.error('That creature is unknown to the party'); return; }
+      router.push(`/campaign/${campaignId}/bestiary/${cid}`);
+    } catch {
+      toast.error('Could not open creature');
+    }
+  };
   const [newTokenOpen, setNewTokenOpen] = useState(false);
   const [chars, setChars] = useState<Array<{ id: string; name: string }>>([]);
   const [newEntry, setNewEntry] = useState({ label: '', initiative: '' });
@@ -576,9 +673,22 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   const onTokenDragEnd = () => {
     setDragging(null);
     setDragRuler(null);
+    // Suppress the click that some browsers fire after a real drag.
+    justDraggedRef.current = true;
+    setTimeout(() => { justDraggedRef.current = false; }, 150);
   };
 
-  const handleDrop = (x: number, y: number) => {
+  const handleDrop = (x: number, y: number, e?: React.DragEvent) => {
+    // Creature drop from the Bestiary palette (DM only).
+    const cdata = e?.dataTransfer?.getData('application/x-questbound-creature');
+    if (cdata) {
+      if (!isDM) return;
+      try {
+        const c = JSON.parse(cdata) as PaletteCreature;
+        if (c?.id) void dropCreatureToken(c, x, y);
+      } catch { /* ignore malformed drops */ }
+      return;
+    }
     if (!dragging) return;
     const id = dragging;
     setDragging(null);
@@ -696,6 +806,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
         conditions: [],
       };
       if (t.portraitKey) c.portraitKey = t.portraitKey;
+      if (t.creatureId) c.creatureId = t.creatureId;
       return c;
     });
     const ns = { ...state, tokens: [...(state?.tokens ?? []), ...clones] };
@@ -1213,9 +1324,59 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                   {t.portraitKey && (
                     <button onClick={() => clearTokenPortrait(t.id)} className="text-muted-foreground hover:text-foreground" title="Remove portrait"><X className="w-3 h-3" /></button>
                   )}
+                  {t.creatureId && (
+                    <button onClick={() => void openLinkedCreature(t)} className="text-muted-foreground hover:text-foreground" title="Open linked creature"><BookOpen className="w-3 h-3" /></button>
+                  )}
                   <button onClick={() => removeToken(t.id)} className="text-destructive hover:text-red-400"><Trash2 className="w-3 h-3" /></button>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Bestiary palette (DM-only): drag creatures onto the map as linked tokens */}
+          {isDM && (
+            <div className="rounded-lg border border-border bg-card p-2">
+              <button
+                onClick={() => { setPaletteOpen((o) => !o); void ensurePalette(); }}
+                className="flex w-full items-center gap-1 text-sm font-medium"
+              >
+                {paletteOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                <BookOpen className="w-4 h-4" />
+                Bestiary
+                {paletteCreatures.length > 0 && (
+                  <span className="text-xs text-muted-foreground">({paletteCreatures.length})</span>
+                )}
+              </button>
+              {paletteOpen && (
+                <div className="mt-2 space-y-1 max-h-64 overflow-y-auto">
+                  <p className="text-[11px] text-muted-foreground px-1">Drag a creature onto the map to place a linked token.</p>
+                  {paletteCreatures.map((c) => (
+                    <div
+                      key={c.id}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('application/x-questbound-creature', JSON.stringify(c));
+                        e.dataTransfer.effectAllowed = 'copy';
+                      }}
+                      className="flex items-center gap-2 rounded border border-border px-2 py-1 text-xs cursor-grab hover:border-primary/40 bg-background"
+                      title={`Drag onto the map — ${c.name}`}
+                    >
+                      {c.portraitPath ? (
+                        <img src={`/api/files/${c.portraitPath}`} alt="" draggable={false} className="w-6 h-6 rounded-full object-cover shrink-0" />
+                      ) : (
+                        <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center shrink-0">
+                          <BookOpen className="w-3 h-3 text-muted-foreground" />
+                        </div>
+                      )}
+                      <span className="font-medium truncate">{c.name || 'Unnamed'}</span>
+                      <span className="text-muted-foreground ml-auto shrink-0">{c.size}</span>
+                    </div>
+                  ))}
+                  {paletteCreatures.length === 0 && (
+                    <p className="text-xs text-muted-foreground px-1">No creatures in the Bestiary yet.</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -1248,9 +1409,31 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                       <Save className="w-4 h-4 mr-1" /> Save encounter
                     </Button>
                   )}
+                  {/* Pull creatures straight from the Bestiary */}
+                  <div className="flex gap-1 items-center">
+                    <select
+                      value={encCreatureId}
+                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => { setEncCreatureId(e.target.value); void ensurePalette(); }}
+                      onFocus={() => void ensurePalette()}
+                      className="h-8 text-xs rounded border border-input bg-background px-1 flex-1 min-w-0"
+                      title="Spawn creature from Bestiary"
+                    >
+                      <option value="">Bestiary...</option>
+                      {paletteCreatures.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name || 'Unnamed'}</option>
+                      ))}
+                    </select>
+                    <Input
+                      type="number" min={1} max={12}
+                      value={encCreatureCount}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEncCreatureCount(parseInt(e.target.value) || 1)}
+                      className="h-8 w-14 text-xs"
+                      aria-label="Count"
+                    />
+                    <Button size="sm" variant="secondary" onClick={() => void spawnCreaturesFromBestiary()}>Spawn</Button>
+                  </div>
                   {(state?.encounters ?? []).map((enc: Encounter) => (
-                    <div key={enc.id} className="flex items-center gap-2 rounded border border-border px-2 py-1 text-xs">
-                      <span className="font-medium truncate">{enc.name}</span>
+                    <div key={enc.id} className="flex items-center gap-2 rounded border border-border px-2 py-1 text-xs">                      <span className="font-medium truncate">{enc.name}</span>
                       <span className="text-muted-foreground whitespace-nowrap">{enc.tokens.length} token{enc.tokens.length === 1 ? '' : 's'}</span>
                       <span className="ml-auto flex items-center gap-1">
                         <Button size="sm" variant="secondary" onClick={() => spawnEncounter(enc.id)}>Spawn</Button>
@@ -1361,7 +1544,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                           setDragRuler((r) => (r && (r.ex !== col || r.ey !== row) ? { ...r, ex: col, ey: row } : r));
                         }
                       }}
-                      onDrop={() => handleDrop(col, row)}
+                      onDrop={(e) => handleDrop(col, row, e)}
                       className={`relative flex items-center justify-center transition-colors ${
                         showFog
                           ? 'bg-background'
@@ -1409,6 +1592,11 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                             draggable={!rulerMode && !drawTool && !pinMode && (isDM || isMyToken(t))}
                             onDragStart={() => onTokenDragStart(t)}
                             onDragEnd={onTokenDragEnd}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (rulerMode || drawTool || pinMode || fogMode) return;
+                              void openLinkedCreature(t);
+                            }}
                             title={`${t.characterName ?? t.label ?? '?'}${hpTracked ? ` — ${curHp}/${maxHp} HP` : ''}`}
                             className={`absolute z-10 rounded-full flex items-center justify-center font-bold text-white cursor-grab shadow-md ${!isDM && isMyToken(t) ? 'ring-2 ring-white/70' : ''}`}
                             style={{
