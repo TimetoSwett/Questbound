@@ -3,47 +3,199 @@ import { z } from 'zod';
 import type { Creature } from '@prisma/client';
 import { getFileUrl } from '@/lib/s3';
 
+// GM-set knowledge reveal levels, party-wide (not per player).
+export const REVEAL_LEVELS = ['hidden', 'unknown', 'named', 'full'] as const;
+export type RevealLevel = (typeof REVEAL_LEVELS)[number];
+
+// Sections the GM can unlock one at a time at the "named" level.
+export const REVEAL_SECTIONS = [
+  'defense',
+  'offense',
+  'statistics',
+  'specialAbilities',
+  'playerNotes',
+  'wiki',
+] as const;
+export type RevealSection = (typeof REVEAL_SECTIONS)[number];
+
+const SECTION_LABELS: Record<RevealSection, string> = {
+  defense: 'Defense',
+  offense: 'Offense',
+  statistics: 'Statistics',
+  specialAbilities: 'Special Abilities',
+  playerNotes: 'Player Notes',
+  wiki: 'Wiki Page',
+};
+
+export function revealSectionLabel(section: string): string {
+  return (SECTION_LABELS as Record<string, string>)[section] ?? section;
+}
+
+// Creature keys readable when a section is unlocked.
+const SECTION_FIELDS: Record<Exclude<RevealSection, 'wiki'>, string[]> = {
+  defense: ['acTotal', 'acTouch', 'acFlatFooted', 'hpMax', 'hpCurrent', 'hitDice', 'fort', 'ref', 'will'],
+  offense: ['speed', 'attacks', 'spells'],
+  statistics: ['str', 'dex', 'con', 'int', 'wis', 'cha', 'skills', 'feats', 'gear'],
+  specialAbilities: ['specialAbilities'],
+  playerNotes: ['playerNotes'],
+};
+
 // Mirrors lib/battle-map.ts: GM-only keys are never sent to players.
 const GM_ONLY_KEYS = ['gmNotes'] as const;
 
-// Fields a player may see on a revealed creature's basic card.
-const PLAYER_CARD_KEYS = ['id', 'campaignId', 'name', 'type', 'subtype', 'size', 'isNpc', 'portraitPath', 'revealedToPlayers'] as const;
+// Identity card fields (name readable at "named", scrambled at "unknown").
+const CARD_KEYS = ['name', 'type', 'subtype', 'size', 'cr', 'alignment'] as const;
 
-/** Where clause for listing: players only see creatures the GM revealed. */
+/** Where clause for listing: players never see hidden creatures. */
 export function creatureWhereFor(role: string, campaignId: string) {
-  return role === 'dm' ? { campaignId } : { campaignId, revealedToPlayers: true };
+  return role === 'dm' ? { campaignId } : { campaignId, revealLevel: { not: 'hidden' } };
 }
 
-/**
- * Player view of a creature, sanitized server-side. Hidden (unrevealed)
- * creatures return null so they never reach the network response; revealed
- * creatures are reduced to a basic card (name, type, size, portrait). Full
- * stats and gmNotes are DM only.
- */
-export function sanitizeCreatureForPlayer(c: Creature): Record<string, unknown> | null {
-  if (!c.revealedToPlayers) return null;
-  const out: Record<string, unknown> = {};
-  for (const k of PLAYER_CARD_KEYS) out[k] = c[k];
-  for (const k of GM_ONLY_KEYS) delete out[k];
-  return out;
+// ---------------------------------------------------------------------------
+// Server-side scrambling. Locked fields are replaced with random filler of
+// similar length — the real text NEVER leaves the server, so there is nothing
+// to copy out or un-style. Filler uses Runic Unicode glyphs so it renders in a
+// runic style without any client font.
+// ---------------------------------------------------------------------------
+
+const RUNES = 'ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚾᛁᛃᛇᛈᛉᛊᛏᛒᛖᛗᛚᛜᛞᛟ';
+
+function hashSeed(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Runic filler preserving length and whitespace. Seeded so it's stable per field. */
+function scrambleText(real: string, seed: string): string {
+  if (!real) return real;
+  const rand = mulberry32(hashSeed(seed));
+  return [...real]
+    .map((ch) => (/\s/.test(ch) ? ch : RUNES[Math.floor(rand() * RUNES.length)]))
+    .join('');
+}
+
+/** Random number with the same digit count. */
+function scrambleNumber(n: number, seed: string): number {
+  if (!Number.isFinite(n)) return n;
+  const digits = String(Math.abs(Math.trunc(n))).length || 1;
+  const rand = mulberry32(hashSeed(seed));
+  const min = digits <= 1 ? 0 : 10 ** (digits - 1);
+  const v = min + Math.floor(rand() * (10 ** digits - min));
+  return n < 0 ? -v : v;
+}
+
+function scrambleValue(v: unknown, seed: string): unknown {
+  if (v == null) return v;
+  if (typeof v === 'string') return scrambleText(v, seed);
+  if (typeof v === 'number') return scrambleNumber(v, seed);
+  if (typeof v === 'boolean') return v;
+  if (Array.isArray(v)) return v.map((x, i) => scrambleValue(x, `${seed}:${i}`));
+  if (typeof v === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      out[k] = scrambleValue(val, `${seed}:${k}`);
+    }
+    return out;
+  }
+  return v;
 }
 
 type WikiRef = { id: string; title: string; visibility: string } | null | undefined;
 
-/** Attach portraitUrl and a wiki link (dm_only titles never leak to players). */
+function asUnlocked(v: unknown): string[] {
+  return Array.isArray(v) ? (v as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+}
+
+/**
+ * Player view of a creature, sanitized server-side.
+ * - hidden: null (indistinguishable from missing for players)
+ * - unknown: scrambled identity card, no portrait, no sections, no wiki
+ * - named: readable card + portrait; sections readable only when unlocked,
+ *   everything else scrambled to similar-length runic filler
+ * - full: everything readable except gmNotes
+ */
 export async function presentCreature(
   c: Creature & { wikiPage?: WikiRef },
   role: string,
 ): Promise<Record<string, unknown> | null> {
   const portraitUrl = c.portraitPath ? await getFileUrl(c.portraitPath) : null;
   const pg = c.wikiPage;
-  const wikiPage = pg && (role === 'dm' || pg.visibility === 'shared') ? { id: pg.id, title: pg.title } : null;
+
   if (role === 'dm') {
     const { wikiPage: _w, ...rest } = c;
-    return { ...rest, portraitUrl, wikiPage };
+    return {
+      ...rest,
+      portraitUrl,
+      wikiPage: pg ? { id: pg.id, title: pg.title } : null,
+    };
   }
-  const card = sanitizeCreatureForPlayer(c);
-  return card ? { ...card, portraitUrl, wikiPage } : null;
+
+  const rawLevel = (c as unknown as Record<string, unknown>).revealLevel;
+  const level: RevealLevel = REVEAL_LEVELS.includes(rawLevel as RevealLevel)
+    ? (rawLevel as RevealLevel)
+    : 'hidden';
+  if (level === 'hidden') return null;
+
+  const seedBase = `${c.id}:${level}`;
+  const rec = c as unknown as Record<string, unknown>;
+
+  if (level === 'unknown') {
+    const card: Record<string, unknown> = {
+      id: c.id,
+      campaignId: c.campaignId,
+      revealLevel: level,
+      unlockedSections: [],
+      isNpc: c.isNpc,
+      portraitUrl: null,
+      wikiPage: null,
+    };
+    for (const k of CARD_KEYS) card[k] = scrambleValue((rec[k] as string) ?? '', `${seedBase}:${k}`);
+    return card;
+  }
+
+  // named | full
+  const unlocked: string[] = level === 'full' ? [...REVEAL_SECTIONS] : asUnlocked(rec.unlockedSections);
+  const shows = (section: RevealSection) => unlocked.includes(section);
+  const card: Record<string, unknown> = {
+    id: c.id,
+    campaignId: c.campaignId,
+    revealLevel: level,
+    unlockedSections: unlocked,
+    isNpc: c.isNpc,
+    portraitUrl,
+    wikiPage: null,
+  };
+  for (const k of CARD_KEYS) card[k] = (rec[k] as string) ?? '';
+
+  const field = (section: Exclude<RevealSection, 'wiki'>, key: string): unknown => {
+    const v = rec[key];
+    return shows(section) ? v : scrambleValue(v, `${seedBase}:${key}`);
+  };
+  for (const section of REVEAL_SECTIONS) {
+    if (section === 'wiki') continue;
+    const out: Record<string, unknown> = {};
+    for (const k of SECTION_FIELDS[section]) out[k] = field(section, k);
+    card[section] = out;
+  }
+  card.wikiPage = shows('wiki') && pg ? { id: pg.id, title: pg.title } : null;
+
+  for (const k of GM_ONLY_KEYS) delete card[k];
+  return card;
 }
 
 const jsonList = z.array(z.record(z.unknown()));
@@ -77,7 +229,9 @@ export const creatureInputSchema = z.object({
   gear: jsonList,
   wikiPageId: z.string().nullable(),
   gmNotes: z.string().max(100_000),
-  revealedToPlayers: z.boolean(),
+  playerNotes: z.string().max(100_000),
+  revealLevel: z.enum(REVEAL_LEVELS),
+  unlockedSections: z.array(z.string().max(40)).max(REVEAL_SECTIONS.length),
 }).partial().strict();
 
 export type CreatureInput = z.infer<typeof creatureInputSchema>;
