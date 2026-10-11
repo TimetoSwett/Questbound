@@ -112,8 +112,14 @@ export function scrambleValue(v: unknown, seed: string): unknown {
   if (Array.isArray(v)) return v.map((x, i) => scrambleValue(x, `${seed}:${i}`));
   if (typeof v === 'object') {
     const out: Record<string, unknown> = {};
+    // Keys containing digits (e.g. spells.slots spell levels) would leak real
+    // numbers, so they become runic too (deduped to keep entries distinct).
+    let i = 0;
     for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-      out[k] = scrambleValue(val, `${seed}:${k}`);
+      let key = /\d/.test(k) ? scrambleText(k, `${seed}:key:${i}`) : k;
+      while (key in out) key += RUNES[i++ % RUNES.length];
+      out[key] = scrambleValue(val, `${seed}:${k}`);
+      i++;
     }
     return out;
   }
