@@ -3,13 +3,14 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'next-auth/react';
-import { Shield, Swords, Globe, Users, BookOpen, LogOut, ChevronLeft, Copy, Check } from 'lucide-react';
+import { Shield, Swords, Globe, Users, BookOpen, LogOut, ChevronLeft, Copy, Check, Dices } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { CharactersTab } from './characters-tab';
 import { WorldTab } from './world-tab';
 import { PlayersTab } from './players-tab';
 import { BestiaryTab } from './bestiary-tab';
+import { RollLog } from './roll-log';
 
 type TabKey = 'characters' | 'world' | 'bestiary' | 'players';
 
@@ -32,6 +33,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
     : 'characters';
   const [activeTab, setActiveTab] = useState<TabKey>(startTab);
   const [copied, setCopied] = useState(false);
+  const [logOpen, setLogOpen] = useState(true);
 
   const copyCode = () => {
     navigator?.clipboard?.writeText?.(inviteCode);
@@ -66,6 +68,9 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
           </div>
           <div className="flex items-center gap-2">
             <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${role === 'dm' ? 'bg-primary/20 text-primary' : 'bg-secondary text-secondary-foreground'}`}>{role === 'dm' ? 'Dungeon Master' : 'Player'}</span>
+            <Button variant="ghost" size="sm" onClick={() => setLogOpen((o) => !o)} title={logOpen ? 'Hide roll log' : 'Show roll log'}>
+              <Dices className="w-4 h-4" />
+            </Button>
             <Button variant="ghost" size="sm" onClick={async () => { await signOut({ redirect: false }); window.location.href = '/login'; }}>
               <LogOut className="w-4 h-4" />
             </Button>
@@ -92,13 +97,22 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
         </div>
       </header>
 
-      {/* Content */}
-      <main className="flex-1">
-        {activeTab === 'characters' && <CharactersTab campaignId={campaignId} role={role} userId={userId} />}
-        {activeTab === 'world' && <WorldTab campaignId={campaignId} role={role} />}
-        {activeTab === 'bestiary' && <BestiaryTab campaignId={campaignId} role={role} />}
-        {activeTab === 'players' && role === 'dm' && <PlayersTab campaignId={campaignId} />}
-      </main>
+      {/* Content + roll log side column */}
+      <div className="flex-1 flex items-stretch min-w-0">
+        <main className="flex-1 min-w-0">
+          {activeTab === 'characters' && <CharactersTab campaignId={campaignId} role={role} userId={userId} />}
+          {activeTab === 'world' && <WorldTab campaignId={campaignId} role={role} />}
+          {activeTab === 'bestiary' && <BestiaryTab campaignId={campaignId} role={role} />}
+          {activeTab === 'players' && role === 'dm' && <PlayersTab campaignId={campaignId} />}
+        </main>
+        {logOpen && (
+          <aside className="w-80 shrink-0 border-l border-border bg-card/40 hidden lg:block">
+            <div className="sticky top-[100px] h-[calc(100vh-100px)]">
+              <RollLog campaignId={campaignId} role={role} />
+            </div>
+          </aside>
+        )}
+      </div>
     </div>
   );
 }
