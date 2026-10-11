@@ -56,14 +56,24 @@ export function BestiaryTab({ campaignId, role }: { campaignId: string; role: st
   const [typeFilter, setTypeFilter] = useState('all');
   const [kindFilter, setKindFilter] = useState<'all' | 'npc' | 'monster'>('all');
 
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/creatures?campaignId=${campaignId}`);
-      if (res.ok) setCreatures((await res.json()) ?? []);
-    } catch { /* ignore */ } finally { setLoading(false); }
+  const fetchCreatures = useCallback(async () => {
+    const res = await fetch(`/api/creatures?campaignId=${campaignId}`);
+    return res.ok ? ((await res.json()) ?? []) as CreatureSummary[] : null;
   }, [campaignId]);
 
-  useEffect(() => { load(); }, [load]);
+  const load = useCallback(() => fetchCreatures()
+    .then((data) => { if (data) setCreatures(data); })
+    .catch(() => { /* ignore */ })
+    .finally(() => setLoading(false)), [fetchCreatures]);
+
+  useEffect(() => {
+    let active = true;
+    fetchCreatures()
+      .then((data) => { if (active && data) setCreatures(data); })
+      .catch(() => { /* ignore */ })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [fetchCreatures]);
 
   const crOptions = useMemo(() => {
     const set = new Set<string>();

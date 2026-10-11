@@ -91,15 +91,22 @@ export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: s
   const dataRef = useRef<any>(null);
   useEffect(() => { dataRef.current = data; }, [data]);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/creatures?id=${creatureId}`);
-      if (res.status === 404) { setNotFound(true); return; }
-      if (res.ok) setData(normalize(await res.json()));
-    } catch { /* ignore */ }
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/creatures?id=${creatureId}`)
+      .then(async (res) => {
+        if (res.status === 404) {
+          if (active) setNotFound(true);
+          return;
+        }
+        if (res.ok) {
+          const creature = normalize(await res.json());
+          if (active) setData(creature);
+        }
+      })
+      .catch(() => { /* ignore */ });
+    return () => { active = false; };
   }, [creatureId]);
-
-  useEffect(() => { load(); }, [load]);
 
   // GM-only: wiki pages for the link picker.
   useEffect(() => {
