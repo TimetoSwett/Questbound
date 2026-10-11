@@ -4,6 +4,7 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
 import { BATTLE_DEFAULTS, sanitizeForPlayer } from '@/lib/battle-map';
+import { presentCreature } from '@/lib/creatures';
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -22,6 +23,50 @@ export async function GET(request: Request) {
   if (role !== 'dm') {
     const mine = await prisma.character.findMany({ where: { campaignId, userId: session.user.id }, select: { id: true } });
     state = sanitizeForPlayer(state, mine.map((c) => c.id));
+
+    // Tokens linked to bestiary creatures go through the same reveal rules as
+    // the Bestiary itself (reuse presentCreature server-side; locked real
+    // values never reach players). A token linked to a Hidden (or deleted)
+    // creature shows players nothing at all, like a hidden token.
+    const linkedIds = [
+      ...new Set(
+        (Array.isArray(state.tokens) ? state.tokens : [])
+          .map((t: any) => t?.creatureId)
+          .filter((id: any) => typeof id === 'string' && id),
+      ),
+    ];
+    if (linkedIds.length > 0) {
+      const creatures = await prisma.creature.findMany({
+        where: { id: { in: linkedIds }, campaignId },
+        select: { id: true, revealLevel: true, unlockedSections: true, portraitPath: true, name: true },
+      });
+      const byId = new Map(creatures.map((c) => [c.id, c]));
+      const visible: any[] = [];
+      for (const t of state.tokens) {
+        const cid: unknown = (t as any)?.creatureId;
+        if (typeof cid !== 'string' || !cid) {
+          visible.push(t);
+          continue;
+        }
+        const c = byId.get(cid);
+        if (!c || (c as { revealLevel?: string }).revealLevel === 'hidden') continue;
+        const unlocked = Array.isArray((c as any).unlockedSections)
+          ? ((c as any).unlockedSections as unknown[]).filter((x): x is string => typeof x === 'string')
+          : [];
+        const nameReadable =
+          (c as { revealLevel?: string }).revealLevel === 'full' || unlocked.includes('name');
+        if (nameReadable) {
+          visible.push(t);
+          continue;
+        }
+        const card = await presentCreature({ ...(c as any), wikiPage: null } as any, 'player');
+        const name = card && typeof card.name === 'string' && card.name ? (card.name as string) : '???';
+        const nt: any = { ...t, label: name };
+        delete nt.portraitKey;
+        visible.push(nt);
+      }
+      state.tokens = visible;
+    }
   }
 
   // Attach linked wiki article titles to battle pins, mirroring the world-pins
