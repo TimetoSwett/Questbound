@@ -1329,6 +1329,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
               display: 'grid',
               position: 'relative',
               gridTemplateColumns: `repeat(${gw}, ${cellSize}px)`,
+              gridTemplateRows: `repeat(${gh}, ${cellSize}px)`,
               gap: '1px',
               padding: '4px',
               backgroundColor: 'hsl(33 26% 52%)',
@@ -1374,7 +1375,6 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                         width: cellSize,
                         height: cellSize,
                         cursor: isDM ? 'pointer' : 'default',
-                        ...(hasBg ? { boxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.35)' } : {}),
                       }}>
                       {(state?.cellNumbers ?? true) && (
                         <span className="absolute top-0 left-0.5 pointer-events-none select-none font-mono" style={{ fontSize: '8px', lineHeight: 1.3, color: 'rgba(140,140,140,0.9)', textShadow: '0 1px 2px rgba(0,0,0,0.6)', zIndex: 1 }}>
@@ -1462,6 +1462,25 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                   );
                 })
               )}
+              {/* Draw each boundary once in the existing gap. crispEdges snaps
+                  lines to display pixels even when browser zoom is fractional. */}
+              <svg
+                aria-hidden="true"
+                className="absolute pointer-events-none"
+                style={{ left: 4, top: 4 }}
+                width={gw * cellSize + (gw - 1)}
+                height={gh * cellSize + (gh - 1)}
+                shapeRendering="crispEdges"
+                fill={state?.backgroundImage ? 'rgba(255, 255, 255, 0.35)' : 'hsl(33 26% 52%)'}
+              >
+                {/* One filled path also keeps intersections from doubling opacity. */}
+                <path d={[
+                  ...Array.from({ length: gw - 1 }, (_, col) =>
+                    `M${(col + 1) * (cellSize + 1) - 1} 0h1v${gh * cellSize + (gh - 1)}h-1Z`),
+                  ...Array.from({ length: gh - 1 }, (_, row) =>
+                    `M0 ${(row + 1) * (cellSize + 1) - 1}h${gw * cellSize + (gw - 1)}v1H0Z`),
+                ].join(' ')} />
+              </svg>
               {ruler && renderRulerOverlay(ruler)}
               {dragRuler && !rulerMode && renderRulerOverlay(dragRuler)}
               {renderAnnotationLayer()}
