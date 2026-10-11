@@ -30,16 +30,28 @@ export function RegionMapView({ campaignId, isDM }: { campaignId: string; isDM: 
   const svgRef = useRef<SVGSVGElement>(null);
   const draggingRef = useRef<string | null>(null);
 
-  const load = useCallback(async () => {
+  const loadRequest = useCallback(async () => {
     const [nRes, eRes] = await Promise.all([
       fetch(`/api/maps/region-nodes?campaignId=${campaignId}`),
       fetch(`/api/maps/region-edges?campaignId=${campaignId}`),
     ]);
-    if (nRes.ok) setNodes(await nRes.json() ?? []);
-    if (eRes.ok) setEdges(await eRes.json() ?? []);
+    return { nodes: nRes.ok ? (await nRes.json() ?? []) : null, edges: eRes.ok ? (await eRes.json() ?? []) : null };
   }, [campaignId]);
 
-  useEffect(() => { load(); }, [load]);
+  const loadResult = useCallback((result: Awaited<ReturnType<typeof loadRequest>>) => {
+    if (result.nodes) setNodes(result.nodes);
+    if (result.edges) setEdges(result.edges);
+  }, []);
+
+  const load = useCallback(async () => {
+    loadResult(await loadRequest());
+  }, [loadRequest, loadResult]);
+
+  useEffect(() => {
+    let active = true;
+    loadRequest().then((result) => { if (active) loadResult(result); });
+    return () => { active = false; };
+  }, [loadRequest, loadResult]);
 
   const addNode = async () => {
     if (!newNode.name) { toast.error('Enter a name'); return; }

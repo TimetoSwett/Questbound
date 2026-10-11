@@ -41,26 +41,51 @@ export function WorldMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId:
   const [newPinPos, setNewPinPos] = useState<{ x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const loadMap = useCallback(async () => {
+  const loadMapRequest = useCallback(async () => {
     const res = await fetch(`/api/maps/world-image?campaignId=${campaignId}`);
-    if (res.ok) { const d = await res.json(); setMapUrl(d?.url ?? null); }
+    if (!res.ok) return null;
+    const data = await res.json();
+    return { url: data?.url ?? null };
   }, [campaignId]);
+
+  const loadMapResult = useCallback((result: Awaited<ReturnType<typeof loadMapRequest>>) => {
+    if (result) setMapUrl(result.url ?? null);
+  }, []);
+
+  const loadMap = useCallback(async () => {
+    loadMapResult(await loadMapRequest());
+  }, [loadMapRequest, loadMapResult]);
+
+  const loadPinsRequest = useCallback(async () => {
+    const res = await fetch(`/api/maps/world-pins?campaignId=${campaignId}`);
+    return res.ok ? (await res.json() ?? []) : null;
+  }, [campaignId]);
+
+  const loadPinsResult = useCallback((result: Awaited<ReturnType<typeof loadPinsRequest>>) => {
+    if (result) setPins(result);
+  }, []);
 
   const loadPins = useCallback(async () => {
-    const res = await fetch(`/api/maps/world-pins?campaignId=${campaignId}`);
-    if (res.ok) setPins(await res.json() ?? []);
-  }, [campaignId]);
+    loadPinsResult(await loadPinsRequest());
+  }, [loadPinsRequest, loadPinsResult]);
 
-  const loadWikiPages = useCallback(async () => {
-    if (!isDM) return;
+  const loadWikiPagesRequest = useCallback(async () => {
+    if (!isDM) return null;
     const res = await fetch(`/api/wiki?campaignId=${campaignId}`);
-    if (res.ok) {
-      const pages = await res.json() ?? [];
-      setWikiPages(pages.map((pg: any) => ({ id: pg.id, title: pg.title ?? 'Untitled' })));
-    }
+    return res.ok ? (await res.json() ?? []) : null;
   }, [campaignId, isDM]);
 
-  useEffect(() => { loadMap(); loadPins(); loadWikiPages(); }, [loadMap, loadPins, loadWikiPages]);
+  const loadWikiPagesResult = useCallback((result: Awaited<ReturnType<typeof loadWikiPagesRequest>>) => {
+    if (result) setWikiPages(result.map((pg: any) => ({ id: pg.id, title: pg.title ?? 'Untitled' })));
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    loadMapRequest().then((result) => { if (active) loadMapResult(result); });
+    loadPinsRequest().then((result) => { if (active) loadPinsResult(result); });
+    loadWikiPagesRequest().then((result) => { if (active) loadWikiPagesResult(result); });
+    return () => { active = false; };
+  }, [loadMapRequest, loadMapResult, loadPinsRequest, loadPinsResult, loadWikiPagesRequest, loadWikiPagesResult]);
 
   const uploadMap = async (file: File) => {
     const form = new FormData();
