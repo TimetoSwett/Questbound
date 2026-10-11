@@ -17,12 +17,14 @@ export async function POST(request: Request) {
   if (!src) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   const role = await getUserRole(session.user.id, src.campaignId);
   if (role !== 'dm') return NextResponse.json({ error: 'Only DM' }, { status: 403 });
-  const { id: _id, createdAt: _c, updatedAt: _u, attacks, skills, feats, specialAbilities, spells, gear, ...rest } = src;
+  const { id: _id, createdAt: _c, updatedAt: _u, attacks, skills, feats, specialAbilities, spells, gear, unlockedSections: _us, revealLevel: _rl, ...rest } = src;
   const json = (v: Prisma.JsonValue) => (v ?? Prisma.JsonNull) as Prisma.InputJsonValue;
   const copy = await prisma.creature.create({
     data: {
       ...rest,
       name: typeof name === 'string' && name.trim() ? name.trim().slice(0, 200) : `${src.name} (copy)`,
+      revealLevel: 'hidden',
+      unlockedSections: [],
       revealedToPlayers: false,
       attacks: json(attacks), skills: json(skills), feats: json(feats),
       specialAbilities: json(specialAbilities), spells: json(spells), gear: json(gear),

@@ -180,7 +180,12 @@ export async function presentCreature(
     portraitUrl,
     wikiPage: null,
   };
-  for (const k of CARD_KEYS) card[k] = (rec[k] as string) ?? '';
+  // Spec: at "named" only the name is readable on the card; the other identity
+  // fields stay scrambled until "full".
+  for (const k of CARD_KEYS) {
+    const v = (rec[k] as string) ?? '';
+    card[k] = level === 'full' || k === 'name' ? v : scrambleValue(v, `${seedBase}:${k}`);
+  }
 
   const field = (section: Exclude<RevealSection, 'wiki'>, key: string): unknown => {
     const v = rec[key];
@@ -192,7 +197,7 @@ export async function presentCreature(
     for (const k of SECTION_FIELDS[section]) out[k] = field(section, k);
     card[section] = out;
   }
-  card.wikiPage = shows('wiki') && pg ? { id: pg.id, title: pg.title } : null;
+  card.wikiPage = shows('wiki') && pg && pg.visibility === 'shared' ? { id: pg.id, title: pg.title } : null;
 
   for (const k of GM_ONLY_KEYS) delete card[k];
   return card;

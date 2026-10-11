@@ -16,8 +16,10 @@ export default async function CreaturePage({ params }: { params: Promise<{ id: s
 
   // The creature must belong to this campaign; otherwise the role from the URL's
   // campaign would be applied to another campaign's creature.
-  const creature = await prisma.creature.findUnique({ where: { id: creatureId }, select: { campaignId: true } });
+  const creature = await prisma.creature.findUnique({ where: { id: creatureId }, select: { campaignId: true, revealLevel: true } });
   if (!creature || creature.campaignId !== id) notFound();
+  // Hidden creatures 404 for players, same as missing ones.
+  if (membership.role !== 'dm' && creature.revealLevel === 'hidden') notFound();
 
   return <CreatureDetail campaignId={id} creatureId={creatureId} role={membership.role} />;
 }

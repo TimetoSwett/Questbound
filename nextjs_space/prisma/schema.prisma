@@ -318,6 +318,9 @@ model Creature {
   // Section keys unlocked at the "named" level: defense, offense, statistics,
   // specialAbilities, playerNotes, wiki
   unlockedSections Json @default("[]")
+  // DEPRECATED: legacy flag kept only so `prisma db push` does not drop it before
+  // prisma/migrate-reveal-levels.sql copies it into revealLevel. Remove afterwards.
+  revealedToPlayers Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

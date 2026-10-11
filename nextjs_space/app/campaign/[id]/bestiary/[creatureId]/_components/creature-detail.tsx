@@ -524,14 +524,14 @@ function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
               </div>
             )}
             <h1 className={`font-display text-3xl font-bold tracking-tight ${unknown ? RUNIC : ''}`}>{data.name ?? '???'}</h1>
-            <p className={`text-muted-foreground mt-1 ${unknown ? RUNIC : ''}`}>
+            <p className={`text-muted-foreground mt-1 ${level !== 'full' ? RUNIC : ''}`}>
               {data.size}{data.type ? ` ${data.type}` : ''}{data.subtype ? ` (${data.subtype})` : ''}
             </p>
             <div className="mt-3 flex items-center justify-center gap-2">
               <Badge variant={data.isNpc ? 'secondary' : 'outline'}>{data.isNpc ? 'NPC' : 'Monster'}</Badge>
               {unknown && <Badge variant="outline">Unidentified</Badge>}
             </div>
-            {data.cr && <p className={`text-xs text-muted-foreground mt-2 ${unknown ? RUNIC : ''}`}>Challenge {data.cr}</p>}
+            {data.cr && <p className={`text-xs text-muted-foreground mt-2 ${level !== 'full' ? RUNIC : ''}`}>Challenge {data.cr}</p>}
           </div>
 
           {!unknown && (
