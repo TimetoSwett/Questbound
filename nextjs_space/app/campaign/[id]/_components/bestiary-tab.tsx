@@ -20,6 +20,7 @@ interface CreatureSummary {
   isNpc: boolean;
   portraitUrl?: string | null;
   revealLevel?: string;
+  unlockedSections?: string[];
   hpMax?: number;
   hpCurrent?: number;
 }
@@ -192,7 +193,11 @@ export function BestiaryTab({ campaignId, role }: { campaignId: string; role: st
       ) : (
         <Stagger staggerDelay={0.06}>
           <div className="grid gap-3">
-            {filtered.map((c: CreatureSummary) => (
+            {filtered.map((c: CreatureSummary) => {
+              // Players see runic filler for the name until it's unlocked (server-scrambled).
+              const nameLocked = !isDM && c.revealLevel !== 'full' && c.revealLevel !== 'named'
+                && !(c.unlockedSections ?? []).includes('name');
+              return (
               <StaggerItem key={c.id}>
                 <HoverLift>
                   <div
@@ -208,7 +213,7 @@ export function BestiaryTab({ campaignId, role }: { campaignId: string; role: st
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-display font-semibold truncate">{c.name ?? 'Unnamed'}</h3>
+                      <h3 className={`font-display font-semibold truncate ${nameLocked ? 'tracking-[0.2em] text-muted-foreground/70' : ''}`}>{c.name ?? 'Unnamed'}</h3>
                       <p className="text-sm text-muted-foreground truncate">
                         {c.size}{c.type ? ` ${c.type}` : ''}{c.subtype ? ` (${c.subtype})` : ''}{c.cr ? ` • CR ${c.cr}` : ''}
                       </p>
@@ -241,7 +246,8 @@ export function BestiaryTab({ campaignId, role }: { campaignId: string; role: st
                   </div>
                 </HoverLift>
               </StaggerItem>
-            ))}
+              );
+            })}
           </div>
         </Stagger>
       )}
