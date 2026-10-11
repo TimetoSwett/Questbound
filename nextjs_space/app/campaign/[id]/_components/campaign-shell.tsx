@@ -53,7 +53,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
     <div className="min-h-screen bg-background flex flex-col">
       {/* Top navbar */}
       <header className="sticky top-0 z-50 bg-card/80 backdrop-blur-md border-b border-border">
-        <div className="max-w-7xl mx-auto flex items-center justify-between px-4 py-2">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 px-4 py-2">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard')}>
               <ChevronLeft className="w-4 h-4 mr-1" /> Back
@@ -68,7 +68,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
           </div>
           <div className="flex items-center gap-2">
             <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${role === 'dm' ? 'bg-primary/20 text-primary' : 'bg-secondary text-secondary-foreground'}`}>{role === 'dm' ? 'Dungeon Master' : 'Player'}</span>
-            <Button variant="ghost" size="sm" onClick={() => setLogOpen((o) => !o)} title={logOpen ? 'Hide roll log' : 'Show roll log'}>
+            <Button variant="ghost" size="sm" onClick={() => setLogOpen((o) => !o)} title={logOpen ? 'Hide roll log' : 'Show roll log'} aria-label={logOpen ? 'Hide roll log' : 'Show roll log'} aria-expanded={logOpen} aria-controls="campaign-roll-log">
               <Dices className="w-4 h-4" />
             </Button>
             <Button variant="ghost" size="sm" onClick={async () => { await signOut({ redirect: false }); window.location.href = '/login'; }}>
@@ -98,7 +98,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
       </header>
 
       {/* Content + roll log side column */}
-      <div className="flex-1 flex items-stretch min-w-0">
+      <div className="flex-1 flex flex-col lg:flex-row items-stretch min-w-0">
         <main className="flex-1 min-w-0">
           {activeTab === 'characters' && <CharactersTab campaignId={campaignId} role={role} userId={userId} />}
           {activeTab === 'world' && <WorldTab campaignId={campaignId} role={role} />}
@@ -106,8 +106,8 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
           {activeTab === 'players' && role === 'dm' && <PlayersTab campaignId={campaignId} />}
         </main>
         {logOpen && (
-          <aside className="w-80 shrink-0 border-l border-border bg-card/40 hidden lg:block">
-            <div className="sticky top-[100px] h-[calc(100vh-100px)]">
+          <aside id="campaign-roll-log" aria-label="Roll log" className="order-first lg:order-last w-full lg:w-80 shrink-0 border-b lg:border-b-0 lg:border-l border-border bg-card/40">
+            <div className="h-[min(60dvh,28rem)] lg:sticky lg:top-[100px] lg:h-[calc(100vh-100px)]">
               <RollLog campaignId={campaignId} role={role} />
             </div>
           </aside>

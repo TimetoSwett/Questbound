@@ -35,9 +35,9 @@ function rateLimited(userId: string): boolean {
   return false;
 }
 
-// GET ?campaignId=&limit=&before=&after= — campaign members only.
+// GET ?campaignId=&limit=&before=&beforeId=&after=&afterId= — campaign members only.
 // Non-DMs never receive secret rolls. Returns chronological (oldest first).
-// `before` (ISO) pages older rolls; `after` (ISO) polls for newer ones.
+// Each cursor pairs an ISO timestamp with a roll ID to break timestamp ties.
 export async function GET(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -50,24 +50,35 @@ export async function GET(request: Request) {
   const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') ?? '100', 10) || 100));
   const before = parseDate(searchParams.get('before'));
   const after = parseDate(searchParams.get('after'));
-  if (before === 'invalid' || after === 'invalid') {
-    return NextResponse.json({ error: 'Invalid before/after timestamp' }, { status: 400 });
+  const beforeId = searchParams.get('beforeId');
+  const afterId = searchParams.get('afterId');
+  if (before === 'invalid' || after === 'invalid' ||
+      Boolean(before) !== Boolean(beforeId) || Boolean(after) !== Boolean(afterId)) {
+    return NextResponse.json({ error: 'Invalid before/after cursor (timestamp and ID required)' }, { status: 400 });
   }
 
   const where: Record<string, unknown> = { campaignId };
   if (role !== 'dm') where.isSecret = false;
-  if (before) where.createdAt = { lt: before };
-  else if (after) where.createdAt = { gte: after };
+  if (before) where.OR = [
+    { createdAt: { lt: before } },
+    { createdAt: before, id: { lt: beforeId } },
+  ];
+  else if (after) where.OR = [
+    { createdAt: { gt: after } },
+    { createdAt: after, id: { gt: afterId } },
+  ];
 
   // Polling (`after`) reads oldest-first so a burst of >limit new rolls isn't
   // skipped; history/initial load read newest-first.
   const rolls = await prisma.diceRoll.findMany({
     where,
-    orderBy: { createdAt: !before && after ? 'asc' : 'desc' },
+    orderBy: !before && after
+      ? [{ createdAt: 'asc' }, { id: 'asc' }]
+      : [{ createdAt: 'desc' }, { id: 'desc' }],
     take: limit,
     select: rollSelect,
   });
-  rolls.sort((a, b) => +a.createdAt - +b.createdAt);
+  if (before || !after) rolls.reverse();
   return NextResponse.json(rolls);
 }
 

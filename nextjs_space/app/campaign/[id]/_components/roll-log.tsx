@@ -19,6 +19,12 @@ interface Roll {
 const PAGE_SIZE = 100;
 const POLL_MS = 3000;
 
+type RollCursor = Pick<Roll, 'createdAt' | 'id'>;
+
+function cursorParams(direction: 'before' | 'after', cursor: RollCursor): string {
+  return `&${direction}=${encodeURIComponent(cursor.createdAt)}&${direction}Id=${encodeURIComponent(cursor.id)}`;
+}
+
 function fmtTime(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(+d) ? '' : d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -38,7 +44,7 @@ export function RollLog({ campaignId, role }: { campaignId: string; role: string
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true); // auto-scroll sticks to bottom while true
-  const latestRef = useRef<string | null>(null);
+  const latestRef = useRef<RollCursor | null>(null);
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -56,7 +62,7 @@ export function RollLog({ campaignId, role }: { campaignId: string; role: string
     const after = latestRef.current;
     const url =
       `/api/dice-rolls?campaignId=${campaignId}&limit=${PAGE_SIZE}` +
-      (after ? `&after=${encodeURIComponent(after)}` : '');
+      (after ? cursorParams('after', after) : '');
     const res = await fetch(url);
     if (!res.ok) return;
     const data: Roll[] = await res.json();
@@ -66,7 +72,7 @@ export function RollLog({ campaignId, role }: { campaignId: string; role: string
       const fresh = data.filter((r) => !ids.has(r.id));
       return fresh.length ? [...prev, ...fresh] : prev;
     });
-    latestRef.current = data[data.length - 1].createdAt;
+    latestRef.current = data[data.length - 1];
     if (pinnedRef.current) requestAnimationFrame(scrollToBottom);
   }, [campaignId, scrollToBottom]);
 
@@ -79,7 +85,7 @@ export function RollLog({ campaignId, role }: { campaignId: string; role: string
       const data: Roll[] = await res.json();
       setRolls(data);
       setHasMore(data.length === PAGE_SIZE);
-      latestRef.current = data.length ? data[data.length - 1].createdAt : null;
+      latestRef.current = data.length ? data[data.length - 1] : null;
       requestAnimationFrame(scrollToBottom);
     })();
     return () => {
@@ -98,7 +104,7 @@ export function RollLog({ campaignId, role }: { campaignId: string; role: string
     setLoadingMore(true);
     try {
       const res = await fetch(
-        `/api/dice-rolls?campaignId=${campaignId}&limit=50&before=${encodeURIComponent(rolls[0].createdAt)}`,
+        `/api/dice-rolls?campaignId=${campaignId}&limit=50${cursorParams('before', rolls[0])}`,
       );
       if (!res.ok) return;
       const data: Roll[] = await res.json();
