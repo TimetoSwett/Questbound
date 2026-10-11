@@ -1,28 +1,44 @@
 'use client';
 
 import { useState } from 'react';
-import { Dices } from 'lucide-react';
+import { Dices, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 
 const DICE = [4, 6, 8, 10, 12, 20, 100];
 
-export function DiceRoller() {
+export function DiceRoller({ campaignId, isDM }: { campaignId: string; isDM: boolean }) {
   const [open, setOpen] = useState(false);
   const [sides, setSides] = useState(20);
   const [count, setCount] = useState(1);
   const [mod, setMod] = useState(0);
+  const [secret, setSecret] = useState(false);
+  const [rolling, setRolling] = useState(false);
   const [last, setLast] = useState<{ total: number; detail: string } | null>(null);
   const [history, setHistory] = useState<string[]>([]);
 
-  const roll = () => {
-    const n = Math.min(20, Math.max(1, count));
-    const rolls = Array.from({ length: n }, () => 1 + Math.floor(Math.random() * sides));
-    const total = rolls.reduce((a, b) => a + b, 0) + mod;
+  const roll = async () => {
     const modStr = mod > 0 ? `+${mod}` : mod < 0 ? `${mod}` : '';
-    const detail = `${n}d${sides}${modStr}: [${rolls.join(', ')}] = ${total}`;
-    setLast({ total, detail });
-    setHistory((h) => [detail, ...h].slice(0, 6));
+    const expression = `${count}d${sides}${modStr}`;
+    setRolling(true);
+    try {
+      // Rolls happen on the server so results can't be faked; the shared log
+      // picks the roll up via polling.
+      const res = await fetch('/api/dice-rolls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignId, expression, isSecret: isDM && secret }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const results = Array.isArray(data.results) ? data.results.join(', ') : '';
+      const detail = `${data.expression}: [${results}] = ${data.total}`;
+      setLast({ total: data.total, detail });
+      setHistory((h) => [detail, ...h].slice(0, 6));
+    } finally {
+      setRolling(false);
+    }
   };
 
   return (
@@ -59,7 +75,15 @@ export function DiceRoller() {
               />
             </div>
           </div>
-          <Button onClick={roll} className="w-full" size="sm">Roll</Button>
+          <Button onClick={roll} disabled={rolling} className="w-full" size="sm">
+            {rolling ? 'Rolling...' : 'Roll'}
+          </Button>
+          {isDM && (
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+              <Switch checked={secret} onCheckedChange={setSecret} />
+              <EyeOff className="w-3 h-3" /> Secret (DM only)
+            </label>
+          )}
           {last && (
             <div className="text-center">
               <div className="text-2xl font-bold font-mono">{last.total}</div>
