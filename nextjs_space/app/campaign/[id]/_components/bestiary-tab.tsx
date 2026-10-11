@@ -195,7 +195,7 @@ export function BestiaryTab({ campaignId, role }: { campaignId: string; role: st
           <div className="grid gap-3">
             {filtered.map((c: CreatureSummary) => {
               // Players see runic filler for the name until it's unlocked (server-scrambled).
-              const nameLocked = !isDM && c.revealLevel !== 'full' && c.revealLevel !== 'named'
+              const nameLocked = !isDM && c.revealLevel !== 'full'
                 && !(c.unlockedSections ?? []).includes('name');
               return (
               <StaggerItem key={c.id}>

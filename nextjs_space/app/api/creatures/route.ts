@@ -40,7 +40,8 @@ export async function GET(request: Request) {
   const creatures = await prisma.creature.findMany({
     where: creatureWhereFor(role, campaignId),
     include: wikiSelect,
-    orderBy: { name: 'asc' },
+    // Players: don't order by the real name, or the list order leaks locked names.
+    orderBy: role === 'dm' ? { name: 'asc' } : { createdAt: 'asc' },
   });
   const out = (await Promise.all(creatures.map((c) => presentCreature(c, role)))).filter(Boolean);
   return NextResponse.json(out);

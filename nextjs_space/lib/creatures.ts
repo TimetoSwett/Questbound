@@ -130,9 +130,8 @@ function asUnlocked(v: unknown): string[] {
 /**
  * Player view of a creature, sanitized server-side.
  * - hidden: null (indistinguishable from missing for players)
- * - unknown: scrambled identity card, no portrait, no sections, no wiki
- * - named: readable card + portrait; sections readable only when unlocked,
- *   everything else scrambled to similar-length runic filler
+ * - unknown / named: sections (incl. "name", which also gates the portrait)
+ *   readable only when unlocked; everything else scrambled to runic filler
  * - full: everything readable except gmNotes
  */
 export async function presentCreature(
@@ -160,14 +159,15 @@ export async function presentCreature(
   const seedBase = `${c.id}:${level}`;
   const rec = c as unknown as Record<string, unknown>;
 
-  // unknown | named | full. The name is readable at "full", at legacy
-  // "named", or when the "name" section is unlocked; otherwise it is scrambled
+  // unknown | named | full. The name is readable at "full" or when the "name"
+  // section is unlocked (at "unknown" or "named"; existing named creatures get
+  // 'name' via prisma/migrate-reveal-name-unlock.sql); otherwise it is scrambled
   // like everything else. Other identity fields stay scrambled until "full".
   // Sections are unlockable at "unknown" and "named"; "unknown" just means
   // nothing is unlocked by default.
   const unlocked: string[] = level === 'full' ? [...REVEAL_SECTIONS] : asUnlocked(rec.unlockedSections);
   const shows = (section: RevealSection) => unlocked.includes(section);
-  const nameReadable = level === 'full' || level === 'named' || shows('name');
+  const nameReadable = level === 'full' || shows('name');
   const card: Record<string, unknown> = {
     id: c.id,
     campaignId: c.campaignId,

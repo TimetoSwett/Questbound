@@ -501,7 +501,7 @@ function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
   const unlocked: string[] = Array.isArray(data?.unlockedSections) ? data.unlockedSections : [];
   const locked = (s: string) => !unlocked.includes(s);
   const unknown = level === 'unknown';
-  const nameLocked = !(level === 'full' || level === 'named' || unlocked.includes('name'));
+  const nameLocked = !(level === 'full' || unlocked.includes('name'));
 
   const defense = data?.defense ?? {};
   const offense = data?.offense ?? {};
