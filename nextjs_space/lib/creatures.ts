@@ -7,8 +7,11 @@ import { getFileUrl } from '@/lib/s3';
 export const REVEAL_LEVELS = ['hidden', 'unknown', 'named', 'full'] as const;
 export type RevealLevel = (typeof REVEAL_LEVELS)[number];
 
-// Sections the GM can unlock one at a time at the "named" level.
+// Sections the GM can unlock one at a time (at "unknown" or "named" level).
+// "name" covers the creature's name (and portrait); the other card fields stay
+// scrambled until "full".
 export const REVEAL_SECTIONS = [
+  'name',
   'defense',
   'offense',
   'statistics',
@@ -19,6 +22,7 @@ export const REVEAL_SECTIONS = [
 export type RevealSection = (typeof REVEAL_SECTIONS)[number];
 
 const SECTION_LABELS: Record<RevealSection, string> = {
+  name: 'Name',
   defense: 'Defense',
   offense: 'Offense',
   statistics: 'Statistics',
@@ -31,8 +35,9 @@ export function revealSectionLabel(section: string): string {
   return (SECTION_LABELS as Record<string, string>)[section] ?? section;
 }
 
-// Creature keys readable when a section is unlocked.
-const SECTION_FIELDS: Record<Exclude<RevealSection, 'wiki'>, string[]> = {
+// Creature keys readable when a section is unlocked ('name' and 'wiki' are
+// handled specially: name gates the card name + portrait, wiki the wiki link).
+const SECTION_FIELDS: Record<Exclude<RevealSection, 'wiki' | 'name'>, string[]> = {
   defense: ['acTotal', 'acTouch', 'acFlatFooted', 'hpMax', 'hpCurrent', 'hitDice', 'fort', 'ref', 'will'],
   offense: ['speed', 'attacks', 'spells'],
   statistics: ['str', 'dex', 'con', 'int', 'wis', 'cha', 'skills', 'feats', 'gear'],
@@ -43,7 +48,8 @@ const SECTION_FIELDS: Record<Exclude<RevealSection, 'wiki'>, string[]> = {
 // Mirrors lib/battle-map.ts: GM-only keys are never sent to players.
 const GM_ONLY_KEYS = ['gmNotes'] as const;
 
-// Identity card fields (name readable at "named", scrambled at "unknown").
+// Identity card fields. The name is its own unlockable section; the rest stay
+// scrambled until "full".
 const CARD_KEYS = ['name', 'type', 'subtype', 'size', 'cr', 'alignment'] as const;
 
 /** Where clause for listing: players never see hidden creatures. */
@@ -154,45 +160,38 @@ export async function presentCreature(
   const seedBase = `${c.id}:${level}`;
   const rec = c as unknown as Record<string, unknown>;
 
-  if (level === 'unknown') {
-    const card: Record<string, unknown> = {
-      id: c.id,
-      campaignId: c.campaignId,
-      revealLevel: level,
-      unlockedSections: [],
-      isNpc: c.isNpc,
-      portraitUrl: null,
-      wikiPage: null,
-    };
-    for (const k of CARD_KEYS) card[k] = scrambleValue((rec[k] as string) ?? '', `${seedBase}:${k}`);
-    return card;
-  }
-
-  // named | full
+  // unknown | named | full. The name is readable at "full", at legacy
+  // "named", or when the "name" section is unlocked; otherwise it is scrambled
+  // like everything else. Other identity fields stay scrambled until "full".
+  // Sections are unlockable at "unknown" and "named"; "unknown" just means
+  // nothing is unlocked by default.
   const unlocked: string[] = level === 'full' ? [...REVEAL_SECTIONS] : asUnlocked(rec.unlockedSections);
   const shows = (section: RevealSection) => unlocked.includes(section);
+  const nameReadable = level === 'full' || level === 'named' || shows('name');
   const card: Record<string, unknown> = {
     id: c.id,
     campaignId: c.campaignId,
     revealLevel: level,
     unlockedSections: unlocked,
     isNpc: c.isNpc,
-    portraitUrl,
+    portraitUrl: nameReadable ? portraitUrl : null,
     wikiPage: null,
   };
-  // Spec: at "named" only the name is readable on the card; the other identity
-  // fields stay scrambled until "full".
   for (const k of CARD_KEYS) {
     const v = (rec[k] as string) ?? '';
-    card[k] = level === 'full' || k === 'name' ? v : scrambleValue(v, `${seedBase}:${k}`);
+    if (k === 'name') {
+      card[k] = nameReadable ? v : scrambleValue(v, `${seedBase}:name`);
+    } else {
+      card[k] = level === 'full' ? v : scrambleValue(v, `${seedBase}:${k}`);
+    }
   }
 
-  const field = (section: Exclude<RevealSection, 'wiki'>, key: string): unknown => {
+  const field = (section: Exclude<RevealSection, 'wiki' | 'name'>, key: string): unknown => {
     const v = rec[key];
     return shows(section) ? v : scrambleValue(v, `${seedBase}:${key}`);
   };
   for (const section of REVEAL_SECTIONS) {
-    if (section === 'wiki') continue;
+    if (section === 'wiki' || section === 'name') continue;
     const out: Record<string, unknown> = {};
     for (const k of SECTION_FIELDS[section]) out[k] = field(section, k);
     card[section] = out;
