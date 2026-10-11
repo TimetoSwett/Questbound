@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 import { Shield, Swords, Globe, Users, BookOpen, LogOut, ChevronLeft, Copy, Check, Dices } from 'lucide-react';
@@ -11,6 +11,16 @@ import { WorldTab } from './world-tab';
 import { PlayersTab } from './players-tab';
 import { BestiaryTab } from './bestiary-tab';
 import { RollLog } from './roll-log';
+
+const DESKTOP_QUERY = '(min-width: 1024px)';
+function subscribeDesktop(cb: () => void) {
+  const mql = window.matchMedia(DESKTOP_QUERY);
+  mql.addEventListener('change', cb);
+  return () => mql.removeEventListener('change', cb);
+}
+function getIsDesktop() {
+  return window.matchMedia(DESKTOP_QUERY).matches;
+}
 
 type TabKey = 'characters' | 'world' | 'bestiary' | 'players';
 
@@ -33,7 +43,21 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
     : 'characters';
   const [activeTab, setActiveTab] = useState<TabKey>(startTab);
   const [copied, setCopied] = useState(false);
-  const [logOpen, setLogOpen] = useState(true);
+  // Desktop keeps the side column open by default; on mobile the log is an
+  // overlay that starts closed and only opens via the toggle.
+  const isDesktop = useSyncExternalStore(subscribeDesktop, getIsDesktop, () => true);
+  const [desktopLogOpen, setDesktopLogOpen] = useState(true);
+  const [mobileLogOpen, setMobileLogOpen] = useState(false);
+  const logOpen = isDesktop ? desktopLogOpen : mobileLogOpen;
+  const setLogOpen = isDesktop ? setDesktopLogOpen : setMobileLogOpen;
+  useEffect(() => {
+    if (isDesktop || !mobileLogOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileLogOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isDesktop, mobileLogOpen]);
 
   const copyCode = () => {
     navigator?.clipboard?.writeText?.(inviteCode);
@@ -98,7 +122,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
       </header>
 
       {/* Content + roll log side column */}
-      <div className="flex-1 flex flex-col lg:flex-row items-stretch min-w-0">
+      <div className="flex-1 flex items-stretch min-w-0">
         <main className="flex-1 min-w-0">
           {activeTab === 'characters' && <CharactersTab campaignId={campaignId} role={role} userId={userId} />}
           {activeTab === 'world' && <WorldTab campaignId={campaignId} role={role} />}
@@ -106,8 +130,8 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
           {activeTab === 'players' && role === 'dm' && <PlayersTab campaignId={campaignId} />}
         </main>
         {logOpen && (
-          <aside id="campaign-roll-log" aria-label="Roll log" className="order-first lg:order-last w-full lg:w-80 shrink-0 border-b lg:border-b-0 lg:border-l border-border bg-card/40">
-            <div className="h-[min(60dvh,28rem)] lg:sticky lg:top-[100px] lg:h-[calc(100vh-100px)]">
+          <aside id="campaign-roll-log" aria-label="Roll log" className="fixed inset-x-0 bottom-0 z-40 h-[min(70dvh,32rem)] overscroll-contain border-t border-border bg-card shadow-2xl lg:static lg:z-auto lg:h-auto lg:w-80 lg:shrink-0 lg:border-t-0 lg:border-l lg:bg-card/40 lg:shadow-none">
+            <div className="h-full lg:sticky lg:top-[100px] lg:h-[calc(100vh-100px)]">
               <RollLog campaignId={campaignId} role={role} />
             </div>
           </aside>
