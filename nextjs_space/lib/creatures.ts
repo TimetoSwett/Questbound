@@ -90,7 +90,7 @@ function mulberry32(seed: number): () => number {
 }
 
 /** Runic filler preserving length and whitespace. Seeded so it's stable per field. */
-function scrambleText(real: string, seed: string): string {
+export function scrambleText(real: string, seed: string): string {
   if (!real) return real;
   const rand = mulberry32(hashSeed(seed));
   return [...real]
@@ -104,7 +104,7 @@ function scrambleNumber(_n: number, _seed: string): string {
   return LOCKED_NUMBER_FILLER;
 }
 
-function scrambleValue(v: unknown, seed: string): unknown {
+export function scrambleValue(v: unknown, seed: string): unknown {
   if (v == null) return v;
   if (typeof v === 'string') return scrambleText(v, seed);
   if (typeof v === 'number') return scrambleNumber(v, seed);
@@ -112,14 +112,8 @@ function scrambleValue(v: unknown, seed: string): unknown {
   if (Array.isArray(v)) return v.map((x, i) => scrambleValue(x, `${seed}:${i}`));
   if (typeof v === 'object') {
     const out: Record<string, unknown> = {};
-    // Keys containing digits (e.g. spells.slots spell levels) would leak real
-    // numbers, so they become runic too (deduped to keep entries distinct).
-    let i = 0;
     for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-      let key = /\d/.test(k) ? scrambleText(k, `${seed}:key:${i}`) : k;
-      while (key in out) key += RUNES[i++ % RUNES.length];
-      out[key] = scrambleValue(val, `${seed}:${k}`);
-      i++;
+      out[k] = scrambleValue(val, `${seed}:${k}`);
     }
     return out;
   }
@@ -128,7 +122,7 @@ function scrambleValue(v: unknown, seed: string): unknown {
 
 type WikiRef = { id: string; title: string; visibility: string } | null | undefined;
 
-function asUnlocked(v: unknown): string[] {
+export function asUnlocked(v: unknown): string[] {
   return Array.isArray(v) ? (v as unknown[]).filter((x): x is string => typeof x === 'string') : [];
 }
 
