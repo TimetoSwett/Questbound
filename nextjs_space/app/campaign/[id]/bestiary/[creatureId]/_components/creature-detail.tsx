@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronRight, BookOpen, Plus, Trash2 } from 'lucide-react';
+import { ChevronRight, BookOpen, Plus, Trash2, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -493,7 +493,20 @@ export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: s
 }
 
 // Runic styling for server-scrambled filler (the real text never reaches the client).
-const RUNIC = 'tracking-[0.2em] text-muted-foreground/70';
+const RUNIC = 'tracking-[0.25em] text-muted-foreground/70';
+
+/**
+ * Renders a value from a player-visible section. Locked sections arrive from
+ * the server as runic filler, but this is a defensive second layer: a number
+ * must NEVER render as digits inside a locked section (locked numbers are
+ * filler server-side, so a digit here would mean something leaked — show
+ * runes instead).
+ */
+function PVal({ value, isLocked }: { value: unknown; isLocked: boolean }) {
+  if (value == null || value === '') return <span className="text-muted-foreground">?</span>;
+  if (isLocked && typeof value === 'number') return <span className={RUNIC}>ᚱᚢ</span>;
+  return <span className={isLocked ? RUNIC : ''}>{String(value)}</span>;
+}
 
 function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
   const router = useRouter();
@@ -508,6 +521,9 @@ function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
   const statistics = data?.statistics ?? {};
   const special = data?.specialAbilities?.specialAbilities ?? [];
   const notes = data?.playerNotes?.playerNotes ?? '';
+  const lDefense = locked('defense');
+  const lOffense = locked('offense');
+  const lStats = locked('statistics');
 
   return (
     <div className="min-h-screen bg-background">
@@ -516,7 +532,8 @@ function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
           <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to Bestiary
         </Button>
         <FadeIn>
-          {/* identity card — scrambled runes at "unknown", readable at "named"/"full" */}
+          {/* identity card — name is runic unless unlocked; other identity fields
+              stay runic until "full" (server-scrambled) */}
           <div className="bg-card rounded-lg border border-border p-8 text-center mb-4" style={{ boxShadow: 'var(--shadow-sm)' }}>
             {data.portraitUrl ? (
               <img src={data.portraitUrl} alt="" className="w-32 h-32 rounded-lg object-cover mx-auto mb-4 border border-border" />
@@ -536,19 +553,19 @@ function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
             {data.cr && <p className={`text-xs text-muted-foreground mt-2 ${level !== 'full' ? RUNIC : ''}`}>Challenge {data.cr}</p>}
           </div>
 
-          {!unknown && (
-            <>
-              <PlayerSection title="Defense" locked={locked('defense')}>
-                <div className="grid grid-cols-3 gap-3 text-center">
-                  <Stat label="AC" value={defense.acTotal ?? '?'} mono />
-                  <Stat label="HP" value={`${defense.hpCurrent ?? '?'}/${defense.hpMax ?? '?'}`} mono />
-                  <Stat label="Fort / Ref / Will" value={`${defense.fort ?? '?'}/${defense.ref ?? '?'}/${defense.will ?? '?'}`} mono />
-                </div>
-                {defense.hitDice ? <p className="text-xs text-muted-foreground mt-2 text-center">Hit Dice {defense.hitDice}</p> : null}
-              </PlayerSection>
+          {/* Sections render at every visible level (unknown included);
+              locked ones show runic filler, never real data. */}
+          <PlayerSection title="Defense" locked={lDefense}>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <Stat label="AC" value={<PVal value={defense.acTotal} isLocked={lDefense} />} mono />
+              <Stat label="HP" value={<><PVal value={defense.hpCurrent} isLocked={lDefense} />/<PVal value={defense.hpMax} isLocked={lDefense} /></>} mono />
+              <Stat label="Fort / Ref / Will" value={<><PVal value={defense.fort} isLocked={lDefense} />/<PVal value={defense.ref} isLocked={lDefense} />/<PVal value={defense.will} isLocked={lDefense} /></>} mono />
+            </div>
+            {defense.hitDice ? <p className="text-xs text-muted-foreground mt-2 text-center">Hit Dice {defense.hitDice}</p> : null}
+          </PlayerSection>
 
-              <PlayerSection title="Offense" locked={locked('offense')}>
-                <p className="text-sm mb-2">Speed {offense.speed ?? '?'} ft.</p>
+          <PlayerSection title="Offense" locked={lOffense}>
+            <p className="text-sm mb-2">Speed <PVal value={offense.speed} isLocked={lOffense} /> ft.</p>
                 {(offense.attacks ?? []).map((a: any, i: number) => (
                   <div key={i} className="text-sm py-1 border-b border-border/50 last:border-0">
                     <span className="font-semibold">{a?.name}</span>
@@ -566,13 +583,17 @@ function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
                 )}
               </PlayerSection>
 
-              <PlayerSection title="Statistics" locked={locked('statistics')}>
+              <PlayerSection title="Statistics" locked={lStats}>
                 <div className="grid grid-cols-6 gap-1 text-center mb-3">
                   {(['str', 'dex', 'con', 'int', 'wis', 'cha'] as const).map((ab) => (
                     <div key={ab}>
                       <div className="text-[10px] uppercase text-muted-foreground">{ab}</div>
-                      <div className="font-mono font-semibold">{statistics[ab] ?? '—'}</div>
-                      <div className="text-[10px] font-mono text-muted-foreground">{abilityMod(statistics[ab] ?? null)}</div>
+                      <div className="font-mono font-semibold"><PVal value={statistics[ab]} isLocked={lStats} /></div>
+                      <div className="text-[10px] font-mono text-muted-foreground">
+                        {lStats
+                          ? <span className={RUNIC}>ᚱᚢ</span>
+                          : abilityMod(typeof statistics[ab] === 'number' ? statistics[ab] : null)}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -585,33 +606,31 @@ function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
                 {(statistics.gear ?? []).length > 0 && (
                   <p className="text-sm"><span className="text-muted-foreground">Gear: </span>{(statistics.gear ?? []).map((g: any) => g?.name).filter(Boolean).join(', ')}</p>
                 )}
-              </PlayerSection>
+            </PlayerSection>
 
-              <PlayerSection title="Special Abilities" locked={locked('specialAbilities')}>
-                {special.length === 0 && <p className="text-sm text-muted-foreground">None recorded.</p>}
-                {special.map((a: any, i: number) => (
-                  <div key={i} className="mb-2">
-                    <p className="text-sm font-semibold">{a?.name}</p>
-                    {a?.description ? <p className="text-sm text-muted-foreground">{a.description}</p> : null}
-                  </div>
-                ))}
-              </PlayerSection>
-
-              <PlayerSection title="Player Notes" locked={locked('playerNotes')}>
-                {notes
-                  ? <p className="text-sm whitespace-pre-wrap">{notes}</p>
-                  : <p className={`text-sm ${RUNIC}`}>ᚱᚢᚾᛖᛊ ᚾᛟᛏ ᚤᛖᛏ ᚱᛖᚢᛖᚨᛚᛖᛞ</p>}
-              </PlayerSection>
-
-              {data?.wikiPage?.title ? (
-                <div className="text-center mt-2">
-                  <Button variant="link" size="sm" onClick={() => router.push(`/campaign/${data.campaignId}?tab=world`)}>
-                    <BookOpen className="w-3.5 h-3.5 mr-1" /> {data.wikiPage.title}
-                  </Button>
+            <PlayerSection title="Special Abilities" locked={locked('specialAbilities')}>
+              {special.length === 0 && <p className="text-sm text-muted-foreground">None recorded.</p>}
+              {special.map((a: any, i: number) => (
+                <div key={i} className="mb-2">
+                  <p className="text-sm font-semibold">{a?.name}</p>
+                  {a?.description ? <p className="text-sm text-muted-foreground">{a.description}</p> : null}
                 </div>
-              ) : null}
-            </>
-          )}
+              ))}
+            </PlayerSection>
+
+            <PlayerSection title="Player Notes" locked={locked('playerNotes')}>
+              {notes
+                ? <p className="text-sm whitespace-pre-wrap">{notes}</p>
+                : <p className={`text-sm ${RUNIC}`}>ᚱᚢᚾᛖᛊ ᚾᛟᛏ ᚤᛖᛏ ᚱᛖᚢᛖᚨᛚᛖᛞ</p>}
+            </PlayerSection>
+
+            {data?.wikiPage?.title ? (
+              <div className="text-center mt-2">
+                <Button variant="link" size="sm" onClick={() => router.push(`/campaign/${data.campaignId}?tab=world`)}>
+                  <BookOpen className="w-3.5 h-3.5 mr-1" /> {data.wikiPage.title}
+                </Button>
+              </div>
+            ) : null}
         </FadeIn>
       </div>
     </div>
@@ -623,7 +642,11 @@ function PlayerSection({ title, locked, children }: { title: string; locked: boo
     <div className="bg-card rounded-lg border border-border p-5 mb-4" style={{ boxShadow: 'var(--shadow-sm)' }}>
       <h3 className="font-display text-sm font-bold uppercase tracking-widest text-primary border-b border-border pb-2 mb-4 flex items-center justify-between">
         {title}
-        {locked && <span className="text-[10px] font-sans font-normal tracking-normal text-muted-foreground">sealed</span>}
+        {locked && (
+          <span className="flex items-center gap-1 text-[10px] font-sans font-normal tracking-normal text-muted-foreground">
+            <Lock className="w-3 h-3" /> sealed
+          </span>
+        )}
       </h3>
       <div className={locked ? RUNIC : ''}>{children}</div>
     </div>
