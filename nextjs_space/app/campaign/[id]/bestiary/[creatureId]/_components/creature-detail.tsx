@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronRight, BookOpen, Eye, EyeOff, Plus, Trash2 } from 'lucide-react';
+import { ChevronRight, BookOpen, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +18,19 @@ const SAVE_KEYS = [
   'fort', 'ref', 'will',
   'str', 'dex', 'con', 'int', 'wis', 'cha', 'speed',
   'attacks', 'skills', 'feats', 'specialAbilities', 'spells', 'gear',
-  'wikiPageId', 'gmNotes', 'revealedToPlayers',
+  'wikiPageId', 'gmNotes', 'playerNotes', 'revealLevel', 'unlockedSections',
+] as const;
+
+const REVEAL_LEVELS = ['hidden', 'unknown', 'named', 'full'] as const;
+
+// Sections unlockable one at a time at the "named" reveal level.
+const REVEAL_SECTIONS = [
+  { key: 'defense', label: 'Defense' },
+  { key: 'offense', label: 'Offense' },
+  { key: 'statistics', label: 'Statistics' },
+  { key: 'specialAbilities', label: 'Special Abilities' },
+  { key: 'playerNotes', label: 'Player Notes' },
+  { key: 'wiki', label: 'Wiki Page' },
 ] as const;
 
 const SIZES = ['Fine', 'Diminutive', 'Tiny', 'Small', 'Medium', 'Large', 'Huge', 'Gargantuan', 'Colossal'];
@@ -33,8 +45,14 @@ function normalizeSpells(v: any): { slots: Record<string, unknown>; known: any[]
 }
 
 function normalize(raw: any): any {
+  const level = REVEAL_LEVELS.includes(raw?.revealLevel) ? raw.revealLevel : 'hidden';
   return {
     ...raw,
+    revealLevel: level,
+    unlockedSections: Array.isArray(raw?.unlockedSections)
+      ? (raw.unlockedSections as unknown[]).filter((x): x is string => typeof x === 'string')
+      : [],
+    playerNotes: typeof raw?.playerNotes === 'string' ? raw.playerNotes : '',
     attacks: asArray(raw?.attacks),
     skills: asArray(raw?.skills),
     feats: asArray(raw?.feats),
@@ -231,14 +249,39 @@ export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: s
                       <SelectItem value="monster">Monster</SelectItem>
                     </SelectContent>
                   </Select>
-                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground ml-1 cursor-pointer">
-                    <Switch
-                      checked={!!data.revealedToPlayers}
-                      onCheckedChange={(v: boolean) => { update('revealedToPlayers', v); void saveNow({ revealedToPlayers: v }); }}
-                    />
-                    {data.revealedToPlayers ? <><Eye className="w-3.5 h-3.5" /> Revealed to players</> : <><EyeOff className="w-3.5 h-3.5" /> Hidden from players</>}
-                  </label>
+                  <label className="text-xs text-muted-foreground ml-1">Reveal</label>
+                  <Select value={data.revealLevel ?? 'hidden'} onValueChange={(v: string) => updateAndSave('revealLevel', v)}>
+                    <SelectTrigger className="h-7 w-[110px] text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="hidden">Hidden</SelectItem>
+                      <SelectItem value="unknown">Unknown</SelectItem>
+                      <SelectItem value="named">Named</SelectItem>
+                      <SelectItem value="full">Full</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
+                {data.revealLevel === 'named' && (
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3 pt-3 border-t border-border">
+                    <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Unlock sections:</span>
+                    {REVEAL_SECTIONS.map((s) => {
+                      const on = (data.unlockedSections ?? []).includes(s.key);
+                      return (
+                        <label key={s.key} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                          <Switch
+                            checked={on}
+                            onCheckedChange={() => {
+                              const cur: string[] = data.unlockedSections ?? [];
+                              const next = on ? cur.filter((k: string) => k !== s.key) : [...cur, s.key];
+                              update('unlockedSections', next);
+                              void saveNow({ unlockedSections: next });
+                            }}
+                          />
+                          {s.label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
@@ -406,6 +449,20 @@ export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: s
             />
           </Section>
 
+          {/* ---- Player notes (GM only editor; shown to players when unlocked) ---- */}
+          <Section title="Player Notes" subtle>
+            <p className="text-xs text-muted-foreground mb-2">
+              Weaknesses, rumors, lore the party could learn. Players see this only when the
+              Player Notes section is unlocked (Named) or the reveal level is Full.
+            </p>
+            <textarea
+              value={data.playerNotes ?? ''}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateAndSave('playerNotes', e.target.value)}
+              placeholder="What the players might discover about this creature..."
+              className="w-full min-h-[80px] bg-muted/50 rounded-lg p-3 text-sm outline-none focus:ring-1 focus:ring-ring resize-y"
+            />
+          </Section>
+
           {/* ---- Wiki link (GM only) ---- */}
           <Section title="Wiki" subtle>
             <div className="flex flex-wrap items-center gap-2">
@@ -434,7 +491,22 @@ export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: s
   );
 }
 
+// Runic styling for server-scrambled filler (the real text never reaches the client).
+const RUNIC = 'tracking-[0.2em] text-muted-foreground/70';
+
 function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
+  const router = useRouter();
+  const level: string = data?.revealLevel ?? 'unknown';
+  const unlocked: string[] = Array.isArray(data?.unlockedSections) ? data.unlockedSections : [];
+  const locked = (s: string) => !unlocked.includes(s);
+  const unknown = level === 'unknown';
+
+  const defense = data?.defense ?? {};
+  const offense = data?.offense ?? {};
+  const statistics = data?.statistics ?? {};
+  const special = data?.specialAbilities?.specialAbilities ?? [];
+  const notes = data?.playerNotes?.playerNotes ?? '';
+
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-2xl mx-auto px-4 py-6">
@@ -442,27 +514,125 @@ function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
           <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to Bestiary
         </Button>
         <FadeIn>
-          <div className="bg-card rounded-lg border border-border p-8 text-center" style={{ boxShadow: 'var(--shadow-sm)' }}>
+          {/* identity card — scrambled runes at "unknown", readable at "named"/"full" */}
+          <div className="bg-card rounded-lg border border-border p-8 text-center mb-4" style={{ boxShadow: 'var(--shadow-sm)' }}>
             {data.portraitUrl ? (
-              <img src={data.portraitUrl} alt={data.name} className="w-32 h-32 rounded-lg object-cover mx-auto mb-4 border border-border" />
+              <img src={data.portraitUrl} alt="" className="w-32 h-32 rounded-lg object-cover mx-auto mb-4 border border-border" />
             ) : (
               <div className="w-32 h-32 rounded-lg bg-muted flex items-center justify-center mx-auto mb-4">
                 <BookOpen className="w-10 h-10 text-muted-foreground" />
               </div>
             )}
-            <h1 className="font-display text-3xl font-bold tracking-tight">{data.name ?? 'Unknown'}</h1>
-            <p className="text-muted-foreground mt-1">
+            <h1 className={`font-display text-3xl font-bold tracking-tight ${unknown ? RUNIC : ''}`}>{data.name ?? '???'}</h1>
+            <p className={`text-muted-foreground mt-1 ${unknown ? RUNIC : ''}`}>
               {data.size}{data.type ? ` ${data.type}` : ''}{data.subtype ? ` (${data.subtype})` : ''}
             </p>
-            <div className="mt-3">
+            <div className="mt-3 flex items-center justify-center gap-2">
               <Badge variant={data.isNpc ? 'secondary' : 'outline'}>{data.isNpc ? 'NPC' : 'Monster'}</Badge>
+              {unknown && <Badge variant="outline">Unidentified</Badge>}
             </div>
-            {data?.wikiPage?.title && (
-              <p className="text-xs text-muted-foreground mt-4">Wiki: {data.wikiPage.title}</p>
-            )}
+            {data.cr && <p className={`text-xs text-muted-foreground mt-2 ${unknown ? RUNIC : ''}`}>Challenge {data.cr}</p>}
           </div>
+
+          {!unknown && (
+            <>
+              <PlayerSection title="Defense" locked={locked('defense')}>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <Stat label="AC" value={defense.acTotal ?? '?'} mono />
+                  <Stat label="HP" value={`${defense.hpCurrent ?? '?'}/${defense.hpMax ?? '?'}`} mono />
+                  <Stat label="Fort / Ref / Will" value={`${defense.fort ?? '?'}/${defense.ref ?? '?'}/${defense.will ?? '?'}`} mono />
+                </div>
+                {defense.hitDice ? <p className="text-xs text-muted-foreground mt-2 text-center">Hit Dice {defense.hitDice}</p> : null}
+              </PlayerSection>
+
+              <PlayerSection title="Offense" locked={locked('offense')}>
+                <p className="text-sm mb-2">Speed {offense.speed ?? '?'} ft.</p>
+                {(offense.attacks ?? []).map((a: any, i: number) => (
+                  <div key={i} className="text-sm py-1 border-b border-border/50 last:border-0">
+                    <span className="font-semibold">{a?.name}</span>
+                    {a?.bonus ? <span className="font-mono text-muted-foreground"> {a.bonus}</span> : null}
+                    {a?.damage ? <span className="text-muted-foreground"> — {a.damage}{a?.critical ? ` (${a.critical})` : ''}</span> : null}
+                  </div>
+                ))}
+                {(offense.spells?.known ?? []).length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Spells</p>
+                    {(offense.spells.known ?? []).map((s: any, i: number) => (
+                      <p key={i} className="text-sm">{s?.name}{s?.level ? <span className="text-muted-foreground"> ({s.level})</span> : null}</p>
+                    ))}
+                  </div>
+                )}
+              </PlayerSection>
+
+              <PlayerSection title="Statistics" locked={locked('statistics')}>
+                <div className="grid grid-cols-6 gap-1 text-center mb-3">
+                  {(['str', 'dex', 'con', 'int', 'wis', 'cha'] as const).map((ab) => (
+                    <div key={ab}>
+                      <div className="text-[10px] uppercase text-muted-foreground">{ab}</div>
+                      <div className="font-mono font-semibold">{statistics[ab] ?? '—'}</div>
+                      <div className="text-[10px] font-mono text-muted-foreground">{abilityMod(statistics[ab] ?? null)}</div>
+                    </div>
+                  ))}
+                </div>
+                {(statistics.feats ?? []).length > 0 && (
+                  <p className="text-sm"><span className="text-muted-foreground">Feats: </span>{(statistics.feats ?? []).map((f: any) => f?.name).filter(Boolean).join(', ')}</p>
+                )}
+                {(statistics.skills ?? []).length > 0 && (
+                  <p className="text-sm"><span className="text-muted-foreground">Skills: </span>{(statistics.skills ?? []).map((s: any) => `${s?.name ?? ''} ${s?.bonus ?? ''}`.trim()).filter(Boolean).join(', ')}</p>
+                )}
+                {(statistics.gear ?? []).length > 0 && (
+                  <p className="text-sm"><span className="text-muted-foreground">Gear: </span>{(statistics.gear ?? []).map((g: any) => g?.name).filter(Boolean).join(', ')}</p>
+                )}
+              </PlayerSection>
+
+              <PlayerSection title="Special Abilities" locked={locked('specialAbilities')}>
+                {special.length === 0 && <p className="text-sm text-muted-foreground">None recorded.</p>}
+                {special.map((a: any, i: number) => (
+                  <div key={i} className="mb-2">
+                    <p className="text-sm font-semibold">{a?.name}</p>
+                    {a?.description ? <p className="text-sm text-muted-foreground">{a.description}</p> : null}
+                  </div>
+                ))}
+              </PlayerSection>
+
+              <PlayerSection title="Player Notes" locked={locked('playerNotes')}>
+                {notes
+                  ? <p className="text-sm whitespace-pre-wrap">{notes}</p>
+                  : <p className={`text-sm ${RUNIC}`}>ᚱᚢᚾᛖᛊ ᚾᛟᛏ ᚤᛖᛏ ᚱᛖᚢᛖᚨᛚᛖᛞ</p>}
+              </PlayerSection>
+
+              {data?.wikiPage?.title ? (
+                <div className="text-center mt-2">
+                  <Button variant="link" size="sm" onClick={() => router.push(`/campaign/${data.campaignId}?tab=world`)}>
+                    <BookOpen className="w-3.5 h-3.5 mr-1" /> {data.wikiPage.title}
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          )}
         </FadeIn>
       </div>
+    </div>
+  );
+}
+
+function PlayerSection({ title, locked, children }: { title: string; locked: boolean; children: React.ReactNode }) {
+  return (
+    <div className="bg-card rounded-lg border border-border p-5 mb-4" style={{ boxShadow: 'var(--shadow-sm)' }}>
+      <h3 className="font-display text-sm font-bold uppercase tracking-widest text-primary border-b border-border pb-2 mb-4 flex items-center justify-between">
+        {title}
+        {locked && <span className="text-[10px] font-sans font-normal tracking-normal text-muted-foreground">sealed</span>}
+      </h3>
+      <div className={locked ? RUNIC : ''}>{children}</div>
+    </div>
+  );
+}
+
+function Stat({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase text-muted-foreground">{label}</div>
+      <div className={`font-semibold ${mono ? 'font-mono' : ''}`}>{value}</div>
     </div>
   );
 }
