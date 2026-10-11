@@ -25,7 +25,6 @@ export async function POST(request: Request) {
       name: typeof name === 'string' && name.trim() ? name.trim().slice(0, 200) : `${src.name} (copy)`,
       revealLevel: 'hidden',
       unlockedSections: [],
-      revealedToPlayers: false,
       attacks: json(attacks), skills: json(skills), feats: json(feats),
       specialAbilities: json(specialAbilities), spells: json(spells), gear: json(gear),
     },

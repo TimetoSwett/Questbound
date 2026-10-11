@@ -254,7 +254,7 @@ model RegionEdge {
 }
 
 // Bestiary / NPC stat block owned by a campaign. GM-managed; players only ever
-// see a basic card for creatures with revealedToPlayers (see lib/creatures.ts).
+// see a basic card for creatures whose revealLevel is not "hidden" (see lib/creatures.ts).
 model Creature {
   id         String @id @default(cuid())
   campaignId String
@@ -318,9 +318,6 @@ model Creature {
   // Section keys unlocked at the "named" level: defense, offense, statistics,
   // specialAbilities, playerNotes, wiki
   unlockedSections Json @default("[]")
-  // DEPRECATED: legacy flag kept only so `prisma db push` does not drop it before
-  // prisma/migrate-reveal-levels.sql copies it into revealLevel. Remove afterwards.
-  revealedToPlayers Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
