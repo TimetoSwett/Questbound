@@ -136,6 +136,32 @@ function tokenFromCreature(c: PaletteCreature, x: number, y: number): Token {
   return t;
 }
 
+// Allocate persisted IDs only when an edit creates a new map entity.
+function createBattleId(prefix: string, randomLength?: number): string {
+  const id = `${prefix}_${Date.now()}`;
+  return randomLength ? `${id}_${Math.random().toString(36).slice(2, 2 + randomLength)}` : id;
+}
+
+function createSnapshot(name: string, state: SnapshotState): Snapshot {
+  return { id: createBattleId('snap'), name, createdAt: Date.now(), state };
+}
+
+function createHandout(key: string): NonNullable<BattleState['handout']> {
+  return { key, pushedAt: Date.now() };
+}
+
+function cloneEncounterTokens(tokens: Token[]): Token[] {
+  const batchId = createBattleId('t');
+  // Each spawn resets HP and conditions and drops PC links.
+  return tokens.map((t, i) => ({
+    id: `${batchId}_${i}`, label: t.label, color: t.color,
+    x: t.x, y: t.y, size: t.size,
+    hp: t.maxHp != null ? t.maxHp : t.hp, maxHp: t.maxHp, conditions: [],
+    ...(t.portraitKey ? { portraitKey: t.portraitKey } : {}),
+    ...(t.creatureId ? { creatureId: t.creatureId } : {}),
+  }));
+}
+
 export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId: string; isDM: boolean; onOpenWikiPage?: (pageId: string) => void }) {
   const router = useRouter();
   const [state, setState] = useState<BattleState>(EMPTY_BATTLE);
@@ -246,34 +272,42 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   const baseTokensRef = useRef<Token[]>([]);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
 
-  const load = useCallback(async () => {
+  const fetchBattle = useCallback(async () => {
     const res = await fetch(`/api/maps/battle?campaignId=${campaignId}`);
-    if (res.ok) {
-      const d = await res.json();
-      versionRef.current = Number.isInteger(d?.version) ? d.version : 0;
-      baseTokensRef.current = d?.tokens ?? [];
-      setState({
-        gridWidth: d?.gridWidth ?? 20,
-        gridHeight: d?.gridHeight ?? 20,
-        tokens: d?.tokens ?? [],
-        highlights: d?.highlights ?? [],
-        fog: d?.fog ?? [],
-        backgroundImage: d?.backgroundImage ?? null,
-        turnOrder: d?.turnOrder ?? [],
-        activeId: d?.activeId ?? null,
-        feetPerSquare: d?.feetPerSquare ?? 5,
-        cellNumbers: d?.cellNumbers ?? true,
-        handout: d?.handout ?? null,
-        encounters: d?.encounters ?? [],
-        snapshots: d?.snapshots ?? [],
-        drawings: d?.drawings ?? [],
-        texts: d?.texts ?? [],
-        pins: d?.pins ?? [],
-      });
-    }
+    return res.ok ? res.json() : null;
   }, [campaignId]);
 
-  useEffect(() => { load(); }, [load]);
+  const applyBattle = useCallback((d: any) => {
+    if (!d) return;
+    versionRef.current = Number.isInteger(d?.version) ? d.version : 0;
+    baseTokensRef.current = d?.tokens ?? [];
+    setState({
+      gridWidth: d?.gridWidth ?? 20,
+      gridHeight: d?.gridHeight ?? 20,
+      tokens: d?.tokens ?? [],
+      highlights: d?.highlights ?? [],
+      fog: d?.fog ?? [],
+      backgroundImage: d?.backgroundImage ?? null,
+      turnOrder: d?.turnOrder ?? [],
+      activeId: d?.activeId ?? null,
+      feetPerSquare: d?.feetPerSquare ?? 5,
+      cellNumbers: d?.cellNumbers ?? true,
+      handout: d?.handout ?? null,
+      encounters: d?.encounters ?? [],
+      snapshots: d?.snapshots ?? [],
+      drawings: d?.drawings ?? [],
+      texts: d?.texts ?? [],
+      pins: d?.pins ?? [],
+    });
+  }, []);
+
+  const load = useCallback(() => fetchBattle().then(applyBattle), [fetchBattle, applyBattle]);
+
+  useEffect(() => {
+    let active = true;
+    fetchBattle().then((d) => { if (active) applyBattle(d); });
+    return () => { active = false; };
+  }, [fetchBattle, applyBattle]);
 
   // Live updates for players: the DM's token moves and fog changes land
   // without a page refresh. The DM is the source of truth (every DM action
@@ -419,10 +453,12 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   };
 
   // Undo/redo deliberately bypass commitState (no history push) so redo keeps working.
-  const undoRef = useRef(undo);
-  const redoRef = useRef(redo);
-  undoRef.current = undo;
-  redoRef.current = redo;
+  const undoRef = useRef<(() => void) | null>(null);
+  const redoRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    undoRef.current = undo;
+    redoRef.current = redo;
+  });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -430,8 +466,8 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) return;
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
       const k = e.key.toLowerCase();
-      if (k === 'z' && !e.shiftKey) { e.preventDefault(); undoRef.current(); }
-      else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redoRef.current(); }
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); undoRef.current?.(); }
+      else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redoRef.current?.(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -444,7 +480,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   const handleCellClick = (x: number, y: number) => {
     if (!isDM) return;
     if (rulerMode || drawTool) return;
-    if (pinMode) { openPinEditor({ id: `p_${Date.now()}`, x, y }, true); return; }
+    if (pinMode) { openPinEditor({ id: createBattleId('p'), x, y }, true); return; }
     if (fogMode) {
       const key = `${x},${y}`;
       const fog = [...(state?.fog ?? [])];
@@ -614,7 +650,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
       drawingPtsRef.current = [];
       setDrawing(null);
       if (pts.length > 0 && state) {
-        const ns = { ...state, drawings: [...(state.drawings ?? []), { id: `d_${Date.now()}`, color: drawColor, points: pts }] };
+        const ns = { ...state, drawings: [...(state.drawings ?? []), { id: createBattleId('d'), color: drawColor, points: pts }] };
         commitState(ns);
       }
     }
@@ -649,7 +685,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
     if (td.id) {
       texts = texts.map((t) => (t.id === td.id ? { ...t, text, color: td.color } : t));
     } else {
-      texts.push({ id: `txt_${Date.now()}`, x: td.x, y: td.y, text, color: td.color });
+      texts.push({ id: createBattleId('txt'), x: td.x, y: td.y, text, color: td.color });
     }
     commitState({ ...state, texts });
     setTextDraft(null);
@@ -748,7 +784,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
       toast.error('Portrait upload failed'); setAddingToken(false); return;
     }
     const t: Token = {
-      id: `t_${Date.now()}`,
+      id: createBattleId('t'),
       label: newToken.label,
       color: newToken.color,
       x: 0, y: 0,
@@ -776,7 +812,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
     const name = encName.trim();
     if (!name) { toast.error('Name the encounter first'); return; }
     const enc: Encounter = {
-      id: `enc_${Date.now()}`,
+      id: createBattleId('enc'),
       name,
       tokens: JSON.parse(JSON.stringify(tokens)),
     };
@@ -790,25 +826,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   const spawnEncounter = (id: string) => {
     const enc = (state?.encounters ?? []).find((e: Encounter) => e.id === id);
     if (!enc) { toast.error('Encounter not found'); return; }
-    const now = Date.now();
-    // Clone as fresh monster/NPC tokens: new ids, full HP, no conditions,
-    // and never carry over a PC character link.
-    const clones: Token[] = enc.tokens.map((t: Token, i: number) => {
-      const c: Token = {
-        id: `t_${now}_${i}`,
-        label: t.label,
-        color: t.color,
-        x: t.x,
-        y: t.y,
-        size: t.size,
-        hp: t.maxHp != null ? t.maxHp : t.hp,
-        maxHp: t.maxHp,
-        conditions: [],
-      };
-      if (t.portraitKey) c.portraitKey = t.portraitKey;
-      if (t.creatureId) c.creatureId = t.creatureId;
-      return c;
-    });
+    const clones = cloneEncounterTokens(enc.tokens);
     const ns = { ...state, tokens: [...(state?.tokens ?? []), ...clones] };
     commitState(ns);
     toast.success(`Spawned "${enc.name}" (${clones.length} token${clones.length === 1 ? '' : 's'})`);
@@ -829,7 +847,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
     const snapState: SnapshotState = JSON.parse(JSON.stringify(
       Object.fromEntries(SNAPSHOT_FIELDS.map((f) => [f, (s as any)[f]]))
     ));
-    const snap: Snapshot = { id: `snap_${Date.now()}`, name, createdAt: Date.now(), state: snapState };
+    const snap: Snapshot = createSnapshot(name, snapState);
     const ns = { ...s, snapshots: [...(s.snapshots ?? []), snap] };
     commitState(ns);
     setSnapName('');
@@ -947,7 +965,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
 
   const pushHandoutKey = async (key: string) => {
     setPushingHandout(true);
-    const ns = { ...state, handout: { key, pushedAt: Date.now() } };
+    const ns = { ...state, handout: createHandout(key) };
     commitState(ns);
     setPushingHandout(false);
     setHandoutOpen(false);
@@ -994,7 +1012,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   const addManualEntry = () => {
     if (!newEntry.label.trim()) { toast.error('Enter a name'); return; }
     const e: TurnEntry = {
-      id: `te_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      id: createBattleId('te', 5),
       label: newEntry.label.trim(),
       initiative: parseInt(newEntry.initiative) || 0,
     };
