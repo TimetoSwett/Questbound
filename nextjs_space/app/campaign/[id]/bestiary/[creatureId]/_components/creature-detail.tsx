@@ -23,8 +23,9 @@ const SAVE_KEYS = [
 
 const REVEAL_LEVELS = ['hidden', 'unknown', 'named', 'full'] as const;
 
-// Sections unlockable one at a time at the "named" reveal level.
+// Sections unlockable one at a time at the "unknown"/"named" reveal levels.
 const REVEAL_SECTIONS = [
+  { key: 'name', label: 'Name' },
   { key: 'defense', label: 'Defense' },
   { key: 'offense', label: 'Offense' },
   { key: 'statistics', label: 'Statistics' },
@@ -260,7 +261,7 @@ export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: s
                     </SelectContent>
                   </Select>
                 </div>
-                {data.revealLevel === 'named' && (
+                {(data.revealLevel === 'named' || data.revealLevel === 'unknown') && (
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3 pt-3 border-t border-border">
                     <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Unlock sections:</span>
                     {REVEAL_SECTIONS.map((s) => {
@@ -500,6 +501,7 @@ function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
   const unlocked: string[] = Array.isArray(data?.unlockedSections) ? data.unlockedSections : [];
   const locked = (s: string) => !unlocked.includes(s);
   const unknown = level === 'unknown';
+  const nameLocked = !(level === 'full' || level === 'named' || unlocked.includes('name'));
 
   const defense = data?.defense ?? {};
   const offense = data?.offense ?? {};
@@ -523,7 +525,7 @@ function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
                 <BookOpen className="w-10 h-10 text-muted-foreground" />
               </div>
             )}
-            <h1 className={`font-display text-3xl font-bold tracking-tight ${unknown ? RUNIC : ''}`}>{data.name ?? '???'}</h1>
+            <h1 className={`font-display text-3xl font-bold tracking-tight ${nameLocked ? RUNIC : ''}`}>{data.name ?? '???'}</h1>
             <p className={`text-muted-foreground mt-1 ${level !== 'full' ? RUNIC : ''}`}>
               {data.size}{data.type ? ` ${data.type}` : ''}{data.subtype ? ` (${data.subtype})` : ''}
             </p>
