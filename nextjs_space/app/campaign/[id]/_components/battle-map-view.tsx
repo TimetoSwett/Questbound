@@ -1053,7 +1053,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
               </div>
             </DialogContent>
           </Dialog>
-          <DiceRoller />
+          <DiceRoller campaignId={campaignId} isDM={isDM} />
           <Button variant={rulerMode ? 'default' : 'secondary'} size="sm" onClick={toggleRuler}>
             <Ruler className="w-4 h-4 mr-1" /> Ruler
           </Button>
@@ -1142,7 +1142,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
       {/* Player live-update controls (DM view is always current) */}
       {!isDM && (
         <div className="flex items-center gap-2">
-          <DiceRoller />
+          <DiceRoller campaignId={campaignId} isDM={isDM} />
           <Button variant={rulerMode ? 'default' : 'secondary'} size="sm" onClick={toggleRuler}>
             <Ruler className="w-4 h-4 mr-1" /> Ruler
           </Button>
