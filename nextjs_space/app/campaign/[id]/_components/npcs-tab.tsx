@@ -101,7 +101,7 @@ export function NpcsTab({ campaignId }: { campaignId: string }) {
       });
       if (res.ok) {
         const ch = await res.json();
-        toast.success(`${name} is now an adventurer too!`);
+        toast.success(ch.alreadyUpgraded ? `${name} already has an adventurer sheet` : `${name} is now an adventurer too!`);
         router.push(`/campaign/${campaignId}?tab=characters&character=${ch.id}`);
       } else {
         const data = await res.json().catch(() => null);

@@ -19,7 +19,10 @@ export default async function CampaignPage({ params, searchParams }: { params: P
   if (!campaign) redirect('/dashboard');
 
   return (
+    // Keyed on the deep-link params so same-route pushes (e.g. NPCs tab ->
+    // ?tab=characters&character=...) remount and honor the new tab/sheet.
     <CampaignShell
+      key={`${tab ?? ''}:${character ?? ''}`}
       campaignId={id}
       campaignName={campaign.name}
       inviteCode={campaign.inviteCode}

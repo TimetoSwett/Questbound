@@ -182,7 +182,7 @@ export function CreatureDetail({ campaignId, creatureId, role, initialDraft, onC
     });
     if (res.ok) {
       const ch = await res.json();
-      toast.success(`${data?.name ?? 'NPC'} is now an adventurer too!`);
+      toast.success(ch.alreadyUpgraded ? `${data?.name ?? 'NPC'} already has an adventurer sheet` : `${data?.name ?? 'NPC'} is now an adventurer too!`);
       router.push(`/campaign/${campaignId}?tab=characters&character=${ch.id}`);
     } else {
       const err = await res.json().catch(() => null);
