@@ -66,8 +66,11 @@ export function parseStatblockText(source: string): ImportDraft {
   };
   const attacks = ['Melee', 'Ranged'].flatMap(type => splitList(line(type)).map(raw => {
     const match = /^(.*?)\s+([+-]\d+(?:\/[+-]?\d+)*)\s*\((.*)\)(.*)$/.exec(raw);
-    const [damage, ...critical] = (match?.[3] ?? '').split('/');
-    return { name: match?.[1] ?? raw, bonus: match?.[2] ?? '', damage, critical: critical.join('/'), type: type.toLowerCase(), notes: match?.[4]?.trim() ?? raw };
+    const payload = match?.[3] ?? '';
+    const riderStart = /\s+plus\b/i.exec(payload)?.index ?? payload.length;
+    const [damage, ...critical] = payload.slice(0, riderStart).trim().split('/');
+    const notes = match ? [payload.slice(riderStart).trim(), match[4].trim()].filter(Boolean).join('; ') : raw;
+    return { name: match?.[1] ?? raw, bonus: match?.[2] ?? '', damage, critical: critical.join('/'), type: type.toLowerCase(), notes };
   }));
   const special = /(?:^|\n)SPECIAL ABILITIES\s*\n([\s\S]*?)(?=\n(?:ECOLOGY|DESCRIPTION)\b|$)/i.exec(text)?.[1] ?? '';
   const abilities = special.split(/\n(?=[^\n]+\((?:Ex|Su|Sp)\))/).filter(Boolean).map(raw => {
