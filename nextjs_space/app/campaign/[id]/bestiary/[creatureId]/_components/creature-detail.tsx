@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronRight, BookOpen, Plus, Trash2, Lock } from 'lucide-react';
+import { ChevronRight, BookOpen, Plus, Trash2, Lock, ArrowUpFromLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -168,6 +168,23 @@ export function CreatureDetail({ campaignId, creatureId, role, initialDraft, onC
     autoSave();
   }, [update, autoSave]);
 
+  // GM only: build a character sheet from this NPC's stats (the NPC is kept).
+  const upgradeToAdventurer = useCallback(async () => {
+    if (!confirm(`Create an adventurer sheet from ${data?.name ?? 'this NPC'}? The NPC stays in the Bestiary.`)) return;
+    const res = await fetch('/api/characters/upgrade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ creatureId }),
+    });
+    if (res.ok) {
+      toast.success(`${data?.name ?? 'NPC'} is now an adventurer too!`);
+      router.push(`/campaign/${campaignId}?tab=characters`);
+    } else {
+      const err = await res.json().catch(() => null);
+      toast.error(err?.error ?? 'Could not upgrade NPC');
+    }
+  }, [campaignId, creatureId, data?.name, router]);
+
   const updateListItem = useCallback((field: string, index: number, patch: Record<string, any>) => {
     setData((prev: any) => {
       const arr = [...(prev?.[field] ?? [])];
@@ -230,7 +247,14 @@ export function CreatureDetail({ campaignId, creatureId, role, initialDraft, onC
             <Button variant="ghost" size="sm" onClick={() => onCancel ? onCancel() : router.push(`/campaign/${campaignId}?tab=bestiary`)}>
               <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to Bestiary
             </Button>
-            <span className="text-xs text-muted-foreground font-mono">{initialDraft ? <Button disabled={saving} onClick={() => void saveNow()}>{saving ? 'Creating…' : 'Create creature'}</Button> : saving ? 'Saving…' : 'Saved'}</span>
+            <div className="flex items-center gap-2">
+              {data?.isNpc && !initialDraft && (
+                <Button variant="outline" size="sm" onClick={() => void upgradeToAdventurer()} title="Create a character sheet prefilled from this NPC's stats">
+                  <ArrowUpFromLine className="w-4 h-4 mr-1" /> Upgrade to Adventurer
+                </Button>
+              )}
+              <span className="text-xs text-muted-foreground font-mono">{initialDraft ? <Button disabled={saving} onClick={() => void saveNow()}>{saving ? 'Creating…' : 'Create creature'}</Button> : saving ? 'Saving…' : 'Saved'}</span>
+            </div>
           </div>
 
           {/* ---- Header: name / CR / type line ---- */}
