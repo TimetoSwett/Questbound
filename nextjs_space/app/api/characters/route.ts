@@ -142,8 +142,19 @@ export async function PUT(request: Request) {
     }
   }
 
-  const updated = await prisma.character.update({ where: { id }, data });
-  return NextResponse.json(updated);
+  try {
+    const updated = await prisma.character.update({ where: { id }, data });
+    return NextResponse.json(updated);
+  } catch (err) {
+    // Character.creatureId is unique: an NPC can be linked to only one sheet.
+    if ((err as { code?: string })?.code === 'P2002') {
+      return NextResponse.json(
+        { error: 'That NPC is already linked to another character sheet' },
+        { status: 409 },
+      );
+    }
+    throw err;
+  }
 }
 
 export async function DELETE(request: Request) {

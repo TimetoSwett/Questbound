@@ -73,7 +73,9 @@ export async function POST(request: Request) {
 
   // Serialize upgrades per NPC (transaction-scoped advisory lock) so two
   // concurrent requests can't both pass the existence check and create twice.
-  const result = await prisma.$transaction(async (tx) => {
+  let result;
+  try {
+  result = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'npc-upgrade:' + creature.id}))`;
     // Don't create a second sheet for an NPC that's already been upgraded.
     // Scoped to the NPC's campaign so a sheet elsewhere is never returned.
@@ -111,6 +113,20 @@ export async function POST(request: Request) {
     },
     });
   });
+  } catch (err) {
+    // Unique creatureId backstop: another sheet already links this NPC.
+    if ((err as { code?: string })?.code !== 'P2002') throw err;
+    const existing = await prisma.character.findFirst({
+      where: { creatureId: creature.id, campaignId: creature.campaignId },
+    });
+    if (!existing) {
+      return NextResponse.json(
+        { error: 'This NPC is already linked to a character sheet in another campaign' },
+        { status: 409 },
+      );
+    }
+    result = { ...existing, alreadyUpgraded: true };
+  }
 
   return NextResponse.json(result);
 }
