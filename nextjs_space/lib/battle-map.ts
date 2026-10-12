@@ -119,3 +119,28 @@ export async function filterLinkedTokensForPlayer(
   }
   return out;
 }
+
+/** Remove a deleted character's tokens, including saved encounters and snapshots. */
+export function removeCharacterTokens(state: Record<string, any>, characterId: string): Record<string, any> {
+  const tokens: any[] = Array.isArray(state.tokens) ? state.tokens : [];
+  const removedIds = tokens.filter((t) => t?.characterId === characterId).map((t) => t.id);
+  const out = { ...state };
+  if (Array.isArray(state.tokens)) out.tokens = tokens.filter((t) => t?.characterId !== characterId);
+  if (Array.isArray(state.turnOrder)) {
+    out.turnOrder = state.turnOrder.filter((e: any) =>
+      e?.characterId !== characterId &&
+      !removedIds.some((id) => e?.tokenId === id || (typeof e?.id === 'string' && e.id.endsWith(`_${id}`)))
+    );
+    if (out.activeId && !out.turnOrder.some((e: any) => e?.id === out.activeId)) out.activeId = null;
+  }
+  if (Array.isArray(state.encounters)) {
+    out.encounters = state.encounters.map((e: any) => removeCharacterTokens(e, characterId));
+  }
+  if (Array.isArray(state.snapshots)) {
+    out.snapshots = state.snapshots.map((s: any) => ({
+      ...s,
+      ...(s?.state ? { state: removeCharacterTokens(s.state, characterId) } : {}),
+    }));
+  }
+  return out;
+}

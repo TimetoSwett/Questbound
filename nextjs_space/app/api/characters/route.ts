@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
+import { removeCharacterTokens } from '@/lib/battle-map';
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -173,6 +174,26 @@ export async function DELETE(request: Request) {
     if (role !== 'dm') return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
   }
 
-  await prisma.character.delete({ where: { id } });
+  await prisma.$transaction(async (tx) => {
+    if (character.campaignId) {
+      // Serialize with token moves and invalidate stale full-map saves.
+      await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${character.campaignId} FOR UPDATE`;
+      const campaign = await tx.campaign.findUnique({
+        where: { id: character.campaignId },
+        select: { battleMapState: true },
+      });
+      if (campaign?.battleMapState) {
+        const state = campaign.battleMapState as Record<string, any>;
+        await tx.campaign.update({
+          where: { id: character.campaignId },
+          data: {
+            battleMapState: removeCharacterTokens(state, id),
+            battleMapVersion: { increment: 1 },
+          },
+        });
+      }
+    }
+    await tx.character.delete({ where: { id } });
+  });
   return NextResponse.json({ ok: true });
 }
