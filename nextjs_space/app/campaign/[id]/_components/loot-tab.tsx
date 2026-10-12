@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { FadeIn } from '@/components/ui/animate';
+import { breakdownCoins } from '@/lib/coins';
+import { LootTableEditor } from './loot-editor';
 
 interface LootCharacter {
   id: string;
@@ -31,15 +33,6 @@ interface LootData {
   characters: LootCharacter[];
   role: string;
   userId: string;
-}
-
-function breakdown(cp: number) {
-  // Display only gp/sp/cp — never auto-convert into pp.
-  const gp = Math.floor(cp / 100);
-  const r = cp % 100;
-  const sp = Math.floor(r / 10);
-  const c = r % 10;
-  return { gp, sp, cp: c };
 }
 
 function fmt(n: number) {
@@ -143,6 +136,8 @@ export function LootTab({ campaignId, role, userId }: { campaignId: string; role
           </div>
         );
       })}
+
+      {isDM && <LootTableEditor campaignId={campaignId} />}
     </div>
   );
 }
@@ -158,7 +153,7 @@ function GroupTotals({ value, weight }: { value: number; weight: number }) {
 }
 
 function CoinsCard({ partyCp, campaignId, isDM, onChange }: { partyCp: number; campaignId: string; isDM: boolean; onChange: () => void }) {
-  const { gp, sp, cp } = breakdown(partyCp);
+  const { gp, sp, cp } = breakdownCoins(partyCp);
   const [adj, setAdj] = useState({ gp: '', sp: '', cp: '' });
   const [busy, setBusy] = useState(false);
 
