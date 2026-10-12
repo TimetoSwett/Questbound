@@ -77,6 +77,36 @@ export function presentTown(town: Record<string, any>): Record<string, unknown> 
       ? (town.description ?? '')
       : scrambleText(town.description ?? '', `${seedBase}:description`),
     wikiPage,
-    mapPinId: town.mapPinId ?? null,
   };
 }
+
+function cleanStr(v: unknown, max: number): string | null {
+  if (typeof v !== 'string') return null;
+  const s = v.trim().slice(0, max);
+  return s ? s : null;
+}
+
+/** Validate a town payload. Returns { ok, data } or { ok: false, error }. */
+export function parseTownInput(body: Record<string, unknown>, campaignId: string) {
+  const name = cleanStr(body.name, 200);
+  if (!name) return { ok: false as const, error: 'Name is required' };
+  const size = typeof body.size === 'string' && (TOWN_SIZES as readonly string[]).includes(body.size)
+    ? body.size
+    : 'village';
+  let population: number | null = null;
+  if (body.population !== undefined && body.population !== null && body.population !== '') {
+    const p = typeof body.population === 'number' ? body.population : parseInt(String(body.population), 10);
+    if (!Number.isFinite(p) || p < 0) return { ok: false as const, error: 'Population must be a non-negative number' };
+    population = Math.floor(p);
+  }
+  const government = typeof body.government === 'string' ? body.government.slice(0, 200) : '';
+  const description = typeof body.description === 'string' ? body.description.slice(0, 100000) : '';
+  const gmNotes = typeof body.gmNotes === 'string' ? body.gmNotes.slice(0, 100000) : '';
+  const wikiPageId = typeof body.wikiPageId === 'string' && body.wikiPageId ? body.wikiPageId : null;
+  const mapPinId = typeof body.mapPinId === 'string' && body.mapPinId ? body.mapPinId : null;
+  return {
+    ok: true as const,
+    data: { campaignId, name, size, population, government, description, gmNotes, wikiPageId, mapPinId },
+  };
+}
+

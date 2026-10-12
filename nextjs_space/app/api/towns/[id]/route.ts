@@ -3,9 +3,8 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
-import { TOWN_SIZES, TOWN_SECTIONS, presentTown } from '@/lib/towns';
+import { TOWN_SECTIONS, parseTownInput, presentTown } from '@/lib/towns';
 import { REVEAL_LEVELS, presentCreature } from '@/lib/creatures';
-import { parseTownInput } from '../route';
 
 async function getTown(id: string) {
   return prisma.town.findUnique({
@@ -84,13 +83,16 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await params;
-  const town = await prisma.town.findUnique({ where: { id }, select: { campaignId: true } });
+  const town = await prisma.town.findUnique({ where: { id } });
   if (!town) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   const role = await getUserRole(session.user.id, town.campaignId);
   if (role !== 'dm') return NextResponse.json({ error: 'Only the GM can edit towns' }, { status: 403 });
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-  const parsed = parseTownInput(body ?? {}, town.campaignId);
+  // Partial update: fields omitted from the body keep their current values
+  // (otherwise e.g. a reveal toggle would silently unlink the wiki page / map pin).
+  const { revealLevel: _rl, unlockedSections: _us, ...current } = town;
+  const parsed = parseTownInput({ ...current, ...(body ?? {}) } as Record<string, unknown>, town.campaignId);
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
   const revealLevel =

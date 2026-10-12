@@ -3,37 +3,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
-import { TOWN_SIZES, presentTown } from '@/lib/towns';
-
-function cleanStr(v: unknown, max: number): string | null {
-  if (typeof v !== 'string') return null;
-  const s = v.trim().slice(0, max);
-  return s ? s : null;
-}
-
-/** Validate a town payload. Returns { ok, data } or { ok: false, error }. */
-export function parseTownInput(body: Record<string, unknown>, campaignId: string) {
-  const name = cleanStr(body.name, 200);
-  if (!name) return { ok: false as const, error: 'Name is required' };
-  const size = typeof body.size === 'string' && (TOWN_SIZES as readonly string[]).includes(body.size)
-    ? body.size
-    : 'village';
-  let population: number | null = null;
-  if (body.population !== undefined && body.population !== null && body.population !== '') {
-    const p = typeof body.population === 'number' ? body.population : parseInt(String(body.population), 10);
-    if (!Number.isFinite(p) || p < 0) return { ok: false as const, error: 'Population must be a non-negative number' };
-    population = Math.floor(p);
-  }
-  const government = typeof body.government === 'string' ? body.government.slice(0, 200) : '';
-  const description = typeof body.description === 'string' ? body.description.slice(0, 100000) : '';
-  const gmNotes = typeof body.gmNotes === 'string' ? body.gmNotes.slice(0, 100000) : '';
-  const wikiPageId = typeof body.wikiPageId === 'string' && body.wikiPageId ? body.wikiPageId : null;
-  const mapPinId = typeof body.mapPinId === 'string' && body.mapPinId ? body.mapPinId : null;
-  return {
-    ok: true as const,
-    data: { campaignId, name, size, population, government, description, gmNotes, wikiPageId, mapPinId },
-  };
-}
+import { parseTownInput, presentTown } from '@/lib/towns';
 
 async function validLink(id: string | null, campaignId: string, model: 'wikiPage' | 'mapPin'): Promise<boolean> {
   if (!id) return true;
@@ -54,9 +24,21 @@ export async function GET(request: Request) {
   const role = await getUserRole(session.user.id, campaignId);
   if (!role) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
 
+  // Players' counts only include residents/places they could actually see,
+  // so hidden NPCs and places don't leak through the numbers.
   const towns = await prisma.town.findMany({
-    where: { campaignId },
-    include: { _count: { select: { residents: true, places: true } } },
+    where: role === 'dm' ? { campaignId } : { campaignId, revealLevel: { not: 'hidden' } },
+    include: {
+      _count: {
+        select:
+          role === 'dm'
+            ? { residents: true, places: true }
+            : {
+                residents: { where: { creature: { revealLevel: { not: 'hidden' } } } },
+                places: { where: { revealLevel: 'revealed' } },
+              },
+      },
+    },
     orderBy: { name: 'asc' },
   });
 

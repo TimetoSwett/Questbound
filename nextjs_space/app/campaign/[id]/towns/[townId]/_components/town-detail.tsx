@@ -112,7 +112,18 @@ export function TownDetail({ campaignId, townId, role }: { campaignId: string; t
     } catch { /* ignore */ } finally { setLoading(false); }
   }, [townId, campaignId, router]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/towns/${townId}`)
+      .then(async (res) => {
+        if (!active) return;
+        if (res.status === 404) { router.push(`/campaign/${campaignId}?tab=towns`); return; }
+        if (res.ok) { const data = await res.json(); if (active) setTown(data); }
+      })
+      .catch(() => { /* ignore */ })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [townId, campaignId, router]);
 
   const loadPickers = useCallback(async () => {
     try {
@@ -130,7 +141,11 @@ export function TownDetail({ campaignId, townId, role }: { campaignId: string; t
     } catch { /* ignore */ }
   }, [campaignId]);
 
-  useEffect(() => { if (isDM) loadPickers(); }, [isDM, loadPickers]);
+  useEffect(() => {
+    if (!isDM) return;
+    const t = setTimeout(() => { void loadPickers(); }, 0);
+    return () => clearTimeout(t);
+  }, [isDM, loadPickers]);
 
   const openEdit = () => {
     if (!town) return;
