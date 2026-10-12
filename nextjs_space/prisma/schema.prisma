@@ -184,6 +184,9 @@ model Character {
 
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  // Optional link back to the Bestiary NPC this sheet was upgraded from.
+  creatureId String?
+  creature   Creature? @relation("CharacterCreature", fields: [creatureId], references: [id], onDelete: SetNull)
 
   @@index([campaignId])
   @@index([userId])
@@ -331,6 +334,7 @@ model Creature {
   wikiPage WikiPage? @relation(fields: [wikiPageId], references: [id], onDelete: SetNull)
 
   residences  TownResident[]
+  characters  Character[] @relation("CharacterCreature")
   shopkeeping TownPlace[] @relation("PlaceShopkeeper")
 
   @@index([campaignId])
