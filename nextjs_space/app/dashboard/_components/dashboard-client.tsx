@@ -169,8 +169,12 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
     }
   };
 
-  const deleteVaultChar = async (id: string, name: string) => {
-    if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
+  const deleteVaultChar = async (ch: VaultChar) => {
+    const { id, name } = ch;
+    const warning = ch.isAssigned
+      ? `Delete ${name}? They are in the campaign "${ch.campaign?.name ?? 'another campaign'}" and will be removed from it. This cannot be undone.`
+      : `Delete ${name}? This cannot be undone.`;
+    if (!confirm(warning)) return;
     const res = await fetch(`/api/characters?id=${id}`, { method: 'DELETE' });
     if (res.ok) {
       toast.success('Character deleted');
@@ -358,7 +362,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
                               <FolderPlus className="w-4 h-4 mr-1" /> Add to campaign
                             </Button>
                           )}
-                          <Button variant="ghost" size="icon-sm" onClick={() => deleteVaultChar(ch.id, ch.name)}>
+                          <Button variant="ghost" size="icon-sm" onClick={() => deleteVaultChar(ch)}>
                             <Trash2 className="w-4 h-4 text-destructive" />
                           </Button>
                         </div>
