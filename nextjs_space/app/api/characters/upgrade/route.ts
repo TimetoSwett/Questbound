@@ -32,10 +32,7 @@ export async function POST(request: Request) {
   }
   const role = await getUserRole(session.user.id, creature.campaignId);
   if (role !== 'dm') return NextResponse.json({ error: 'Only DM can upgrade NPCs' }, { status: 403 });
-
-  // Don't create a second sheet for an NPC that's already been upgraded.
-  const existing = await prisma.character.findFirst({ where: { creatureId: creature.id } });
-  if (existing) return NextResponse.json({ ...existing, alreadyUpgraded: true });
+  if (!creature.isNpc) return NextResponse.json({ error: 'Only NPCs can be upgraded' }, { status: 400 });
 
   const scores = {
     str: creature.str ?? 10, dex: creature.dex ?? 10, con: creature.con ?? 10,
@@ -74,7 +71,18 @@ export async function POST(request: Request) {
     .filter(Boolean)
     .join(', ');
 
-  const character = await prisma.character.create({
+  // Serialize upgrades per NPC (transaction-scoped advisory lock) so two
+  // concurrent requests can't both pass the existence check and create twice.
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'npc-upgrade:' + creature.id}))`;
+    // Don't create a second sheet for an NPC that's already been upgraded.
+    // Scoped to the NPC's campaign so a sheet elsewhere is never returned.
+    const existing = await tx.character.findFirst({
+      where: { creatureId: creature.id, campaignId: creature.campaignId },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (existing) return { ...existing, alreadyUpgraded: true };
+    return tx.character.create({
     data: {
       userId: session.user.id,
       campaignId: creature.campaignId,
@@ -101,7 +109,8 @@ export async function POST(request: Request) {
       notes: `<p>Upgraded from NPC "${escapeHtml(creature.name)}".</p>`
         + (skillLine ? `<p>NPC skills: ${escapeHtml(skillLine)}</p>` : ''),
     },
+    });
   });
 
-  return NextResponse.json(character);
+  return NextResponse.json(result);
 }

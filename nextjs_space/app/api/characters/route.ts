@@ -119,12 +119,16 @@ export async function PUT(request: Request) {
   }
 
   // creatureId links a sheet to an NPC; only allow NPCs from this character's campaign.
+  // Linking/unlinking is a GM action (the link is set by Upgrade to Adventurer).
+  if (data.creatureId !== undefined && role !== 'dm') {
+    return NextResponse.json({ error: 'Only DM can link NPCs' }, { status: 403 });
+  }
   if (data.creatureId !== undefined && data.creatureId !== null) {
     if (typeof data.creatureId !== 'string' || !character.campaignId) {
       return NextResponse.json({ error: 'Invalid creatureId' }, { status: 400 });
     }
     const creature = await prisma.creature.findFirst({
-      where: { id: data.creatureId, campaignId: character.campaignId },
+      where: { id: data.creatureId, campaignId: character.campaignId, isNpc: true },
       select: { id: true },
     });
     if (!creature) return NextResponse.json({ error: 'Invalid creatureId' }, { status: 400 });
