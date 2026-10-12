@@ -1,14 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import { BookOpen, Map, Grid3X3, GitBranch } from 'lucide-react';
+import { BookOpen, Map, Grid3X3, GitBranch, Castle } from 'lucide-react';
 import { WikiView } from './wiki-view';
 import { WorldMapView } from './world-map-view';
 import { BattleMapView } from './battle-map-view';
 import { RegionMapView } from './region-map-view';
+import { TownsTab } from './towns-tab';
+
+type WorldSubTab = 'wiki' | 'world-map' | 'battle-map' | 'region-map' | 'towns';
 
 export function WorldTab({ campaignId, role }: { campaignId: string; role: string }) {
-  const [subTab, setSubTab] = useState<'wiki' | 'world-map' | 'battle-map' | 'region-map'>('wiki');
+  const [subTab, setSubTab] = useState<WorldSubTab>('wiki');
   const [wikiPageId, setWikiPageId] = useState<string | null>(null);
   const isDM = role === 'dm';
 
@@ -23,6 +26,8 @@ export function WorldTab({ campaignId, role }: { campaignId: string; role: strin
     { key: 'world-map' as const, label: 'World Map', icon: Map },
     { key: 'battle-map' as const, label: 'Battle Map', icon: Grid3X3 },
     { key: 'region-map' as const, label: 'Region Map', icon: GitBranch },
+    // Towns lives here for the GM (players keep their top-level Towns tab).
+    ...(isDM ? [{ key: 'towns' as const, label: 'Towns', icon: Castle }] : []),
   ];
 
   return (
@@ -42,6 +47,7 @@ export function WorldTab({ campaignId, role }: { campaignId: string; role: strin
       {subTab === 'world-map' && <WorldMapView campaignId={campaignId} isDM={isDM} onOpenWikiPage={openWikiPage} />}
       {subTab === 'battle-map' && <BattleMapView campaignId={campaignId} isDM={isDM} onOpenWikiPage={openWikiPage} />}
       {subTab === 'region-map' && <RegionMapView campaignId={campaignId} isDM={isDM} />}
+      {subTab === 'towns' && isDM && <TownsTab campaignId={campaignId} role={role} />}
     </div>
   );
 }
