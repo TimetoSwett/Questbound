@@ -3,7 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'next-auth/react';
-import { Shield, Swords, Globe, Users, BookOpen, LogOut, ChevronLeft, Copy, Check, Dices, Castle } from 'lucide-react';
+import { Shield, Swords, Globe, Users, BookOpen, LogOut, ChevronLeft, Copy, Check, Dices, Castle, Drama } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { CharactersTab } from './characters-tab';
@@ -11,6 +11,7 @@ import { WorldTab } from './world-tab';
 import { PlayersTab } from './players-tab';
 import { BestiaryTab } from './bestiary-tab';
 import { TownsTab } from './towns-tab';
+import { NpcsTab } from './npcs-tab';
 import { RollLog } from './roll-log';
 
 const DESKTOP_QUERY = '(min-width: 1024px)';
@@ -23,7 +24,7 @@ function getIsDesktop() {
   return window.matchMedia(DESKTOP_QUERY).matches;
 }
 
-type TabKey = 'characters' | 'world' | 'bestiary' | 'towns' | 'players';
+type TabKey = 'characters' | 'world' | 'bestiary' | 'towns' | 'npcs' | 'players';
 
 interface Props {
   campaignId: string;
@@ -35,13 +36,18 @@ interface Props {
   initialTab?: string;
 }
 
-const VALID_TABS: TabKey[] = ['characters', 'world', 'bestiary', 'towns', 'players'];
+// GM top-level tabs (Towns lives under World for the GM); players keep their
+// existing tabs exactly as they were.
+const GM_TABS: TabKey[] = ['world', 'bestiary', 'npcs', 'characters', 'players'];
+const PLAYER_TABS: TabKey[] = ['characters', 'world', 'bestiary', 'towns'];
 
 export function CampaignShell({ campaignId, campaignName, inviteCode, role, userId, userName, initialTab }: Props) {
   const router = useRouter();
-  const startTab: TabKey = VALID_TABS.includes(initialTab as TabKey) && (initialTab !== 'players' || role === 'dm')
+  const isDM = role === 'dm';
+  const allowedTabs = isDM ? GM_TABS : PLAYER_TABS;
+  const startTab: TabKey = allowedTabs.includes(initialTab as TabKey)
     ? (initialTab as TabKey)
-    : 'characters';
+    : (isDM ? 'world' : 'characters');
   const [activeTab, setActiveTab] = useState<TabKey>(startTab);
   const [copied, setCopied] = useState(false);
   // Desktop keeps the side column open by default; on mobile the log is an
@@ -67,13 +73,22 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const tabs = [
-    { key: 'characters' as const, label: 'Characters', icon: Swords },
-    { key: 'world' as const, label: 'World', icon: Globe },
-    { key: 'bestiary' as const, label: 'Bestiary', icon: BookOpen },
-    { key: 'towns' as const, label: 'Towns', icon: Castle },
-    ...(role === 'dm' ? [{ key: 'players' as const, label: 'Players', icon: Users }] : []),
-  ];
+  // GM tab order: World, Bestiary, NPCs, then the rest. Players keep their
+  // existing order and tabs exactly as they were.
+  const tabs = isDM
+    ? [
+        { key: 'world' as const, label: 'World', icon: Globe },
+        { key: 'bestiary' as const, label: 'Bestiary', icon: BookOpen },
+        { key: 'npcs' as const, label: 'NPCs', icon: Drama },
+        { key: 'characters' as const, label: 'Characters', icon: Swords },
+        { key: 'players' as const, label: 'Players', icon: Users },
+      ]
+    : [
+        { key: 'characters' as const, label: 'Characters', icon: Swords },
+        { key: 'world' as const, label: 'World', icon: Globe },
+        { key: 'bestiary' as const, label: 'Bestiary', icon: BookOpen },
+        { key: 'towns' as const, label: 'Towns', icon: Castle },
+      ];
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -129,8 +144,9 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
           {activeTab === 'characters' && <CharactersTab campaignId={campaignId} role={role} userId={userId} />}
           {activeTab === 'world' && <WorldTab campaignId={campaignId} role={role} />}
           {activeTab === 'bestiary' && <BestiaryTab campaignId={campaignId} role={role} />}
-          {activeTab === 'towns' && <TownsTab campaignId={campaignId} role={role} />}
-          {activeTab === 'players' && role === 'dm' && <PlayersTab campaignId={campaignId} />}
+          {activeTab === 'towns' && !isDM && <TownsTab campaignId={campaignId} role={role} />}
+          {activeTab === 'npcs' && isDM && <NpcsTab campaignId={campaignId} />}
+          {activeTab === 'players' && isDM && <PlayersTab campaignId={campaignId} />}
         </main>
         {logOpen && (
           <aside id="campaign-roll-log" aria-label="Roll log" className="fixed inset-x-0 bottom-0 z-40 h-[min(70dvh,32rem)] overscroll-contain border-t border-border bg-card shadow-2xl lg:static lg:z-auto lg:h-auto lg:w-80 lg:shrink-0 lg:border-t-0 lg:border-l lg:bg-card/40 lg:shadow-none">
