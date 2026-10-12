@@ -19,10 +19,10 @@ try {
   const { validateImportUrl, fetchStatblockHtml: fetchHtml, isBlockedImportAddress, MAX_IMPORT_BYTES } = require(join(out, 'statblock-fetch.js'));
   const publicDns = async () => [{ address: '8.8.8.8', family: 4 }];
   const fetchStatblockHtml = (url, fetcher, timeout) => fetchHtml(url, fetcher, timeout, publicDns);
-  for (const address of ['0.0.0.0', '0.1.2.3', '10.1.2.3', '127.0.0.1', '169.254.1.1', '172.16.0.1', '172.31.255.255', '192.168.1.1', '100.64.0.1', '100.127.255.255', '224.0.0.1', '239.255.255.255', '255.255.255.255', '::', '::1', 'fc00::1', 'fdff::1', 'fe80::1', 'febf::1', 'fec0::1', 'ff02::1', '::ffff:127.0.0.1', '::ffff:7f00:1', '0:0:0:0:0:ffff:c0a8:101', '::ffff:100.64.1.1', '::ffff:e000:1', 'invalid']) {
+  for (const address of ['0.0.0.0', '0.1.2.3', '10.1.2.3', '127.0.0.1', '169.254.1.1', '172.16.0.1', '172.31.255.255', '192.168.1.1', '100.64.0.1', '100.127.255.255', '224.0.0.1', '239.255.255.255', '255.255.255.255', '::', '::1', 'fc00::1', 'fdff::1', 'fe80::1', 'febf::1', 'fec0::1', 'ff02::1', '::ffff:127.0.0.1', '::ffff:7f00:1', '0:0:0:0:0:ffff:c0a8:101', '::ffff:100.64.1.1', '::ffff:e000:1', '192.0.0.1', '198.18.0.1', '198.19.255.255', '::ffff:198.18.0.1', 'invalid']) {
     assert.equal(isBlockedImportAddress(address), true, address);
   }
-  for (const address of ['8.8.8.8', '100.63.255.255', '100.128.0.0', '172.15.255.255', '172.32.0.0', '169.253.1.1', '223.255.255.255', '2001:4860:4860::8888', '2606:4700:4700::1111', '::ffff:8.8.8.8', '::ffff:808:808']) {
+  for (const address of ['8.8.8.8', '100.63.255.255', '100.128.0.0', '172.15.255.255', '172.32.0.0', '169.253.1.1', '223.255.255.255', '2001:4860:4860::8888', '2606:4700:4700::1111', '::ffff:8.8.8.8', '::ffff:808:808', '192.0.1.1', '198.17.255.255', '198.20.0.0']) {
     assert.equal(isBlockedImportAddress(address), false, address);
   }
   for (const answers of [[], [{ address: '127.0.0.1', family: 4 }], [...await publicDns(), { address: '::1', family: 6 }]]) {

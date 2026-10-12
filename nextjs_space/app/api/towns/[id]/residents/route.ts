@@ -62,7 +62,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       disposition: typeof body?.disposition === 'string' ? body.disposition.slice(0, 200) : '',
     },
     include: { creature: true },
+  }).catch((err: unknown) => {
+    // A concurrent add can pass the check above; the unique constraint decides.
+    if ((err as { code?: string })?.code === 'P2002') return null;
+    throw err;
   });
+  if (!resident) return NextResponse.json({ error: 'That creature already belongs to a town' }, { status: 409 });
   return NextResponse.json(resident, { status: 201 });
 }
 
