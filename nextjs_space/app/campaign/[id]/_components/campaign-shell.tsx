@@ -3,7 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'next-auth/react';
-import { Shield, Swords, Globe, Users, BookOpen, LogOut, ChevronLeft, Copy, Check, Dices, Castle, Drama } from 'lucide-react';
+import { Shield, Swords, Globe, Users, BookOpen, LogOut, ChevronLeft, Copy, Check, Dices, Castle, Drama, Coins } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { CharactersTab } from './characters-tab';
@@ -12,6 +12,7 @@ import { PlayersTab } from './players-tab';
 import { BestiaryTab } from './bestiary-tab';
 import { TownsTab } from './towns-tab';
 import { NpcsTab } from './npcs-tab';
+import { LootTab } from './loot-tab';
 import { RollLog } from './roll-log';
 
 const DESKTOP_QUERY = '(min-width: 1024px)';
@@ -24,7 +25,7 @@ function getIsDesktop() {
   return window.matchMedia(DESKTOP_QUERY).matches;
 }
 
-type TabKey = 'characters' | 'world' | 'bestiary' | 'towns' | 'npcs' | 'players';
+type TabKey = 'characters' | 'world' | 'bestiary' | 'towns' | 'npcs' | 'players' | 'loot';
 
 interface Props {
   campaignId: string;
@@ -39,8 +40,8 @@ interface Props {
 
 // GM top-level tabs (Towns lives under World for the GM); players keep their
 // existing tabs exactly as they were.
-const GM_TABS: TabKey[] = ['world', 'bestiary', 'npcs', 'characters', 'players'];
-const PLAYER_TABS: TabKey[] = ['characters', 'world', 'bestiary', 'towns'];
+const GM_TABS: TabKey[] = ['world', 'bestiary', 'npcs', 'characters', 'loot', 'players'];
+const PLAYER_TABS: TabKey[] = ['characters', 'world', 'bestiary', 'towns', 'loot'];
 
 export function CampaignShell({ campaignId, campaignName, inviteCode, role, userId, userName, initialTab, initialCharacterId }: Props) {
   const router = useRouter();
@@ -86,6 +87,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
         { key: 'bestiary' as const, label: 'Bestiary', icon: BookOpen },
         { key: 'npcs' as const, label: 'NPCs', icon: Drama },
         { key: 'characters' as const, label: 'Characters', icon: Swords },
+        { key: 'loot' as const, label: 'Loot', icon: Coins },
         { key: 'players' as const, label: 'Players', icon: Users },
       ]
     : [
@@ -93,6 +95,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
         { key: 'world' as const, label: 'World', icon: Globe },
         { key: 'bestiary' as const, label: 'Bestiary', icon: BookOpen },
         { key: 'towns' as const, label: 'Towns', icon: Castle },
+        { key: 'loot' as const, label: 'Loot', icon: Coins },
       ];
 
   return (
@@ -151,6 +154,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
           {activeTab === 'bestiary' && <BestiaryTab campaignId={campaignId} role={role} />}
           {activeTab === 'towns' && !isDM && <TownsTab campaignId={campaignId} role={role} />}
           {activeTab === 'npcs' && isDM && <NpcsTab campaignId={campaignId} />}
+          {activeTab === 'loot' && <LootTab campaignId={campaignId} role={role} userId={userId} />}
           {activeTab === 'players' && isDM && <PlayersTab campaignId={campaignId} />}
         </main>
         {logOpen && (
