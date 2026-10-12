@@ -8,6 +8,23 @@ async function getTown(id: string) {
   return prisma.town.findUnique({ where: { id }, select: { id: true, campaignId: true } });
 }
 
+// GET — GM-only picker, including monsters eligible for conversion.
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await auth();
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { id } = await params;
+  const town = await getTown(id);
+  if (!town) return NextResponse.json({ error: 'Town not found' }, { status: 404 });
+  const role = await getUserRole(session.user.id, town.campaignId);
+  if (role !== 'dm') return NextResponse.json({ error: 'Only the GM can manage residents' }, { status: 403 });
+  const creatures = await prisma.creature.findMany({
+    where: { campaignId: town.campaignId, residences: { none: {} } },
+    select: { id: true, name: true, isNpc: true },
+    orderBy: { name: 'asc' },
+  });
+  return NextResponse.json(creatures);
+}
+
 // POST /api/towns/[id]/residents {creatureId, role?, disposition?} — GM only.
 // The creature must be an NPC in the same campaign, and can belong to at most
 // one town.

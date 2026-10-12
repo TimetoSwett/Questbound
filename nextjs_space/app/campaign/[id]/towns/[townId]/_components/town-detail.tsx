@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 
@@ -35,6 +35,12 @@ const LEVEL_CLASS: Record<string, string> = {
   named: 'text-blue-600 border-blue-600/40',
   full: 'text-green-700 border-green-700/40',
 };
+
+interface ResidentCandidate {
+  id: string;
+  name: string;
+  isNpc: boolean;
+}
 
 interface Resident {
   id: string;
@@ -94,6 +100,13 @@ export function TownDetail({ campaignId, townId, role }: { campaignId: string; t
     description: '', gmNotes: '', wikiPageId: '', mapPinId: '',
   });
 
+  const [candidates, setCandidates] = useState<ResidentCandidate[]>([]);
+  const [candidatesLoading, setCandidatesLoading] = useState(false);
+  const [candidatesError, setCandidatesError] = useState(false);
+  const [createNpc, setCreateNpc] = useState(false);
+  const [newNpcName, setNewNpcName] = useState('');
+  const [showMonsters, setShowMonsters] = useState(false);
+  const [residentSaving, setResidentSaving] = useState(false);
   const [resOpen, setResOpen] = useState(false);
   const [resForm, setResForm] = useState({ creatureId: '', role: '', disposition: '' });
   const [editingRes, setEditingRes] = useState<Resident | null>(null);
@@ -216,7 +229,26 @@ export function TownDetail({ campaignId, townId, role }: { campaignId: string; t
   };
 
   // --- Residents ---
+  const loadCandidates = async () => {
+    if (!isDM) return;
+    setCandidatesLoading(true);
+    setCandidatesError(false);
+    try {
+      const res = await fetch(`/api/towns/${townId}/residents`);
+      if (!res.ok) throw new Error('Could not load available creatures');
+      setCandidates(await res.json());
+    } catch {
+      setCandidates([]);
+      setCandidatesError(true);
+    } finally {
+      setCandidatesLoading(false);
+    }
+  };
   const openAddResident = () => {
+    setCreateNpc(false);
+    setNewNpcName('');
+    setShowMonsters(false);
+    void loadCandidates();
     setEditingRes(null);
     setResForm({ creatureId: '', role: '', disposition: '' });
     setResOpen(true);
@@ -227,30 +259,62 @@ export function TownDetail({ campaignId, townId, role }: { campaignId: string; t
     setResOpen(true);
   };
   const saveResident = async () => {
-    if (editingRes) {
-      const res = await fetch(`/api/towns/${townId}/residents?creatureId=${editingRes.creature?.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: resForm.role.trim(), disposition: resForm.disposition.trim() }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) { toast.error(data?.error ?? 'Could not update resident'); return; }
-    } else {
-      if (!resForm.creatureId) { toast.error('Choose an NPC'); return; }
-      const res = await fetch(`/api/towns/${townId}/residents`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          creatureId: resForm.creatureId,
-          role: resForm.role.trim(),
-          disposition: resForm.disposition.trim(),
-        }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) { toast.error(data?.error ?? 'Could not add resident'); return; }
+    if (!isDM || residentSaving) return;
+    let creatureId = resForm.creatureId;
+    const selected = candidates.find((c) => c.id === creatureId);
+    if (!editingRes) {
+      if (createNpc && !newNpcName.trim()) { toast.error('Name is required'); return; }
+      if (!createNpc && !selected) { toast.error('Choose an NPC or Monster'); return; }
+      if (!createNpc && selected && !selected.isNpc &&
+        !confirm(`Change ${selected.name || 'Unnamed'} from Monster to NPC and add them as a resident? This changes their type in the Bestiary.`)) return;
     }
-    setResOpen(false);
-    load();
+    setResidentSaving(true);
+    try {
+      if (!editingRes && createNpc) {
+        const res = await fetch('/api/creatures', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ campaignId, name: newNpcName.trim(), isNpc: true, revealLevel: 'hidden' }),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) { toast.error(data?.error ?? 'Could not create NPC'); return; }
+        creatureId = data.id;
+        // Keep the created NPC selected so a failed resident request can be retried.
+        setCandidates((cur) => [...cur, { id: data.id, name: data.name, isNpc: true }]);
+        setResForm((cur) => ({ ...cur, creatureId: data.id }));
+        setCreateNpc(false);
+        void loadPickers();
+      } else if (!editingRes && selected && !selected.isNpc) {
+        const res = await fetch('/api/creatures', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: creatureId, isNpc: true }),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) { toast.error(data?.error ?? 'Could not convert Monster to NPC'); return; }
+        setCandidates((cur) => cur.map((c) => c.id === creatureId ? { ...c, isNpc: true } : c));
+        void loadPickers();
+      }
+      const res = await fetch(editingRes
+        ? `/api/towns/${townId}/residents?creatureId=${editingRes.creature?.id}`
+        : `/api/towns/${townId}/residents`, {
+        method: editingRes ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ creatureId, role: resForm.role.trim(), disposition: resForm.disposition.trim() }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast.error(data?.error ?? 'Could not save resident. The NPC remains in the Bestiary; you can retry.');
+        if (res.status === 409) { setResForm((cur) => ({ ...cur, creatureId: '' })); void loadCandidates(); }
+        return;
+      }
+      setResOpen(false);
+      void load();
+    } catch {
+      toast.error('Could not save resident. Check the Bestiary before retrying if an NPC was created.');
+    } finally {
+      setResidentSaving(false);
+    }
   };
   const removeResident = async (r: Resident) => {
     if (!confirm(`Remove ${creatureName(r.creature)} from ${town?.name}?`)) return;
@@ -603,29 +667,57 @@ export function TownDetail({ campaignId, townId, role }: { campaignId: string; t
       </Dialog>
 
       {/* Resident dialog */}
-      <Dialog open={resOpen} onOpenChange={setResOpen}>
+      {isDM && <Dialog open={resOpen} onOpenChange={(open) => { if (!residentSaving) setResOpen(open); }}>
         <DialogContent>
           <DialogHeader><DialogTitle>{editingRes ? 'Edit Resident' : 'Add Resident NPC'}</DialogTitle></DialogHeader>
-          <div className="space-y-3">
+          <fieldset disabled={residentSaving} className="space-y-3">
             {!editingRes && (
-              <div>
-                <Label>NPC</Label>
-                <Select value={resForm.creatureId} onValueChange={(v) => setResForm({ ...resForm, creatureId: v })}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Choose an NPC from the Bestiary" /></SelectTrigger>
-                  <SelectContent>
-                    {npcs.map((c: any) => <SelectItem key={c.id} value={c.id}>{c.name || 'Unnamed'}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+              <div className="space-y-3">
+                <Button variant="outline" size="sm" onClick={() => { setCreateNpc(!createNpc); setResForm({ ...resForm, creatureId: '' }); }}>
+                  {createNpc ? 'Choose from Bestiary' : 'Create new NPC'}
+                </Button>
+                {createNpc ? (
+                  <div>
+                    <Label htmlFor="new-npc-name">NPC name</Label>
+                    <Input id="new-npc-name" value={newNpcName} onChange={(e) => setNewNpcName(e.target.value)} maxLength={200} className="mt-1" />
+                    <p className="text-xs text-muted-foreground mt-1">Created in this campaign’s Bestiary as an NPC, with reveal level Hidden.</p>
+                  </div>
+                ) : (
+                  <>
+                    {candidatesLoading ? <p className="text-sm text-muted-foreground">Loading available creatures...</p> : candidatesError ? (
+                      <div className="text-sm">Could not load available creatures. <Button variant="link" onClick={() => void loadCandidates()}>Retry</Button></div>
+                    ) : (
+                      <>
+                        {candidates.filter((c) => c.isNpc).length === 0 && (
+                          <p className="text-sm text-muted-foreground">No available NPCs. Only Bestiary creatures set to NPC appear here, and each NPC can live in only one town. Create a new NPC or show Monsters to convert one.</p>
+                        )}
+                        <Label htmlFor="resident-creature">{showMonsters ? 'NPC or Monster' : 'NPC'}</Label>
+                        <Select value={resForm.creatureId} onValueChange={(v) => setResForm({ ...resForm, creatureId: v })}>
+                          <SelectTrigger id="resident-creature" className="mt-1"><SelectValue placeholder="Choose from the Bestiary" /></SelectTrigger>
+                          <SelectContent>
+                            {candidates.filter((c) => c.isNpc || showMonsters).map((c) => <SelectItem key={c.id} value={c.id}>{c.name || 'Unnamed'}{!c.isNpc ? ' (Monster)' : ''}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        {showMonsters && candidates.length === 0 && <p className="text-sm text-muted-foreground">No available Monsters either.</p>}
+                      </>
+                    )}
+                    <label className="flex items-center gap-2 text-sm">
+                      <Switch checked={showMonsters} onCheckedChange={(checked) => { setShowMonsters(checked); setResForm({ ...resForm, creatureId: '' }); }} />
+                      Show monsters too
+                    </label>
+                    <p className="text-xs text-muted-foreground">Adding a Monster changes its Bestiary kind to NPC. You’ll be asked to confirm.</p>
+                  </>
+                )}
               </div>
             )}
             <div className="grid grid-cols-2 gap-3">
               <div><Label>Role</Label><Input value={resForm.role} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setResForm({ ...resForm, role: e.target.value })} maxLength={200} className="mt-1" placeholder="e.g. Innkeeper" /></div>
               <div><Label>Disposition</Label><Input value={resForm.disposition} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setResForm({ ...resForm, disposition: e.target.value })} maxLength={200} className="mt-1" placeholder="e.g. Friendly" /></div>
             </div>
-            <Button onClick={saveResident} className="w-full">{editingRes ? 'Save Resident' : 'Add Resident'}</Button>
-          </div>
+            <Button onClick={saveResident} disabled={residentSaving || (!editingRes && (createNpc ? !newNpcName.trim() : candidatesLoading || candidatesError || !resForm.creatureId))} className="w-full">{residentSaving ? 'Saving...' : editingRes ? 'Save Resident' : createNpc ? 'Create NPC & Add Resident' : 'Add Resident'}</Button>
+          </fieldset>
         </DialogContent>
-      </Dialog>
+      </Dialog>}
 
       {/* Place dialog */}
       <Dialog open={placeOpen} onOpenChange={setPlaceOpen}>
