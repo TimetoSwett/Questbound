@@ -276,7 +276,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
               </div>
             </FadeIn>
           ) : (
-            <Stagger staggerDelay={0.08}>
+            <Stagger key="campaigns" staggerDelay={0.08}>
               <div className="grid gap-4 sm:grid-cols-2">
                 {(campaigns ?? []).map((c: Campaign) => (
                   <StaggerItem key={c.id}>
@@ -322,7 +322,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
               </div>
             </FadeIn>
           ) : (
-            <Stagger staggerDelay={0.06}>
+            <Stagger key="vault" staggerDelay={0.06}>
               <div className="grid gap-3">
                 {(vault ?? []).map((ch: VaultChar) => {
                   const cls = classSummary(ch.classes);
