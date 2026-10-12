@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import type { LootEntry, WeightedLootEntry, LootItem } from '@/lib/loot';
+import { formatCoins } from '@/lib/coins';
 import { lootListSchema, lootTableSchema } from '@/lib/loot-validation';
 
 type Table = { id: string; name: string; rolls: number; entries: WeightedLootEntry[] };
@@ -110,7 +111,7 @@ export function CreatureLootEditor({ campaignId, creatureId }: { campaignId: str
       const saved = await save(); setDraft(saved);
       if (roll) {
         const result = await lootRequest<{ items: LootItem[]; cp: number }>(`/api/creatures/${encodeURIComponent(creatureId)}/roll-loot`, 'POST', { campaignId });
-        toast.success(`Added to party: ${[...result.items.map(i => `${i.quantity} × ${i.name}`), ...(result.cp ? [`${result.cp} cp`] : [])].join(', ') || 'no loot this roll'}`);
+        toast.success(`Added to party: ${[...result.items.map(i => `${i.quantity} × ${i.name}`), ...(result.cp ? [formatCoins(result.cp)] : [])].join(', ') || 'no loot this roll'}`);
       } else toast.success('Creature loot saved');
     } catch (error) { showError(error); } finally { setBusy(false); }
   };
