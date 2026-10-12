@@ -81,9 +81,13 @@ function abilityMod(score: number | null | undefined): string {
   return `${m >= 0 ? '+' : ''}${m}`;
 }
 
-export function CreatureDetail({ campaignId, creatureId, role, initialDraft, onCreated, onCancel }: { campaignId: string; creatureId: string; role: string; initialDraft?: ImportDraft; onCreated?: (id: string) => void; onCancel?: () => void }) {
+export function CreatureDetail({ campaignId, creatureId, role, initialDraft, onCreated, onCancel, from }: { campaignId: string; creatureId: string; role: string; initialDraft?: ImportDraft; onCreated?: (id: string) => void; onCancel?: () => void; from?: 'bestiary' | 'npcs' }) {
   const router = useRouter();
   const isDM = role === 'dm';
+  // Where the Back button returns: the NPCs tab if opened from there, else Bestiary.
+  const backTab = from === 'npcs' ? 'npcs' : 'bestiary';
+  const backLabel = from === 'npcs' ? 'Back to NPCs' : 'Back to Bestiary';
+  const goBack = () => { if (onCancel) onCancel(); else router.push(`/campaign/${campaignId}?tab=${backTab}`); };
   const [data, setData] = useState<any>(initialDraft ? normalize(initialDraft) : null);
   const [notFound, setNotFound] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -177,8 +181,9 @@ export function CreatureDetail({ campaignId, creatureId, role, initialDraft, onC
       body: JSON.stringify({ creatureId }),
     });
     if (res.ok) {
+      const ch = await res.json();
       toast.success(`${data?.name ?? 'NPC'} is now an adventurer too!`);
-      router.push(`/campaign/${campaignId}?tab=characters`);
+      router.push(`/campaign/${campaignId}?tab=characters&character=${ch.id}`);
     } else {
       const err = await res.json().catch(() => null);
       toast.error(err?.error ?? 'Could not upgrade NPC');
@@ -212,8 +217,8 @@ export function CreatureDetail({ campaignId, creatureId, role, initialDraft, onC
     return (
       <div className="min-h-screen bg-background">
         <div className="max-w-4xl mx-auto px-4 py-6">
-          <Button variant="ghost" size="sm" onClick={() => onCancel ? onCancel() : router.push(`/campaign/${campaignId}?tab=bestiary`)} className="mb-4">
-            <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to Bestiary
+          <Button variant="ghost" size="sm" onClick={goBack} className="mb-4">
+            <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> {backLabel}
           </Button>
           <div className="text-center py-16">
             <BookOpen className="w-14 h-14 text-muted-foreground mx-auto mb-3" />
@@ -244,8 +249,8 @@ export function CreatureDetail({ campaignId, creatureId, role, initialDraft, onC
       <div className="max-w-4xl mx-auto px-4 py-6">
         <FadeIn>
           <div className="flex items-center justify-between mb-4">
-            <Button variant="ghost" size="sm" onClick={() => onCancel ? onCancel() : router.push(`/campaign/${campaignId}?tab=bestiary`)}>
-              <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to Bestiary
+            <Button variant="ghost" size="sm" onClick={goBack}>
+              <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> {backLabel}
             </Button>
             <div className="flex items-center gap-2">
               {data?.isNpc && !initialDraft && (
