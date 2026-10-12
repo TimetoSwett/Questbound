@@ -3,12 +3,14 @@ import { auth } from '@/auth';
 import { getUserRole } from '@/lib/campaign-helpers';
 import { creatureInputSchema } from '@/lib/creatures';
 import { extractStatblockText, parseStatblockText } from '@/lib/statblock-import';
+import { importRateLimited } from '@/lib/statblock-rate-limit';
 import { fetchStatblockHtml } from '@/lib/statblock-fetch';
 
 export const runtime = 'nodejs';
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (importRateLimited(session.user.id)) return NextResponse.json({ error: 'Too many imports. Try again in a minute.' }, { status: 429 });
   const body = await request.json().catch(() => null);
   if (!body || typeof body.campaignId !== 'string' || !body.campaignId) return NextResponse.json({ error: 'campaignId required' }, { status: 400 });
   if (await getUserRole(session.user.id, body.campaignId) !== 'dm') return NextResponse.json({ error: 'Only the campaign GM can import creatures' }, { status: 403 });
