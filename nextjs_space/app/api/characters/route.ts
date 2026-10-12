@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
+import type { Prisma } from '@prisma/client';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
@@ -90,7 +91,7 @@ export async function PUT(request: Request) {
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  const { id, ...data } = body;
+  const { id } = body;
   if (!id) return NextResponse.json({ error: 'Character id required' }, { status: 400 });
 
   const character = await prisma.character.findUnique({ where: { id } });
@@ -104,8 +105,8 @@ export async function PUT(request: Request) {
   }
 
   // Attach a vault character to a campaign
-  if (data.campaignId !== undefined) {
-    const targetId: string | null = data.campaignId ?? null;
+  if (body.campaignId !== undefined) {
+    const targetId: string | null = body.campaignId ?? null;
     if (!targetId) return NextResponse.json({ error: 'campaignId required' }, { status: 400 });
     if (character.campaignId) {
       return NextResponse.json({ error: 'Character already assigned to a campaign' }, { status: 400 });
@@ -118,6 +119,22 @@ export async function PUT(request: Request) {
     const updated = await prisma.character.update({ where: { id }, data: { campaignId: targetId } });
     return NextResponse.json(updated);
   }
+
+  // Only sheet fields may be updated; ownership, identifiers, timestamps and
+  // relation objects must never be taken from the request.
+  const editableFields = [
+    'name', 'portraitPath', 'portraitIsPublic',
+    'race', 'alignment', 'deity', 'size', 'gender', 'age', 'height', 'weight', 'homeland',
+    'xp', 'speed', 'classes', 'str', 'dex', 'con', 'int', 'wis', 'cha',
+    'hpMax', 'hpCurrent', 'hpTemp', 'bab', 'sr',
+    'baseFort', 'baseRef', 'baseWill', 'miscFort', 'miscRef', 'miscWill',
+    'armorBonus', 'shieldBonus', 'naturalArmor', 'deflection', 'sizeMod',
+    'miscAC', 'miscTouchAC', 'miscFlatAC', 'miscCMD', 'miscCMB', 'miscInit',
+    'skills', 'equipment', 'feats', 'spells', 'notes', 'creatureId',
+  ] as const satisfies readonly (keyof Prisma.CharacterUncheckedUpdateInput)[];
+  const data: Record<string, unknown> = Object.fromEntries(
+    editableFields.filter((field) => Object.prototype.hasOwnProperty.call(body, field)).map((field) => [field, body[field]]),
+  );
 
   // creatureId links a sheet to an NPC; only allow NPCs from this character's campaign.
   // Linking/unlinking is a GM action (the link is set by Upgrade to Adventurer).
