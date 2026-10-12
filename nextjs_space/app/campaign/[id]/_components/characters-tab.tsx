@@ -96,7 +96,7 @@ export function CharactersTab({ campaignId, role, userId }: { campaignId: string
             <Button onClick={createChar}><Plus className="w-4 h-4 mr-1" /> New Character</Button>
           )}
           {role === 'dm' && (
-            <Button onClick={createChar}><Plus className="w-4 h-4 mr-1" /> Create NPC</Button>
+            <Button onClick={createChar}><Plus className="w-4 h-4 mr-1" /> Create Adventurer</Button>
           )}
         </div>
       </FadeIn>
