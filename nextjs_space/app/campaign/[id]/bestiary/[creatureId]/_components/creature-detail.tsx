@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { CreatureLootEditor } from '../../../_components/loot-editor';
 import type { ImportDraft } from '@/lib/statblock-import';
 import { FadeIn } from '@/components/ui/animate';
 
@@ -479,6 +480,8 @@ export function CreatureDetail({ campaignId, creatureId, role, initialDraft, onC
               onEdit={(i: number, k: string, v: string) => updateListItem('specialAbilities', i, { [k]: v })}
             />
           </Section>
+
+          {!initialDraft && <CreatureLootEditor campaignId={campaignId} creatureId={creatureId} />}
 
           {/* ---- GM notes (GM only) ---- */}
           <Section title="GM Notes" subtle>

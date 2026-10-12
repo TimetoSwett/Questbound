@@ -46,7 +46,7 @@ const SECTION_FIELDS: Record<Exclude<RevealSection, 'wiki' | 'name'>, string[]> 
 };
 
 // Mirrors lib/battle-map.ts: GM-only keys are never sent to players.
-const GM_ONLY_KEYS = ['gmNotes'] as const;
+const GM_ONLY_KEYS = ['gmNotes', 'lootTableId', 'lootList', 'lootTable'] as const;
 
 // Identity card fields. The name is its own unlockable section; the rest stay
 // scrambled until "full".

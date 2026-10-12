@@ -7,7 +7,8 @@
     "start": "next start",
     "lint": "eslint .",
     "test:reveal": "node scripts/test-reveal-levels.mjs",
-    "test:import": "node scripts/test-statblock-import.mjs"
+    "test:import": "node scripts/test-statblock-import.mjs",
+    "test:loot": "node scripts/test-loot.mjs"
   },
   "prisma": {
     "seed": "tsx --require dotenv/config scripts/safe-seed.ts"
