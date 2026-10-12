@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from 'sonner';
 import { DiceRoller } from './dice-roller';
 
-interface Token { id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; portraitKey?: string; hp?: number; maxHp?: number; conditions?: string[]; creatureId?: string; }
+interface Token { hidden?: boolean; id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; portraitKey?: string; hp?: number; maxHp?: number; conditions?: string[]; creatureId?: string; }
 interface Highlight { id: string; x: number; y: number; w: number; h: number; color: string; label: string; }
 interface TurnEntry { id: string; label: string; initiative: number; characterId?: string; tokenId?: string; }
 interface Encounter { id: string; name: string; tokens: Token[]; }
@@ -999,7 +999,16 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   const dismissHandout = () => setDismissedHandout(state?.handout?.pushedAt ?? null);
 
   // ---- Initiative tracker ----
-  const sortedTurns = sortTurns(state?.turnOrder ?? []);
+  const playerTurns = (state?.turnOrder ?? []).filter((entry) => {
+    if (isDM) return true;
+    const tokens = state?.tokens ?? [];
+    const token = entry.tokenId
+      ? tokens.find((t) => t.id === entry.tokenId)
+      : tokens.find((t) => entry.id.endsWith(`_${t.id}`));
+    if (entry.tokenId && !token) return false;
+    return !token?.hidden;
+  });
+  const sortedTurns = sortTurns(playerTurns);
 
   // Persist a turn order, guarding activeId against removed entries
   const commitTurns = (turnOrder: TurnEntry[], activeId: string | null) => {

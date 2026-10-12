@@ -74,7 +74,7 @@ export async function filterLinkedTokensForPlayer(
   // Tokens not in the player's view (hidden/fogged) also hide their turn entries.
   const visibleIds = new Set(tokens.map((t) => t?.id));
   const relabel = new Map<string, string>();
-  const removed = new Set<string>(all.filter((t) => t?.id && !visibleIds.has(t.id) && !t?.characterId).map((t) => t.id));
+  const removed = new Set<string>(all.filter((t) => t?.id && (t.hidden || !visibleIds.has(t.id))).map((t) => t.id));
   const out: Record<string, any> = { ...state };
 
   if (linkedIds.length > 0) {
