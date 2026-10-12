@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   if (!src) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   const role = await getUserRole(session.user.id, src.campaignId);
   if (role !== 'dm') return NextResponse.json({ error: 'Only DM' }, { status: 403 });
-  const { id: _id, createdAt: _c, updatedAt: _u, attacks, skills, feats, specialAbilities, spells, gear, unlockedSections: _us, revealLevel: _rl, ...rest } = src;
+  const { id: _id, createdAt: _c, updatedAt: _u, attacks, skills, feats, specialAbilities, spells, gear, lootList, unlockedSections: _us, revealLevel: _rl, ...rest } = src;
   const json = (v: Prisma.JsonValue) => (v ?? Prisma.JsonNull) as Prisma.InputJsonValue;
   const copy = await prisma.creature.create({
     data: {
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
       revealLevel: 'hidden',
       unlockedSections: [],
       attacks: json(attacks), skills: json(skills), feats: json(feats),
-      specialAbilities: json(specialAbilities), spells: json(spells), gear: json(gear),
+      specialAbilities: json(specialAbilities), spells: json(spells), gear: json(gear), lootList: json(lootList),
     },
     include: { wikiPage: { select: { id: true, title: true, visibility: true } } },
   });
