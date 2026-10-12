@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { CreatureImportDialog } from './creature-import-dialog';
 import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
 
 interface CreatureSummary {
@@ -150,7 +151,7 @@ export function BestiaryTab({ campaignId, role }: { campaignId: string; role: st
             Bestiary &amp; NPCs
           </h2>
           {isDM && (
-            <Button onClick={newCreature}><Plus className="w-4 h-4 mr-1" /> New</Button>
+            <div className="flex gap-2"><CreatureImportDialog campaignId={campaignId} onCreated={openCreature} /><Button onClick={newCreature}><Plus className="w-4 h-4 mr-1" /> New</Button></div>
           )}
         </div>
       </FadeIn>

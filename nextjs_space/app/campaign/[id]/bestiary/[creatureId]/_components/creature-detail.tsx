@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
+import type { ImportDraft } from '@/lib/statblock-import';
 import { FadeIn } from '@/components/ui/animate';
 
 // Keys the PUT endpoint accepts (creatureInputSchema, strict). Never send anything else.
@@ -80,10 +81,10 @@ function abilityMod(score: number | null | undefined): string {
   return `${m >= 0 ? '+' : ''}${m}`;
 }
 
-export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: string; creatureId: string; role: string }) {
+export function CreatureDetail({ campaignId, creatureId, role, initialDraft, onCreated, onCancel }: { campaignId: string; creatureId: string; role: string; initialDraft?: ImportDraft; onCreated?: (id: string) => void; onCancel?: () => void }) {
   const router = useRouter();
   const isDM = role === 'dm';
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<any>(initialDraft ? normalize(initialDraft) : null);
   const [notFound, setNotFound] = useState(false);
   const [saving, setSaving] = useState(false);
   const [wikiPages, setWikiPages] = useState<any[]>([]);
@@ -92,6 +93,7 @@ export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: s
   useEffect(() => { dataRef.current = data; }, [data]);
 
   useEffect(() => {
+    if (initialDraft) return;
     let active = true;
     fetch(`/api/creatures?id=${creatureId}`)
       .then(async (res) => {
@@ -106,7 +108,7 @@ export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: s
       })
       .catch(() => { /* ignore */ });
     return () => { active = false; };
-  }, [creatureId]);
+  }, [creatureId, initialDraft]);
 
   // GM-only: wiki pages for the link picker.
   useEffect(() => {
@@ -121,10 +123,10 @@ export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: s
 
   const saveNow = useCallback(async (overrides?: Record<string, unknown>) => {
     const d = dataRef.current;
-    if (!d || !isDM) return;
+    if (!d || !isDM || (initialDraft && overrides)) return;
     setSaving(true);
     try {
-      const body: Record<string, unknown> = { id: creatureId };
+      const body: Record<string, unknown> = initialDraft ? { campaignId } : { id: creatureId };
       // Omit undefined keys; the PUT schema is partial+strict, so unknown or
       // null-in-non-nullable fields would be rejected. Nulls are only sent for
       // genuinely nullable fields (scores, portraitPath, wikiPageId).
@@ -133,22 +135,24 @@ export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: s
         if (v !== undefined) body[k] = v;
       }
       const res = await fetch('/api/creatures', {
-        method: 'PUT',
+        method: initialDraft ? 'POST' : 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       if (!res.ok) toast.error('Could not save creature');
+      else if (initialDraft) onCreated?.((await res.json()).id);
     } catch {
       toast.error('Could not save creature');
     } finally {
       setSaving(false);
     }
-  }, [creatureId, isDM]);
+  }, [creatureId, isDM, initialDraft, campaignId, onCreated]);
 
   const autoSave = useCallback(() => {
+    if (initialDraft) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => { void saveNow(); }, 2000);
-  }, [saveNow]);
+  }, [saveNow, initialDraft]);
 
   // Flush a pending debounced save on unmount (e.g. "Back to Bestiary" within 2s of an edit).
   useEffect(() => () => {
@@ -191,7 +195,7 @@ export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: s
     return (
       <div className="min-h-screen bg-background">
         <div className="max-w-4xl mx-auto px-4 py-6">
-          <Button variant="ghost" size="sm" onClick={() => router.push(`/campaign/${campaignId}?tab=bestiary`)} className="mb-4">
+          <Button variant="ghost" size="sm" onClick={() => onCancel ? onCancel() : router.push(`/campaign/${campaignId}?tab=bestiary`)} className="mb-4">
             <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to Bestiary
           </Button>
           <div className="text-center py-16">
@@ -223,10 +227,10 @@ export function CreatureDetail({ campaignId, creatureId, role }: { campaignId: s
       <div className="max-w-4xl mx-auto px-4 py-6">
         <FadeIn>
           <div className="flex items-center justify-between mb-4">
-            <Button variant="ghost" size="sm" onClick={() => router.push(`/campaign/${campaignId}?tab=bestiary`)}>
+            <Button variant="ghost" size="sm" onClick={() => onCancel ? onCancel() : router.push(`/campaign/${campaignId}?tab=bestiary`)}>
               <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to Bestiary
             </Button>
-            <span className="text-xs text-muted-foreground font-mono">{saving ? 'Saving…' : 'Saved'}</span>
+            <span className="text-xs text-muted-foreground font-mono">{initialDraft ? <Button disabled={saving} onClick={() => void saveNow()}>{saving ? 'Creating…' : 'Create creature'}</Button> : saving ? 'Saving…' : 'Saved'}</span>
           </div>
 
           {/* ---- Header: name / CR / type line ---- */}
