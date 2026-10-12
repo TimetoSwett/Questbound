@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   const id = body?.id;
   const toCharacterId = body?.toCharacterId ?? null;
   if (typeof id !== 'string' || !id) return NextResponse.json({ error: 'id required' }, { status: 400 });
-  if (toCharacterId !== null && typeof toCharacterId !== 'string') {
+  if (toCharacterId !== null && (typeof toCharacterId !== 'string' || !toCharacterId)) {
     return NextResponse.json({ error: 'Invalid toCharacterId' }, { status: 400 });
   }
 

@@ -26,24 +26,33 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Split quantity must be less than the stack size' }, { status: 400 });
   }
 
-  const [updated, created] = await prisma.$transaction([
-    prisma.inventoryItem.update({
-      where: { id },
-      data: { quantity: existing.quantity - quantity },
-    }),
-    prisma.inventoryItem.create({
+  // Conditional decrement so two concurrent splits can never take more units
+  // than the stack holds (the original must keep at least one).
+  const result = await prisma.$transaction(async (tx) => {
+    const dec = await tx.inventoryItem.updateMany({
+      where: { id, quantity: { gt: quantity } },
+      data: { quantity: { decrement: quantity } },
+    });
+    if (dec.count === 0) return null;
+    const updated = await tx.inventoryItem.findUniqueOrThrow({ where: { id } });
+    const created = await tx.inventoryItem.create({
       data: {
-        campaignId: existing.campaignId,
-        characterId: existing.characterId,
-        name: existing.name,
+        campaignId: updated.campaignId,
+        characterId: updated.characterId,
+        name: updated.name,
         quantity,
-        valueGp: existing.valueGp,
-        weight: existing.weight,
-        notes: existing.notes,
+        valueGp: updated.valueGp,
+        weight: updated.weight,
+        notes: updated.notes,
       },
       include: { character: { select: { id: true, name: true, userId: true } } },
-    }),
-  ]);
+    });
+    return { updated, created };
+  });
+  if (!result) {
+    return NextResponse.json({ error: 'Split quantity must be less than the stack size' }, { status: 409 });
+  }
+  const { updated, created } = result;
 
   return NextResponse.json({ updated, created });
 }

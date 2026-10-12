@@ -164,11 +164,10 @@ function CoinsCard({ partyCp, campaignId, isDM, onChange }: { partyCp: number; c
   const [busy, setBusy] = useState(false);
 
   const adjust = async (sign: 1 | -1) => {
-    const deltaCp =
-      (parseInt(adj.pp || '0', 10) || 0) * 1000 +
-      (parseInt(adj.gp || '0', 10) || 0) * 100 +
-      (parseInt(adj.sp || '0', 10) || 0) * 10 +
-      (parseInt(adj.cp || '0', 10) || 0);
+    // Each field must be blank or a whole, non-negative number of coins.
+    const parts = (['pp', 'gp', 'sp', 'cp'] as const).map((k) => adj[k].trim() === '' ? 0 : Number(adj[k]));
+    if (parts.some((n) => !Number.isInteger(n) || n < 0)) { toast.error('Coin amounts must be whole, non-negative numbers'); return; }
+    const deltaCp = parts[0] * 1000 + parts[1] * 100 + parts[2] * 10 + parts[3];
     if (deltaCp <= 0) { toast.error('Enter an amount first'); return; }
     setBusy(true);
     try {
@@ -182,7 +181,8 @@ function CoinsCard({ partyCp, campaignId, isDM, onChange }: { partyCp: number; c
         setAdj({ pp: '', gp: '', sp: '', cp: '' });
         onChange();
       } else {
-        toast.error('Could not adjust coins');
+        const d = await res.json().catch(() => null);
+        toast.error(d?.error ?? 'Could not adjust coins');
       }
     } finally {
       setBusy(false);
@@ -204,7 +204,7 @@ function CoinsCard({ partyCp, campaignId, isDM, onChange }: { partyCp: number; c
             <label key={k} className="flex flex-col gap-1">
               <span className="text-[11px] text-muted-foreground font-mono">{k}</span>
               <Input
-                type="number" min="0" value={adj[k]}
+                type="number" min="0" step="1" value={adj[k]}
                 onChange={(e) => setAdj({ ...adj, [k]: e.target.value })}
                 className="w-20 h-8" placeholder="0"
               />
@@ -272,7 +272,10 @@ function ItemDialog({ campaignId, characters, defaultCharacterId, item, onClose 
         });
       }
       if (res.ok) { toast.success(item ? 'Item updated' : 'Item added'); onClose(); }
-      else { toast.error('Could not save item'); }
+      else {
+        const d = await res.json().catch(() => null);
+        toast.error(d?.error ?? 'Could not save item');
+      }
     } finally { setBusy(false); }
   };
 
@@ -440,7 +443,9 @@ function SplitDialog({ item, onClose }: { item: LootItem; onClose: () => void })
 }
 
 function MoveDialog({ item, characters, onClose }: { item: LootItem; characters: LootCharacter[]; onClose: () => void }) {
-  const [toId, setToId] = useState<string>('__party__');
+  const destinations = characters.filter((c) => c.id !== item.characterId);
+  // Default to a real destination: party-stash items go to the first character.
+  const [toId, setToId] = useState<string>(item.characterId ? '__party__' : destinations[0]?.id ?? '__party__');
   const [busy, setBusy] = useState(false);
 
   const move = async () => {
@@ -469,15 +474,13 @@ function MoveDialog({ item, characters, onClose }: { item: LootItem; characters:
           <span className="text-xs text-muted-foreground">Move to</span>
           <select value={toId} onChange={(e) => setToId(e.target.value)}
             className="h-9 rounded-md border border-input bg-background px-3 text-sm">
-            <option value="__party__">Party stash</option>
-            {characters
-              .filter((c) => c.id !== item.characterId)
-              .map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {item.characterId && <option value="__party__">Party stash</option>}
+            {destinations.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </label>
         <div className="flex justify-end gap-2 mt-4">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={busy} onClick={move}>{busy ? 'Moving…' : 'Move'}</Button>
+          <Button size="sm" disabled={busy || (!item.characterId && toId === '__party__')} onClick={move}>{busy ? 'Moving…' : 'Move'}</Button>
         </div>
       </div>
     </div>
