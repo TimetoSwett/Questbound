@@ -57,7 +57,7 @@ export function NpcsTab({ campaignId }: { campaignId: string }) {
     return () => { active = false; };
   }, [request, applyResult]);
 
-  const openNpc = (id: string) => router.push(`/campaign/${campaignId}/bestiary/${id}`);
+  const openNpc = (id: string) => router.push(`/campaign/${campaignId}/bestiary/${id}?from=npcs`);
 
   const createNpc = async () => {
     const res = await fetch('/api/creatures', {
@@ -102,7 +102,7 @@ export function NpcsTab({ campaignId }: { campaignId: string }) {
       if (res.ok) {
         const ch = await res.json();
         toast.success(`${name} is now an adventurer too!`);
-        setSelectedCharId(ch.id);
+        router.push(`/campaign/${campaignId}?tab=characters&character=${ch.id}`);
       } else {
         const data = await res.json().catch(() => null);
         toast.error(data?.error ?? 'Could not upgrade NPC');
