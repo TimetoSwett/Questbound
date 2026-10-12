@@ -18,9 +18,9 @@ interface CharSummary {
   user?: { displayName: string };
 }
 
-export function CharactersTab({ campaignId, role, userId }: { campaignId: string; role: string; userId: string }) {
+export function CharactersTab({ campaignId, role, userId, initialCharacterId }: { campaignId: string; role: string; userId: string; initialCharacterId?: string }) {
   const [characters, setCharacters] = useState<CharSummary[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialCharacterId ?? null);
   const [loading, setLoading] = useState(true);
 
   const request = useCallback(async () => {
