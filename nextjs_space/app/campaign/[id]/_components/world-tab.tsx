@@ -10,8 +10,8 @@ import { TownsTab } from './towns-tab';
 
 type WorldSubTab = 'wiki' | 'world-map' | 'battle-map' | 'region-map' | 'towns';
 
-export function WorldTab({ campaignId, role }: { campaignId: string; role: string }) {
-  const [subTab, setSubTab] = useState<WorldSubTab>('wiki');
+export function WorldTab({ campaignId, role, initialSubTab }: { campaignId: string; role: string; initialSubTab?: WorldSubTab }) {
+  const [subTab, setSubTab] = useState<WorldSubTab>(initialSubTab ?? 'wiki');
   const [wikiPageId, setWikiPageId] = useState<string | null>(null);
   const isDM = role === 'dm';
 

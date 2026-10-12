@@ -45,9 +45,13 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
   const router = useRouter();
   const isDM = role === 'dm';
   const allowedTabs = isDM ? GM_TABS : PLAYER_TABS;
-  const startTab: TabKey = allowedTabs.includes(initialTab as TabKey)
-    ? (initialTab as TabKey)
-    : (isDM ? 'world' : 'characters');
+  // GM deep links to ?tab=towns (e.g. a town page's back button) open World > Towns.
+  const gmTownsLink = isDM && initialTab === 'towns';
+  const startTab: TabKey = gmTownsLink
+    ? 'world'
+    : allowedTabs.includes(initialTab as TabKey)
+      ? (initialTab as TabKey)
+      : (isDM ? 'world' : 'characters');
   const [activeTab, setActiveTab] = useState<TabKey>(startTab);
   const [copied, setCopied] = useState(false);
   // Desktop keeps the side column open by default; on mobile the log is an
@@ -142,7 +146,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
       <div className="flex-1 flex items-stretch min-w-0">
         <main className="flex-1 min-w-0">
           {activeTab === 'characters' && <CharactersTab campaignId={campaignId} role={role} userId={userId} />}
-          {activeTab === 'world' && <WorldTab campaignId={campaignId} role={role} />}
+          {activeTab === 'world' && <WorldTab campaignId={campaignId} role={role} initialSubTab={gmTownsLink ? 'towns' : undefined} />}
           {activeTab === 'bestiary' && <BestiaryTab campaignId={campaignId} role={role} />}
           {activeTab === 'towns' && !isDM && <TownsTab campaignId={campaignId} role={role} />}
           {activeTab === 'npcs' && isDM && <NpcsTab campaignId={campaignId} />}
