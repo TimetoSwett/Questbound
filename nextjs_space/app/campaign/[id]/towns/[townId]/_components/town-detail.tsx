@@ -120,7 +120,7 @@ export function TownDetail({ campaignId, townId, role }: { campaignId: string; t
   const load = useCallback(async () => {
     try {
       const res = await fetch(`/api/towns/${townId}`);
-      if (res.status === 404) { router.push(`/campaign/${campaignId}?tab=towns`); return; }
+      if (res.status === 404) { router.push(`/campaign/${campaignId}?tab=${role === 'dm' ? 'world' : 'towns'}`); return; }
       if (res.ok) setTown(await res.json());
     } catch { /* ignore */ } finally { setLoading(false); }
   }, [townId, campaignId, router]);
@@ -130,7 +130,7 @@ export function TownDetail({ campaignId, townId, role }: { campaignId: string; t
     fetch(`/api/towns/${townId}`)
       .then(async (res) => {
         if (!active) return;
-        if (res.status === 404) { router.push(`/campaign/${campaignId}?tab=towns`); return; }
+        if (res.status === 404) { router.push(`/campaign/${campaignId}?tab=${role === 'dm' ? 'world' : 'towns'}`); return; }
         if (res.ok) { const data = await res.json(); if (active) setTown(data); }
       })
       .catch(() => { /* ignore */ })
@@ -224,7 +224,7 @@ export function TownDetail({ campaignId, townId, role }: { campaignId: string; t
   const deleteTown = async () => {
     if (!confirm(`Delete ${town?.name}? This cannot be undone.`)) return;
     const res = await fetch(`/api/towns/${townId}`, { method: 'DELETE' });
-    if (res.ok) router.push(`/campaign/${campaignId}?tab=towns`);
+    if (res.ok) router.push(`/campaign/${campaignId}?tab=${role === 'dm' ? 'world' : 'towns'}`);
     else toast.error('Could not delete town');
   };
 
@@ -391,7 +391,7 @@ export function TownDetail({ campaignId, townId, role }: { campaignId: string; t
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={() => router.push(`/campaign/${campaignId}?tab=towns`)}>
+        <Button variant="ghost" size="sm" onClick={() => router.push(`/campaign/${campaignId}?tab=${role === 'dm' ? 'world' : 'towns'}`)}>
           <ChevronLeft className="w-4 h-4 mr-1" /> Towns
         </Button>
         {isDM && (
