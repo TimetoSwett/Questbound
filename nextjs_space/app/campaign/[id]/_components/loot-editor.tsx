@@ -36,7 +36,7 @@ function EntryRows({ entries, weighted, onChange, disabled }: { entries: Weighte
         <label className="text-xs space-y-1 w-24">Lb per unit<Input type="number" min={0} max={1_000_000} step="any" value={Number.isNaN(entry.weight) ? '' : entry.weight} onChange={e => edit(i, { weight: e.target.value === '' ? NaN : Number(e.target.value) })} /></label>
         <Button variant="ghost" size="sm" onClick={() => onChange(entries.filter((_, index) => index !== i))}>Remove</Button>
       </div>
-      <label className="block text-xs space-y-1">Notes<Input maxLength={10_000} value={entry.notes} onChange={e => edit(i, { notes: e.target.value })} /></label>
+      <label className="block text-xs space-y-1">Notes<Input maxLength={10_000} value={entry.notes} onChange={e => edit(i, { notes: e.target.value })} /><span className="block text-muted-foreground">Copied onto the item when rolled, so players will see it.</span></label>
     </fieldset>)}
     <Button disabled={disabled || entries.length >= 200} variant="outline" size="sm" onClick={() => onChange([...entries, blankEntry()])}>Add entry</Button>
   </div>;

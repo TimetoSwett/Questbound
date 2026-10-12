@@ -10,8 +10,10 @@ export type WeightedLootEntry = LootEntry & { chance: number };
 export type LootTable = { rolls: number; entries: WeightedLootEntry[] };
 export type LootItem = Omit<LootEntry, 'kind' | 'quantity'> & { quantity: number };
 
-export function parseDice(expression: string): { count: number; sides: number; bonus: number; max: number } {
-  if (typeof expression !== 'string' || expression.length > 30) throw new Error('Invalid quantity');
+export function parseDice(input: string): { count: number; sides: number; bonus: number; max: number } {
+  if (typeof input !== 'string' || input.length > 30) throw new Error('Invalid quantity');
+  // Accept any case and spaces: "1D4 + 1" -> "1d4+1".
+  const expression = input.replace(/\s+/g, '').toLowerCase();
   if (/^(0|[1-9]\d*)$/.test(expression)) {
     const bonus = Number(expression);
     if (bonus > MAX_QUANTITY) throw new Error('Quantity exceeds 100,000');
