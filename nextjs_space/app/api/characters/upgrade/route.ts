@@ -33,6 +33,10 @@ export async function POST(request: Request) {
   const role = await getUserRole(session.user.id, creature.campaignId);
   if (role !== 'dm') return NextResponse.json({ error: 'Only DM can upgrade NPCs' }, { status: 403 });
 
+  // Don't create a second sheet for an NPC that's already been upgraded.
+  const existing = await prisma.character.findFirst({ where: { creatureId: creature.id } });
+  if (existing) return NextResponse.json({ ...existing, alreadyUpgraded: true });
+
   const scores = {
     str: creature.str ?? 10, dex: creature.dex ?? 10, con: creature.con ?? 10,
     int: creature.int ?? 10, wis: creature.wis ?? 10, cha: creature.cha ?? 10,

@@ -118,6 +118,18 @@ export async function PUT(request: Request) {
     return NextResponse.json(updated);
   }
 
+  // creatureId links a sheet to an NPC; only allow NPCs from this character's campaign.
+  if (data.creatureId !== undefined && data.creatureId !== null) {
+    if (typeof data.creatureId !== 'string' || !character.campaignId) {
+      return NextResponse.json({ error: 'Invalid creatureId' }, { status: 400 });
+    }
+    const creature = await prisma.creature.findFirst({
+      where: { id: data.creatureId, campaignId: character.campaignId },
+      select: { id: true },
+    });
+    if (!creature) return NextResponse.json({ error: 'Invalid creatureId' }, { status: 400 });
+  }
+
   // Stringify JSON fields if they are objects
   const jsonFields = ['skills', 'equipment', 'feats', 'spells', 'classes'];
   for (const f of jsonFields) {
