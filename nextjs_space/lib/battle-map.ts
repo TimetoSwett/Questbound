@@ -72,9 +72,11 @@ export async function filterLinkedTokensForPlayer(
   const all: any[] = Array.isArray(fullTokens) ? fullTokens : tokens;
   const linkedIds = [...new Set(all.map((t) => t?.creatureId).filter((id) => typeof id === 'string' && id))] as string[];
   // Tokens not in the player's view (hidden/fogged) also hide their turn entries.
+  // sanitizeForPlayer already dropped hidden tokens except the player's own,
+  // so a player keeps the turn entry for their own hidden character.
   const visibleIds = new Set(tokens.map((t) => t?.id));
   const relabel = new Map<string, string>();
-  const removed = new Set<string>(all.filter((t) => t?.id && (t.hidden || !visibleIds.has(t.id))).map((t) => t.id));
+  const removed = new Set<string>(all.filter((t) => t?.id && !visibleIds.has(t.id)).map((t) => t.id));
   const out: Record<string, any> = { ...state };
 
   if (linkedIds.length > 0) {

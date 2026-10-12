@@ -1005,8 +1005,10 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
     const token = entry.tokenId
       ? tokens.find((t) => t.id === entry.tokenId)
       : tokens.find((t) => entry.id.endsWith(`_${t.id}`));
+    // The server only sends tokens this player may see (incl. their own hidden
+    // character), so hide entries whose token isn't in the player's view.
     if (entry.tokenId && !token) return false;
-    return !token?.hidden;
+    return true;
   });
   const sortedTurns = sortTurns(playerTurns);
 
