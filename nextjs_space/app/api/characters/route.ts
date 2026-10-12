@@ -11,13 +11,33 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const campaignId = searchParams.get('campaignId');
 
-  // No campaignId -> character vault: the caller's unassigned characters
+  // No campaignId -> character vault: all characters owned by the caller.
   if (!campaignId) {
     const characters = await prisma.character.findMany({
-      where: { userId: session.user.id, campaignId: null },
+      where: {
+        userId: session.user.id,
+        ...(searchParams.get('unassigned') === '1' ? { campaignId: null } : {}),
+      },
       orderBy: { createdAt: 'asc' },
     });
-    return NextResponse.json(characters);
+    const campaigns = await prisma.campaign.findMany({
+      where: {
+        id: { in: characters.flatMap((character) => character.campaignId ? [character.campaignId] : []) },
+        memberships: { some: { userId: session.user.id } },
+      },
+      select: { id: true, name: true },
+    });
+    const campaignsById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
+    return NextResponse.json(characters.map((character) => {
+      const campaign = character.campaignId ? campaignsById.get(character.campaignId) ?? null : null;
+      return {
+        ...character,
+        // Preserve assignment state without exposing a campaign the caller cannot access.
+        isAssigned: character.campaignId !== null,
+        campaignId: campaign?.id ?? null,
+        campaign,
+      };
+    }));
   }
 
   const role = await getUserRole(session.user.id, campaignId);

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { signOut } from 'next-auth/react';
 import { Shield, Plus, LogOut, Scroll, Swords, Users, ArrowRight, ChevronRight, Trash2, FolderPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -24,6 +25,9 @@ interface Campaign {
 
 interface VaultChar {
   id: string;
+  campaignId: string | null;
+  campaign: { id: string; name: string } | null;
+  isAssigned: boolean;
   name: string;
   race: string;
   classes: any;
@@ -178,7 +182,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
   };
 
   const attachToCampaign = async (campaignId: string) => {
-    if (!attachChar) return;
+    if (!attachChar || attachChar.isAssigned) return;
     const res = await fetch('/api/characters', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -332,15 +336,28 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
                         <div className="flex items-center gap-3 bg-card p-4 rounded-lg border border-border hover:border-primary/30 transition-colors" style={{ boxShadow: 'var(--shadow-sm)' }}>
                           <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setEditingId(ch.id)}>
                             <h3 className="font-display font-semibold truncate">{ch.name ?? 'Unnamed'}</h3>
+                            {ch.campaign ? (
+                              <Link
+                                href={`/campaign/${ch.campaign.id}`}
+                                onClick={(event) => event.stopPropagation()}
+                                className="inline-block max-w-full truncate rounded-full bg-primary/20 px-2 py-0.5 text-xs text-primary hover:underline"
+                              >
+                                {ch.campaign.name}
+                              </Link>
+                            ) : ch.isAssigned ? (
+                              <span className="inline-block rounded-full bg-secondary px-2 py-0.5 text-xs text-muted-foreground">Assigned to a campaign</span>
+                            ) : null}
                             <p className="text-sm text-muted-foreground">{ch.race}{cls ? ` • ${cls}` : ''}</p>
                             <p className="text-xs text-muted-foreground mt-0.5">Created {ch.createdAt ? new Date(ch.createdAt).toLocaleDateString() : ''}</p>
                           </div>
                           <div className="text-right shrink-0 hidden sm:block">
                             <p className="text-sm font-mono"><span className="text-green-700">{ch.hpCurrent ?? 0}</span>/{ch.hpMax ?? 0} HP</p>
                           </div>
-                          <Button variant="secondary" size="sm" onClick={() => setAttachChar(ch)} disabled={(campaigns?.length ?? 0) === 0} title={(campaigns?.length ?? 0) === 0 ? 'Join a campaign first' : 'Add to a campaign'}>
-                            <FolderPlus className="w-4 h-4 mr-1" /> Add to campaign
-                          </Button>
+                          {!ch.isAssigned && (
+                            <Button variant="secondary" size="sm" onClick={() => setAttachChar(ch)} disabled={(campaigns?.length ?? 0) === 0} title={(campaigns?.length ?? 0) === 0 ? 'Join a campaign first' : 'Add to a campaign'}>
+                              <FolderPlus className="w-4 h-4 mr-1" /> Add to campaign
+                            </Button>
+                          )}
                           <Button variant="ghost" size="icon-sm" onClick={() => deleteVaultChar(ch.id, ch.name)}>
                             <Trash2 className="w-4 h-4 text-destructive" />
                           </Button>
