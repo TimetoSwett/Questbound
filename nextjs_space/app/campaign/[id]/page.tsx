@@ -3,12 +3,12 @@ import { redirect } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { CampaignShell } from './_components/campaign-shell';
 
-export default async function CampaignPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string }> }) {
+export default async function CampaignPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string; character?: string }> }) {
   const session = await auth();
   if (!session?.user) redirect('/login');
 
   const { id } = await params;
-  const { tab } = await searchParams;
+  const { tab, character } = await searchParams;
 
   const membership = await prisma.campaignMembership.findUnique({
     where: { userId_campaignId: { userId: session.user.id ?? '', campaignId: id } },
@@ -27,6 +27,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
       userId={session.user.id ?? ''}
       userName={session.user.name ?? 'Adventurer'}
       initialTab={tab}
+      initialCharacterId={character}
     />
   );
 }
