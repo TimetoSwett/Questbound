@@ -191,7 +191,11 @@ export async function PUT(request: Request) {
 
   // Spell libraryEntryId must be a string id that exists; otherwise drop it (don't reject the save).
   // The sheet always keeps its own full copy of the spell details.
-  if (data.spells !== undefined && typeof data.spells !== 'string') {
+  // A JSON-string spells payload is parsed first so it can't bypass this check.
+  if (typeof data.spells === 'string') {
+    try { data.spells = JSON.parse(data.spells); } catch { /* unparseable: stored as before, no ids to honour */ }
+  }
+  if (data.spells !== undefined && data.spells !== null && typeof data.spells === 'object') {
     const known = (data.spells as { known?: unknown })?.known;
     if (Array.isArray(known)) {
       const ids = [...new Set(
