@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Save, Upload, Heart, Shield, BookOpen, Package, User, ChevronDown, Trash2 } from 'lucide-react';
+import { Save, Upload, Heart, Shield, BookOpen, Package, User, ChevronDown, Trash2, Bookmark } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,8 +10,7 @@ import { PF1E_SKILLS, abilityMod, formatMod } from '@/lib/pf1e-skills';
 import type { SkillDef } from '@/lib/pf1e-skills';
 import { TipTapEditor } from '@/components/tiptap-editor';
 import Image from 'next/image';
-import { EquipmentEditor } from './equipment-editor';
-import { equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange } from '@/lib/equipment';
+import { AddSpellToLibraryDialog, type SpellLibraryPrefill } from './add-spell-dialog';
 
 const SIZES = ['Fine', 'Diminutive', 'Tiny', 'Small', 'Medium', 'Large', 'Huge', 'Gargantuan', 'Colossal'];
 const ALIGNMENTS = ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'];
@@ -19,7 +18,7 @@ const ALIGNMENTS = ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'];
 interface SkillEntry { name: string; ranks: number; classSkill: boolean; misc: number; }
 interface EquipItem { name: string; weight: number; quantity: number; value: string; notes: string; }
 interface FeatEntry { name: string; description: string; }
-interface SpellEntry { name: string; level: number; school: string; description: string; cast: number; maxCast: number; }
+interface SpellEntry { name: string; level: number; school: string; description: string; cast: number; maxCast: number; libraryEntryId?: string; }
 interface ClassEntry { name: string; level: number; }
 
 function NumField({ label, value, onChange, disabled, className }: {
@@ -120,8 +119,17 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
   const isSection = (key: string): boolean => sectionState === key;
   // Collapsible open/closed state persists across tab switches.
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ skills: true, feats: true, spells: true, notes: true });
+  // Index of the spell being saved to the library (null = dialog closed).
+  const [saveSpellIdx, setSaveSpellIdx] = useState<number | null>(null);
   const [portraitUrl, setPortraitUrl] = useState<string | null>(null);
   const saveTimer = useRef<any>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/characters?campaignId=_all_&charId=${characterId}`);
+      // We can't query a single char this way, so let's use a different approach
+    } catch { /* ignore */ }
+  }, [characterId]);
 
   const parseJson = (val: any, fallback: any) => {
     if (!val) return fallback;
@@ -145,7 +153,6 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             ...ch,
             skills: parseJson(ch?.skills, []),
             equipment: parseJson(ch?.equipment, []),
-            equipped: parseJson(ch?.equipped, {}),
             feats: parseJson(ch?.feats, []),
             spells: parseJson(ch?.spells, { slots: {}, known: [] }),
             classes: parseJson(ch?.classes, []),
@@ -169,7 +176,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
     setData((prev: any) => ({ ...(prev ?? {}), [field]: value }));
   }, []);
 
-  const saveNow = useCallback(async () => {
+  const saveNow = async () => {
     if (!data || !editable) return;
     setSaving(true);
     try {
@@ -207,8 +214,8 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           miscFort: parseInt(data.miscFort) || 0,
           miscRef: parseInt(data.miscRef) || 0,
           miscWill: parseInt(data.miscWill) || 0,
-          armorBonus: equipmentEffects(data.equipped, parseInt(data.armorBonus) || 0, parseInt(data.shieldBonus) || 0).armorBonus,
-          shieldBonus: equipmentEffects(data.equipped, parseInt(data.armorBonus) || 0, parseInt(data.shieldBonus) || 0).shieldBonus,
+          armorBonus: parseInt(data.armorBonus) || 0,
+          shieldBonus: parseInt(data.shieldBonus) || 0,
           naturalArmor: parseInt(data.naturalArmor) || 0,
           deflection: parseInt(data.deflection) || 0,
           sizeMod: parseInt(data.sizeMod) || 0,
@@ -221,20 +228,15 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           classes: data.classes ?? [],
           skills: data.skills ?? [],
           equipment: data.equipment ?? [],
-          equipped: data.equipped ?? {},
           feats: data.feats ?? [],
           spells: data.spells ?? { slots: {}, known: [] },
           notes: data.notes ?? '',
         }),
       });
-      if (res.ok) {
-        const saved = await res.json();
-        setData((previous: any) => ({ ...previous, armorBonus: saved.armorBonus, shieldBonus: saved.shieldBonus }));
-        toast.success('Saved!', { duration: 1500 });
-      }
+      if (res.ok) toast.success('Saved!', { duration: 1500 });
       else toast.error('Save failed');
     } catch { toast.error('Save error'); } finally { setSaving(false); }
-  }, [data, editable, characterId]);
+  };
 
   const saveNowRef = useRef(saveNow);
   useEffect(() => {
@@ -279,10 +281,9 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
     const bab = s('bab');
     const sizeMod = s('sizeMod');
 
-    const effects = equipmentEffects(data.equipped, s('armorBonus'), s('shieldBonus'), dexMod);
-    const ac = 10 + effects.armorBonus + effects.shieldBonus + effects.dexToAC + sizeMod + s('naturalArmor') + s('deflection') + s('miscAC');
-    const touchAC = 10 + effects.dexToAC + sizeMod + s('deflection') + s('miscTouchAC');
-    const flatAC = 10 + effects.armorBonus + effects.shieldBonus + sizeMod + s('naturalArmor') + s('deflection') + s('miscFlatAC');
+    const ac = 10 + s('armorBonus') + s('shieldBonus') + dexMod + sizeMod + s('naturalArmor') + s('deflection') + s('miscAC');
+    const touchAC = 10 + dexMod + sizeMod + s('deflection') + s('miscTouchAC');
+    const flatAC = 10 + s('armorBonus') + s('shieldBonus') + sizeMod + s('naturalArmor') + s('deflection') + s('miscFlatAC');
     const cmd = 10 + bab + strMod + dexMod + sizeMod + s('miscCMD');
     const cmb = bab + strMod + sizeMod + s('miscCMB');
     const init = dexMod + s('miscInit');
@@ -290,7 +291,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
     const ref = s('baseRef') + dexMod + s('miscRef');
     const will = s('baseWill') + wisMod + s('miscWill');
 
-    return { effects, strMod, dexMod, conMod, intMod, wisMod, chaMod, ac, touchAC, flatAC, cmd, cmb, init, fort, ref, will };
+    return { strMod, dexMod, conMod, intMod, wisMod, chaMod, ac, touchAC, flatAC, cmd, cmb, init, fort, ref, will };
   }, [data]);
 
   const abilityModForSkill = useCallback((ability: string) => {
@@ -303,7 +304,6 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
 
   const sections = [
     { key: 'core-combat', label: 'Core & Combat', icon: User },
-    { key: 'equipped', label: 'Equipment', icon: Shield },
     { key: 'equipment', label: 'Inventory', icon: Package },
     { key: 'details', label: 'Feats, Skills, Spells & Notes', icon: BookOpen },
   ];
@@ -458,8 +458,8 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
               </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <NumField label="Armor Bonus" value={stats?.effects.armorBonus ?? 0} onChange={(v: string) => { update('armorBonus', v); autoSave(); }} disabled={!editable || !!data.equipped?.armor?.name?.trim()} />
-              <NumField label="Shield Bonus" value={stats?.effects.shieldBonus ?? 0} onChange={(v: string) => { update('shieldBonus', v); autoSave(); }} disabled={!editable || !!data.equipped?.shield?.name?.trim()} />
+              <NumField label="Armor Bonus" value={data?.armorBonus ?? 0} onChange={(v: string) => { update('armorBonus', v); autoSave(); }} disabled={!editable} />
+              <NumField label="Shield Bonus" value={data?.shieldBonus ?? 0} onChange={(v: string) => { update('shieldBonus', v); autoSave(); }} disabled={!editable} />
               <NumField label="Natural Armor" value={data?.naturalArmor ?? 0} onChange={(v: string) => { update('naturalArmor', v); autoSave(); }} disabled={!editable} />
               <NumField label="Deflection" value={data?.deflection ?? 0} onChange={(v: string) => { update('deflection', v); autoSave(); }} disabled={!editable} />
               <NumField label="Size Mod" value={data?.sizeMod ?? 0} onChange={(v: string) => { update('sizeMod', v); autoSave(); }} disabled={!editable} />
@@ -554,23 +554,10 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
         </div>
       )}
 
-      {isSection('equipped') && <EquipmentEditor value={data.equipped ?? {}} characterId={characterId} campaignId={data.campaignId} editable={editable}
-        bab={Number(data.bab) || 0} strMod={stats?.strMod ?? 0} dexMod={stats?.dexMod ?? 0} sizeMod={Number(data.sizeMod) || 0}
-        onChange={value => {
-          for (const key of ['armor', 'shield'] as const) {
-            const field = key === 'armor' ? 'armorBonus' : 'shieldBonus';
-            const current = parseInt(data[field]) || 0;
-            const next = manualBonusAfterChange(data.equipped, value, key, current);
-            if (next !== current) update(field, next);
-          }
-          update('equipped', value); autoSave();
-        }} />}
-
       {/* DETAILS TAB: Feats, Skills, Spells & Notes */}
       {isSection('details') && (
         <div className="space-y-4">
           <CollapsibleSection sectionKey="skills" title="Skills" openSections={openSections} setOpenSections={setOpenSections}>
-          <p className="text-xs text-muted-foreground mb-2">Armor check penalty to Strength/Dexterity skills: {formatMod(stats?.effects.checkPenalty ?? 0)}</p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -589,7 +576,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                   const abMod = abilityModForSkill(skill.ability);
                   const ranks = entry?.ranks ?? 0;
                   const csBonus = (entry?.classSkill && ranks >= 1) ? 3 : 0;
-                  const total = ranks + csBonus + abMod + (entry?.misc ?? 0) + equipmentSkillPenalty(skill.ability, stats?.effects.checkPenalty ?? 0);
+                  const total = ranks + csBonus + abMod + (entry?.misc ?? 0);
 
                   const updateSkill = (field: string, value: any) => {
                     const skills = [...(data?.skills ?? [])];
@@ -663,7 +650,6 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           </CollapsibleSection>
 
           <CollapsibleSection sectionKey="spells" title="Spells" openSections={openSections} setOpenSections={setOpenSections}>
-          <p className="text-xs text-muted-foreground mb-2">Arcane spell failure: {stats?.effects.spellFailure ?? 0}%</p>
           <div className="space-y-4">
           {/* Spell Slots */}
           <div>
@@ -705,7 +691,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
               <div className="space-y-2">
                 {(data?.spells?.known ?? []).map((spell: SpellEntry, i: number) => (
                   <div key={i} className="p-3 bg-muted/50 rounded-lg">
-                    <div className="grid grid-cols-[1fr_50px_80px_60px_30px] gap-2 items-center">
+                    <div className="grid grid-cols-[1fr_50px_80px_60px_56px] gap-2 items-center">
                       <Input value={spell?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                         const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
                         spells.known = [...(spells.known ?? [])];
@@ -736,14 +722,19 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                         )}
                       </div>
                       {editable && (
-                        <Button variant="ghost" size="icon-sm" onClick={() => {
-                          const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-                          spells.known = [...(spells.known ?? [])];
-                          spells.known.splice(i, 1);
-                          update('spells', spells); autoSave();
-                        }}>
-                          <Trash2 className="w-3 h-3 text-destructive" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button variant="ghost" size="icon-sm" title="Save to library" onClick={() => setSaveSpellIdx(i)}>
+                            <Bookmark className="w-3 h-3" />
+                          </Button>
+                          <Button variant="ghost" size="icon-sm" onClick={() => {
+                            const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                            spells.known = [...(spells.known ?? [])];
+                            spells.known.splice(i, 1);
+                            update('spells', spells); autoSave();
+                          }}>
+                            <Trash2 className="w-3 h-3 text-destructive" />
+                          </Button>
+                        </div>
                       )}
                     </div>
                     <textarea value={spell?.description ?? ''} onChange={(e) => {
@@ -765,6 +756,25 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           <TipTapEditor content={data?.notes ?? ''} onChange={(html: string) => { update('notes', html); autoSave(); }} editable={editable} placeholder="Write your character's backstory, notes, and other details..." />
           </CollapsibleSection>
         </div>
+      )}
+      {saveSpellIdx !== null && (
+        <AddSpellToLibraryDialog
+          open
+          onClose={() => setSaveSpellIdx(null)}
+          prefill={(() => {
+            const s = (data?.spells?.known ?? [])[saveSpellIdx] as SpellEntry | undefined;
+            return s ? { name: s.name, school: s.school, description: s.description, level: s.level } : undefined;
+          })()}
+          onCreated={(entry) => {
+            const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+            spells.known = [...(spells.known ?? [])];
+            if (spells.known[saveSpellIdx]) {
+              spells.known[saveSpellIdx] = { ...spells.known[saveSpellIdx], libraryEntryId: entry.id };
+              update('spells', spells);
+              autoSave();
+            }
+          }}
+        />
       )}
     </div>
   );
