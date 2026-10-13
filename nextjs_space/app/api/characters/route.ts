@@ -4,6 +4,8 @@ import type { Prisma } from '@prisma/client';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
+import { equippedSchema } from '@/lib/equipment-validation';
+import { equipmentEffects } from '@/lib/equipment';
 import { removeCharacterTokens } from '@/lib/battle-map';
 
 export async function GET(request: Request) {
@@ -130,11 +132,31 @@ export async function PUT(request: Request) {
     'baseFort', 'baseRef', 'baseWill', 'miscFort', 'miscRef', 'miscWill',
     'armorBonus', 'shieldBonus', 'naturalArmor', 'deflection', 'sizeMod',
     'miscAC', 'miscTouchAC', 'miscFlatAC', 'miscCMD', 'miscCMB', 'miscInit',
-    'skills', 'equipment', 'feats', 'spells', 'notes', 'creatureId',
+    'skills', 'equipment', 'equipped', 'feats', 'spells', 'notes', 'creatureId',
   ] as const satisfies readonly (keyof Prisma.CharacterUncheckedUpdateInput)[];
   const data: Record<string, unknown> = Object.fromEntries(
     editableFields.filter((field) => Object.prototype.hasOwnProperty.call(body, field)).map((field) => [field, body[field]]),
   );
+
+  if (Object.prototype.hasOwnProperty.call(data, 'equipped')) {
+    const result = equippedSchema.safeParse(data.equipped);
+    if (!result.success) return NextResponse.json({ error: 'Invalid equipped equipment', details: result.error.flatten() }, { status: 400 });
+    const equipped = result.data;
+    const ids = [...new Set([equipped.armor, equipped.shield, ...(equipped.weapons ?? []), ...Object.values(equipped.slots ?? {})]
+      .flatMap(item => item?.inventoryItemId ? [item.inventoryItemId] : []))];
+    if (ids.length) {
+      if (!character.campaignId) return NextResponse.json({ error: 'Inventory links require a campaign' }, { status: 400 });
+      const carried = await prisma.inventoryItem.findMany({
+        where: { id: { in: ids }, campaignId: character.campaignId, characterId: id },
+        select: { id: true },
+      });
+      if (carried.length !== ids.length) return NextResponse.json({ error: 'Equipment must link to inventory carried by this character in this campaign' }, { status: 400 });
+    }
+    data.equipped = equipped;
+    const effects = equipmentEffects(equipped, typeof data.armorBonus === 'number' ? data.armorBonus : character.armorBonus, typeof data.shieldBonus === 'number' ? data.shieldBonus : character.shieldBonus);
+    data.armorBonus = effects.armorBonus;
+    data.shieldBonus = effects.shieldBonus;
+  }
 
   // creatureId links a sheet to an NPC; only allow NPCs from this character's campaign.
   // Linking/unlinking is a GM action (the link is set by Upgrade to Adventurer).

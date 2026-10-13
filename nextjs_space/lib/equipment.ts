@@ -37,3 +37,33 @@ export interface Equipped {
   weapons?: Weapon[];
   slots?: Partial<Record<BodySlot | UnslottedSlot, SlotItem | null>>;
 }
+
+/** Blank names are placeholders, rather than equipped items. */
+export function equipmentEffects(equipped: Equipped = {}, armorBonus = 0, shieldBonus = 0, dexMod = 0) {
+  const armor = equipped.armor?.name.trim() ? equipped.armor : null;
+  const shield = equipped.shield?.name.trim() ? equipped.shield : null;
+  const pieces = [armor, shield].filter((piece): piece is ArmorPiece => !!piece);
+  const limits = pieces.flatMap(piece => piece.maxDex == null ? [] : [piece.maxDex]);
+  const maxDex = limits.length ? Math.min(...limits) : null;
+  return {
+    armorBonus: armor?.acBonus ?? armorBonus,
+    shieldBonus: shield?.acBonus ?? shieldBonus,
+    dexToAC: maxDex == null ? dexMod : Math.min(dexMod, maxDex),
+    checkPenalty: pieces.reduce((sum, piece) => sum + piece.checkPenalty, 0),
+    spellFailure: pieces.reduce((sum, piece) => sum + piece.spellFailure, 0),
+    maxDex,
+  };
+}
+
+export function equipmentSkillPenalty(ability: string, checkPenalty: number) {
+  return ['STR', 'DEX'].includes(ability.toUpperCase()) ? checkPenalty : 0;
+}
+
+/** Damage uses Strength; choosing Dex changes only the attack ability. */
+export function weaponTotals(weapon: Weapon, bab: number, strMod: number, dexMod: number, sizeMod = 0) {
+  const damageBonus = strMod + weapon.damageBonus;
+  return {
+    attack: bab + (weapon.ability === 'dex' ? dexMod : strMod) + weapon.attackBonus + sizeMod,
+    damage: `${weapon.damage}${damageBonus === 0 ? '' : damageBonus > 0 ? `+${damageBonus}` : damageBonus}`,
+  };
+}
