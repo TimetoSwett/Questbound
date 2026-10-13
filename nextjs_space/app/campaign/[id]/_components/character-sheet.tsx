@@ -299,7 +299,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
       <div className="flex flex-wrap gap-1 bg-card/50 p-1 rounded-lg">
         {sections.map((s) => (
           <button key={s.key} onClick={() => setSection(resolveSection(s.key))}
-            className={`flex items-center gap-1 px-3 py-1.5 text-sm rounded-md transition-colors ${
+            className={`flex items-center gap-1 px-3 py-1.5 min-h-[44px] sm:min-h-0 text-sm rounded-md transition-colors ${
               isSection(s.key) ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             }`}>
             <s.icon className="w-3.5 h-3.5" /> {s.label}
@@ -500,6 +500,45 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
         </div>
       )}
 
+      {/* EQUIPMENT SECTION */}
+      {isSection('equipment') && (
+        <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-display font-semibold text-sm">Equipment & Inventory</h3>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground font-mono">
+                Total Weight: {(data?.equipment ?? []).reduce((sum: number, i: EquipItem) => sum + ((i?.weight ?? 0) * (i?.quantity ?? 1)), 0)?.toFixed?.(1) ?? '0.0'} lbs
+              </span>
+              {editable && (
+                <Button variant="ghost" size="sm" onClick={() => { update('equipment', [...(data?.equipment ?? []), { name: '', weight: 0, quantity: 1, value: '', notes: '' }]); autoSave(); }}>+ Add Item</Button>
+              )}
+            </div>
+          </div>
+          {(data?.equipment ?? []).length === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">No items</p>
+          ) : (
+            <div className="space-y-1">
+              <div className="grid grid-cols-[1fr_60px_50px_70px_30px] gap-2 text-xs text-muted-foreground px-1">
+                <span>Name</span><span>Weight</span><span>Qty</span><span>Value</span><span></span>
+              </div>
+              {(data?.equipment ?? []).map((item: EquipItem, i: number) => (
+                <div key={i} className="grid grid-cols-[1fr_60px_50px_70px_30px] gap-2 items-center">
+                  <Input value={item?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), name: e.target.value }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs" placeholder="Item name" />
+                  <Input type="number" value={item?.weight ?? 0} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), weight: parseFloat(e.target.value) || 0 }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs text-center font-mono" />
+                  <Input type="number" value={item?.quantity ?? 1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), quantity: parseInt(e.target.value) || 1 }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs text-center font-mono" />
+                  <Input value={item?.value ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), value: e.target.value }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs" placeholder="gp" />
+                  {editable && (
+                    <Button variant="ghost" size="icon-sm" onClick={() => { const arr = [...(data?.equipment ?? [])]; arr.splice(i, 1); update('equipment', arr); autoSave(); }}>
+                      <Trash2 className="w-3 h-3 text-destructive" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* DETAILS TAB: Feats, Skills, Spells & Notes */}
       {isSection('details') && (
         <div className="space-y-4">
@@ -563,45 +602,6 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             </table>
           </div>
           </CollapsibleSection>
-
-      {/* EQUIPMENT SECTION */}
-      {isSection('equipment') && (
-        <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-display font-semibold text-sm">Equipment & Inventory</h3>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground font-mono">
-                Total Weight: {(data?.equipment ?? []).reduce((sum: number, i: EquipItem) => sum + ((i?.weight ?? 0) * (i?.quantity ?? 1)), 0)?.toFixed?.(1) ?? '0.0'} lbs
-              </span>
-              {editable && (
-                <Button variant="ghost" size="sm" onClick={() => { update('equipment', [...(data?.equipment ?? []), { name: '', weight: 0, quantity: 1, value: '', notes: '' }]); autoSave(); }}>+ Add Item</Button>
-              )}
-            </div>
-          </div>
-          {(data?.equipment ?? []).length === 0 ? (
-            <p className="text-xs text-muted-foreground py-4 text-center">No items</p>
-          ) : (
-            <div className="space-y-1">
-              <div className="grid grid-cols-[1fr_60px_50px_70px_30px] gap-2 text-xs text-muted-foreground px-1">
-                <span>Name</span><span>Weight</span><span>Qty</span><span>Value</span><span></span>
-              </div>
-              {(data?.equipment ?? []).map((item: EquipItem, i: number) => (
-                <div key={i} className="grid grid-cols-[1fr_60px_50px_70px_30px] gap-2 items-center">
-                  <Input value={item?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), name: e.target.value }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs" placeholder="Item name" />
-                  <Input type="number" value={item?.weight ?? 0} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), weight: parseFloat(e.target.value) || 0 }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs text-center font-mono" />
-                  <Input type="number" value={item?.quantity ?? 1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), quantity: parseInt(e.target.value) || 1 }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs text-center font-mono" />
-                  <Input value={item?.value ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), value: e.target.value }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs" placeholder="gp" />
-                  {editable && (
-                    <Button variant="ghost" size="icon-sm" onClick={() => { const arr = [...(data?.equipment ?? [])]; arr.splice(i, 1); update('equipment', arr); autoSave(); }}>
-                      <Trash2 className="w-3 h-3 text-destructive" />
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
           <CollapsibleSection
             title="Feats & Special Abilities"
