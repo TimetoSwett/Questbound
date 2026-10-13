@@ -483,6 +483,7 @@ export function CreatureDetail({ campaignId, creatureId, role, initialDraft, onC
               textarea
               onEdit={(i: number, k: string, v: string) => updateListItem('specialAbilities', i, { [k]: v })}
             />
+            <SaSqRulesPreview items={data.specialAbilities} />
           </Section>
 
           {!initialDraft && <CreatureLootEditor campaignId={campaignId} creatureId={creatureId} />}
@@ -806,6 +807,20 @@ function EntryEditor({ items, columns, onEdit, onAdd, onRemove, addLabel, notesK
       <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={onAdd}>
         <Plus className="w-3.5 h-3.5 mr-1" /> {addLabel}
       </Button>
+    </div>
+  );
+}
+
+// GM view: read-only Special Attacks / SQ lines with library auto-links, shown below the editors (never inside inputs).
+function SaSqRulesPreview({ items }: { items: any[] }) {
+  const lines = (items ?? []).filter((a: any) => isSaSqLine(a?.name) && typeof a?.description === 'string' && a.description.trim());
+  if (lines.length === 0) return null;
+  return (
+    <div className="mt-3 rounded-md border border-dashed p-2 text-sm" aria-label="Rule links for special attacks and qualities">
+      <p className="text-xs text-muted-foreground mb-1">Rule links (Ctrl/Cmd + hover or Enter)</p>
+      {lines.map((a: any, i: number) => (
+        <p key={i}><span className="text-muted-foreground">{String(a.name).trim()}: </span><AutoLinkText text={a.description} /></p>
+      ))}
     </div>
   );
 }
