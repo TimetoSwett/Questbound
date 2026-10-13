@@ -168,6 +168,7 @@ const rfx = (f) => fx(`umr/${f}`);
   deepJson(R.aliasesFromFormat('Damage Reduction', ''), ['dr']);
   deepJson(R.aliasesFromFormat('Spell Resistance', ''), ['sr']);
   deepJson(R.aliasesFromFormat('Low-Light Vision', ''), ['low light vision']);
+  deepJson(R.aliasesFromFormat('Fast Healing', 'fast healing 5'), [], 'no fast heal alias (reviewer)');
   deepJson(R.aliasesFromFormat('Ability Damage and Drain', '1d4 Str drain'), ['ability damage', 'ability drain']);
   deepJson(R.aliasesFromFormat('X', 'DR 5/silver'), ['dr']);
   deepJson(R.aliasesFromFormat('X', 'fly 30 ft. (good)'), ['fly']);

@@ -39,7 +39,6 @@ const NAME_ALIASES: Record<string, string[]> = {
   'spell resistance': ['sr'],
   'low-light vision': ['low light vision'],
   'ability damage and drain': ['ability damage', 'ability drain'],
-  'fast healing': ['fast heal'],
 };
 
 /** Conservative aliases: explicit per-name map plus the first Format segment's lead word when it is a known short form (e.g. "DR 5/silver" -> "dr"). */
