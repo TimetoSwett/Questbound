@@ -18,6 +18,7 @@ export function LibraryTermPopover({ term, children }: Props) {
   const [expanded, setExpanded] = React.useState(false);
   const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const viaKeyboard = React.useRef(false);
+  const hovering = React.useRef(false);
   const contentId = React.useId();
   const fullId = React.useId();
 
@@ -45,9 +46,21 @@ export function LibraryTermPopover({ term, children }: Props) {
   };
 
   const onPointer = (e: React.PointerEvent) => {
+    if (e.pointerType === 'mouse') hovering.current = true;
     if (e.pointerType === 'mouse' && (e.ctrlKey || e.metaKey) && !open) show(false);
     else if (open) cancelClose();
   };
+
+  // Pressing Ctrl/Cmd while the pointer is already resting on the term opens it too.
+  const showRef = React.useRef(show);
+  React.useEffect(() => { showRef.current = show; });
+  React.useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === 'Control' || e.key === 'Meta') && hovering.current && !e.repeat) showRef.current(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const m = match.value;
   const href = safeHref(m?.sourceUrl);
@@ -66,7 +79,7 @@ export function LibraryTermPopover({ term, children }: Props) {
           className="underline decoration-dotted underline-offset-2 cursor-help rounded-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           onPointerEnter={onPointer}
           onPointerMove={onPointer}
-          onPointerLeave={() => { if (open && !viaKeyboard.current) scheduleClose(); }}
+          onPointerLeave={() => { hovering.current = false; if (open && !viaKeyboard.current) scheduleClose(); }}
           onKeyDown={e => {
             if (e.key === 'Enter' && !open) { e.preventDefault(); show(true); }
             else if (e.key === 'Escape' && open) { e.preventDefault(); setOpen(false); }
