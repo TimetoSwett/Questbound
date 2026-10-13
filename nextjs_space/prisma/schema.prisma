@@ -10,19 +10,21 @@ datasource db {
 }
 
 model User {
-  id            String               @id @default(cuid())
-  email         String               @unique
-  password      String
-  displayName   String               @default("Adventurer")
-  emailVerified DateTime?
-  image         String?
-  accounts      Account[]
-  sessions      Session[]
-  memberships   CampaignMembership[]
-  characters    Character[]
-  diceRolls     DiceRoll[]
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
+  id             String               @id @default(cuid())
+  email          String               @unique
+  password       String
+  displayName    String               @default("Adventurer")
+  emailVerified  DateTime?
+  image          String?
+  accounts       Account[]
+  sessions       Session[]
+  memberships    CampaignMembership[]
+  characters     Character[]
+  diceRolls      DiceRoll[]
+  isAdmin        Boolean              @default(false)
+  libraryEntries LibraryEntry[]
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
 }
 
 model Account {
@@ -500,4 +502,35 @@ model LootTableEntry {
   table LootTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
 
   @@index([tableId])
+}
+
+// Shared site-wide library (spells first; later feats/items/classes).
+model LibraryEntry {
+  id          String       @id @default(cuid())
+  kind        String
+  name        String
+  nameKey     String
+  system      String       @default("pf1e")
+  source      String       @default("user")
+  sourceUrl   String?
+  matchedAon  Boolean      @default(false)
+  summary     String       @default("")
+  data        Json
+  createdById String?
+  createdBy   User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  spellLevels SpellLevel[]
+
+  @@unique([kind, system, nameKey])
+}
+
+model SpellLevel {
+  entryId String
+  cls     String
+  level   Int
+  entry   LibraryEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@id([entryId, cls])
+  @@index([cls, level])
 }

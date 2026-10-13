@@ -1,0 +1,42 @@
+export const dynamic = 'force-dynamic';
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+import { parseCreateInput, presentEntry, searchLibrary, searchQuerySchema, canCreateEntry } from '@/lib/library';
+import { entryInclude, isUniqueViolation, readBoundedJson, requireActor } from '@/lib/library-api';
+
+// GET /api/library?kind=spell&system=pf1e&q=&cls=&level=&limit=20 (max 50).
+// Any logged-in user. Prefix matches first, then other matches; alphabetical.
+export async function GET(request: Request) {
+  const a = await requireActor();
+  if ('res' in a) return a.res;
+  const parsed = searchQuerySchema.safeParse(Object.fromEntries(new URL(request.url).searchParams));
+  if (!parsed.success) return NextResponse.json({ error: 'Invalid query', issues: parsed.error.issues }, { status: 400 });
+  const rows = await searchLibrary(prisma, parsed.data);
+  return NextResponse.json({ results: rows.map((r) => presentEntry(r, a.actor, { includeData: false })) });
+}
+
+// POST /api/library — any logged-in user creates a source="user" entry.
+export async function POST(request: Request) {
+  const a = await requireActor();
+  if ('res' in a) return a.res;
+  if (!canCreateEntry(a.actor)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const b = await readBoundedJson(request);
+  if ('res' in b) return b.res;
+  const p = parseCreateInput(b.body);
+  if (!p.ok) return NextResponse.json({ error: p.error, issues: p.issues }, { status: 400 });
+  const v = p.value;
+  try {
+    const row = await prisma.libraryEntry.create({
+      data: {
+        kind: v.kind, system: v.system, name: v.name, nameKey: v.nameKey, source: 'user', sourceUrl: v.sourceUrl,
+        summary: v.summary, data: v.data as object, createdById: a.actor.id,
+        spellLevels: { create: v.spellLevels },
+      },
+      include: entryInclude,
+    });
+    return NextResponse.json(presentEntry(row, a.actor), { status: 201 });
+  } catch (e) {
+    if (isUniqueViolation(e)) return NextResponse.json({ error: 'An entry with that name already exists' }, { status: 409 });
+    throw e;
+  }
+}

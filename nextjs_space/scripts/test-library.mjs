@@ -1,0 +1,188 @@
+#!/usr/bin/env node
+// Library tests: normalizer, zod validation, summary, permissions, presenter,
+// search ordering/filters + importer upsert (against DATABASE_URL, a TEST db
+// such as local qbtest), and the API routes with a mocked session.
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { runInNewContext } from 'node:vm';
+const require = createRequire(import.meta.url);
+const ts = require('typescript');
+const root = new URL('../', import.meta.url);
+function load(path, mocks = {}) {
+  const source = readFileSync(new URL(path, root), 'utf8');
+  const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
+  const exports = {};
+  runInNewContext(js, { exports, console, URL, Request, Response, Date, require: (n) => (n in mocks ? mocks[n] : require(n)) });
+  return exports;
+}
+// vm-realm objects differ by prototype: compare as JSON.
+const deq = (a, b, m) => assert.deepEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), m);
+const lib = load('lib/library.ts');
+const { normalizeNameKey, sanitizeSummary, summaryFromDescription, parseCreateInput, parsePatchInput, canEditEntry, canDeleteEntry, canCreateEntry, presentEntry, orderSearchResults, searchQuerySchema } = lib;
+
+// normalizer + summary
+assert.equal(normalizeNameKey('  Magic   Missile\t'), 'magic missile');
+assert.equal(normalizeNameKey('FIREBALL'), 'fireball');
+assert.equal(normalizeNameKey('Cure\nLight  Wounds'), 'cure light wounds');
+assert.equal(sanitizeSummary('a\nb\r\n  c'), 'a b c');
+const long = sanitizeSummary('x'.repeat(500));
+assert.equal(long.length, 120); assert.ok(long.endsWith('…'));
+assert.equal(summaryFromDescription('Deals damage. More text here.'), 'Deals damage.');
+console.log('ok   normalizer & summary');
+
+// validation
+const good = { kind: 'spell', name: ' Magic  Missile ', data: { school: 'evocation', descriptors: ['force'], description: 'A missile of magical energy darts forth. It hits.' }, spellLevels: [{ cls: 'Wizard', level: 1 }, { cls: 'sorcerer', level: 1 }] };
+const p = parseCreateInput(good);
+assert.ok(p.ok, JSON.stringify(p));
+assert.equal(p.value.nameKey, 'magic missile'); assert.equal(p.value.system, 'pf1e');
+assert.equal(p.value.summary, 'A missile of magical energy darts forth.');
+assert.equal(p.value.spellLevels[0].cls, 'wizard');
+assert.equal(p.value.data.range, '');
+for (const bad of [
+  { ...good, kind: 'feat' }, { ...good, name: '   ' }, { ...good, name: 'x'.repeat(121) }, { ...good, system: 'pf2e' },
+  { ...good, extra: 1 }, { ...good, data: { ...good.data, bogus: 1 } }, { ...good, data: { description: 'x'.repeat(20_001) } },
+  { ...good, data: { descriptors: Array(21).fill('a') } }, { ...good, spellLevels: [{ cls: 'wizard', level: 10 }] },
+  { ...good, spellLevels: [{ cls: 'wizard', level: 1 }, { cls: 'WIZARD', level: 2 }] }, { ...good, spellLevels: [{ cls: 'wizard', level: 1.5 }] },
+  { ...good, sourceUrl: 'javascript:alert(1)' }, null, 'str',
+]) assert.equal(parseCreateInput(bad).ok, false, JSON.stringify(bad)?.slice(0, 80));
+assert.ok(parsePatchInput('spell', { summary: 'a\nb' }).ok);
+assert.equal(parsePatchInput('spell', { summary: 'a\nb' }).value.summary, 'a b');
+assert.equal(parsePatchInput('spell', { kind: 'spell' }).ok, false);
+assert.equal(parsePatchInput('spell', { data: { school: 'x'.repeat(41) } }).ok, false);
+assert.equal(parsePatchInput('spell', { name: 'New  Name' }).value.nameKey, 'new name');
+const sq = searchQuerySchema.parse({ limit: '50', level: '3' });
+assert.equal(sq.limit, 50); assert.equal(sq.level, 3); assert.equal(sq.kind, 'spell');
+assert.equal(searchQuerySchema.safeParse({ limit: '51' }).success, false);
+assert.equal(searchQuerySchema.safeParse({ level: '10' }).success, false);
+console.log('ok   validation');
+
+// permissions
+const alice = { id: 'alice', isAdmin: false }, bob = { id: 'bob', isAdmin: false }, admin = { id: 'root', isAdmin: true };
+const userEntry = { createdById: 'alice', source: 'user' }, aonEntry = { createdById: null, source: 'aon' }, orphan = { createdById: null, source: 'user' };
+assert.ok(canCreateEntry(alice)); assert.ok(!canCreateEntry(null));
+assert.ok(canEditEntry(alice, userEntry)); assert.ok(!canEditEntry(bob, userEntry)); assert.ok(canEditEntry(admin, userEntry));
+assert.ok(!canEditEntry(alice, aonEntry)); assert.ok(canEditEntry(admin, aonEntry)); assert.ok(!canDeleteEntry(alice, aonEntry));
+assert.ok(!canEditEntry(alice, { createdById: 'alice', source: 'aon' }), 'aon read-only even for creator');
+assert.ok(!canEditEntry(alice, orphan)); assert.ok(!canEditEntry(null, userEntry));
+const pres = presentEntry({ id: 'e', kind: 'spell', name: 'N', nameKey: 'n', system: 'pf1e', source: 'user', sourceUrl: null, matchedAon: false, summary: 's', data: { a: 1 }, createdById: 'alice', createdAt: new Date(0), updatedAt: new Date(0), spellLevels: [{ cls: 'wizard', level: 3, entryId: 'e' }, { cls: 'cleric', level: 2 }] }, alice);
+deq(pres.spellLevels, [{ cls: 'cleric', level: 2 }, { cls: 'wizard', level: 3 }]);
+assert.equal(pres.canEdit, true); assert.equal(pres.createdAt, '1970-01-01T00:00:00.000Z'); assert.ok(!('nameKey' in pres));
+console.log('ok   permissions & presenter');
+
+// ordering (pure)
+const rows = ['xfire', 'fireball', 'fire shield', 'wall of fire', 'firebrand'].map((nameKey) => ({ nameKey }));
+deq(orderSearchResults(rows, 'FIRE', 10).map((r) => r.nameKey), ['fire shield', 'fireball', 'firebrand', 'wall of fire', 'xfire']);
+assert.equal(orderSearchResults(rows, 'fire', 2).length, 2);
+console.log('ok   ordering');
+
+if (!process.env.DATABASE_URL) { console.log('skip DB tests (set DATABASE_URL to a TEST database)'); console.log('LIBRARY TESTS: PASS'); process.exit(0); }
+if (/hpminioma|prod/i.test(process.env.DATABASE_URL)) { console.error('Refusing to run DB tests against a production-looking DATABASE_URL'); process.exit(1); }
+
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+const tag = `zzlt${Date.now()}`;
+const users = [];
+try {
+  const mkUser = async (isAdmin = false) => { const u = await prisma.user.create({ data: { email: `${tag}_${users.length}@example.com`, password: 'x', isAdmin } }); users.push(u.id); return u; };
+  const uA = await mkUser(), uB = await mkUser(), uAdmin = await mkUser(true);
+
+  // search ordering + filters (DB)
+  const mk = (name, levels, extra = {}) => prisma.libraryEntry.create({ data: { kind: 'spell', system: 'pf1e', name, nameKey: normalizeNameKey(name), data: {}, createdById: uA.id, ...extra, spellLevels: { create: levels } } });
+  await mk(`${tag} Fireball`, [{ cls: 'wizard', level: 3 }, { cls: 'sorcerer', level: 3 }]);
+  await mk(`${tag} Fire Shield`, [{ cls: 'wizard', level: 4 }]);
+  await mk(`${tag} Cure Wounds`, [{ cls: 'cleric', level: 1 }]);
+  await mk(`Wall of ${tag} Fire`, [{ cls: 'wizard', level: 4 }]);
+  await prisma.libraryEntry.create({ data: { kind: 'spell', system: 'dnd35', name: `${tag} Fireball`, nameKey: normalizeNameKey(`${tag} Fireball`), data: {} } });
+  const s = (q) => lib.searchLibrary(prisma, searchQuerySchema.parse(q));
+  let r = await s({ q: `${tag} FIRE` });
+  deq(r.map((x) => x.name), [`${tag} Fire Shield`, `${tag} Fireball`, `Wall of ${tag} Fire`], 'prefix block first');
+  r = await s({ q: tag });
+  deq(r.map((x) => x.name), [`${tag} Cure Wounds`, `${tag} Fire Shield`, `${tag} Fireball`, `Wall of ${tag} Fire`], 'prefix first, then contains');
+  assert.ok(r.every((x) => Array.isArray(x.spellLevels)));
+  r = await s({ q: tag, cls: 'Wizard', level: '4' });
+  deq(r.map((x) => x.name), [`${tag} Fire Shield`, `Wall of ${tag} Fire`]);
+  r = await s({ q: tag, cls: 'cleric' });
+  deq(r.map((x) => x.name), [`${tag} Cure Wounds`]);
+  r = await s({ q: tag, system: 'dnd35' });
+  assert.equal(r.length, 1);
+  r = await s({ q: tag, limit: '2' });
+  assert.equal(r.length, 2);
+  console.log('ok   DB search ordering & filters');
+
+  // upsert matching
+  const imp = { kind: 'spell', system: 'pf1e', name: `${tag} Cure  Wounds`, sourceUrl: 'https://aonprd.com/SpellDisplay.aspx?ItemName=Cure', summary: 'AON summary', data: { description: 'AON text' }, spellLevels: [{ cls: 'cleric', level: 9 }] };
+  let u = await lib.upsertLibraryEntry(prisma, imp);
+  assert.equal(u.action, 'matched');
+  let e = await prisma.libraryEntry.findUnique({ where: { id: u.id }, include: { spellLevels: true } });
+  assert.equal(e.source, 'user'); assert.equal(e.matchedAon, true); assert.equal(e.sourceUrl, imp.sourceUrl);
+  assert.equal(e.name, `${tag} Cure Wounds`); deq(e.data, {}); assert.equal(e.spellLevels[0].level, 1, 'user fields untouched');
+  u = await lib.upsertLibraryEntry(prisma, { ...imp, name: `${tag} Haste`, spellLevels: [{ cls: 'wizard', level: 3 }] });
+  assert.equal(u.action, 'created');
+  e = await prisma.libraryEntry.findUnique({ where: { id: u.id }, include: { spellLevels: true } });
+  assert.equal(e.source, 'aon'); assert.equal(e.summary, 'AON summary'); assert.equal(e.spellLevels.length, 1);
+  const u2 = await lib.upsertLibraryEntry(prisma, { ...imp, name: `${tag} HASTE`, summary: '', data: { description: 'New text. More.' }, spellLevels: [{ cls: 'bard', level: 3 }, { cls: 'wizard', level: 3 }] });
+  deq(u2, { action: 'updated', id: u.id });
+  e = await prisma.libraryEntry.findUnique({ where: { id: u.id }, include: { spellLevels: true } });
+  assert.equal(e.name, `${tag} HASTE`); assert.equal(e.summary, 'New text.'); assert.equal(e.spellLevels.length, 2);
+  console.log('ok   importer upsert matching');
+
+  // routes with mocked session (real DB)
+  let sessionUser = null;
+  const nextMock = { NextResponse: { json: (b, init) => Response.json(b, init) } };
+  const mocks = { 'next/server': nextMock, '@/auth': { auth: async () => (sessionUser ? { user: { id: sessionUser } } : null) }, '@/lib/prisma': { prisma }, '@/lib/library': lib };
+  const api = load('lib/library-api.ts', mocks);
+  const rmocks = { ...mocks, '@/lib/library-api': api };
+  const list = load('app/api/library/route.ts', rmocks);
+  const one = load('app/api/library/[id]/route.ts', rmocks);
+  const J = (method, body) => new Request('http://t/api/library', { method, headers: { 'content-type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body) });
+  const ctx = (id) => ({ params: Promise.resolve({ id }) });
+
+  assert.equal((await list.GET(new Request('http://t/api/library?q=x'))).status, 401);
+  assert.equal((await list.POST(J('POST', good))).status, 401);
+  sessionUser = uA.id;
+  let res = await list.POST(J('POST', { ...good, name: `${tag} Magic Missile` }));
+  assert.equal(res.status, 201);
+  const created = await res.json();
+  assert.equal(created.source, 'user'); assert.equal(created.createdById, uA.id); assert.equal(created.canEdit, true);
+  assert.equal((await list.POST(J('POST', { ...good, name: `${tag}  MAGIC missile ` }))).status, 409);
+  assert.equal((await list.POST(J('POST', { ...good, name: '' }))).status, 400);
+  assert.equal((await list.POST(J('POST', '{bad'))).status, 400);
+  assert.equal((await list.POST(J('POST', { ...good, data: { description: 'x'.repeat(70_000) } }))).status, 413);
+  res = await list.GET(new Request(`http://t/api/library?kind=spell&q=${encodeURIComponent(tag + ' magic')}&cls=wizard&level=1`));
+  const body = await res.json();
+  assert.equal(body.results.length, 1); assert.ok(!('data' in body.results[0])); deq(body.results[0].spellLevels, [{ cls: 'sorcerer', level: 1 }, { cls: 'wizard', level: 1 }]);
+  assert.equal((await list.GET(new Request('http://t/api/library?limit=51'))).status, 400);
+  res = await one.GET(new Request('http://t'), ctx(created.id)); assert.equal(res.status, 200); assert.ok((await res.json()).data);
+  assert.equal((await one.GET(new Request('http://t'), ctx('nope'))).status, 404);
+  sessionUser = uB.id;
+  assert.equal((await one.PATCH(J('PATCH', { summary: 'hijack' }), ctx(created.id))).status, 403);
+  assert.equal((await one.DELETE(new Request('http://t'), ctx(created.id))).status, 403);
+  sessionUser = uA.id;
+  res = await one.PATCH(J('PATCH', { summary: 'Mine\nnow', spellLevels: [{ cls: 'magus', level: 1 }] }), ctx(created.id));
+  assert.equal(res.status, 200);
+  const patched = await res.json();
+  assert.equal(patched.summary, 'Mine now'); deq(patched.spellLevels, [{ cls: 'magus', level: 1 }]);
+  assert.equal((await one.PATCH(J('PATCH', { name: `${tag} Fireball` }), ctx(created.id))).status, 409, 'rename onto existing nameKey');
+  assert.equal((await one.PATCH(J('PATCH', { kind: 'feat' }), ctx(created.id))).status, 400);
+  const aonId = u.id; // created by the importer above
+  assert.equal((await one.PATCH(J('PATCH', { summary: 'x' }), ctx(aonId))).status, 403, 'aon read-only for users');
+  assert.equal((await one.DELETE(new Request('http://t'), ctx(aonId))).status, 403);
+  sessionUser = uAdmin.id;
+  res = await one.PATCH(J('PATCH', { summary: 'Admin fix' }), ctx(aonId));
+  assert.equal(res.status, 200); assert.equal((await res.json()).canEdit, true);
+  res = await one.GET(new Request('http://t'), ctx(created.id)); assert.equal((await res.json()).canEdit, true, 'admin can edit user entries');
+  sessionUser = uA.id;
+  assert.equal((await one.DELETE(new Request('http://t'), ctx(created.id))).status, 200);
+  assert.equal(await prisma.spellLevel.count({ where: { entryId: created.id } }), 0, 'spell levels cascade');
+  // creator deletion sets createdById null
+  const orphan = await mk(`${tag} Orphan`, [], { createdById: uB.id });
+  await prisma.user.delete({ where: { id: uB.id } });
+  assert.equal((await prisma.libraryEntry.findUnique({ where: { id: orphan.id } })).createdById, null, 'SetNull on creator delete');
+  console.log('ok   API routes (401/400/403/404/409/413, admin, cascade, SetNull)');
+} finally {
+  await prisma.libraryEntry.deleteMany({ where: { OR: [{ nameKey: { contains: tag.toLowerCase() } }] } });
+  await prisma.user.deleteMany({ where: { email: { startsWith: `${tag}_` } } });
+  await prisma.$disconnect();
+}
+console.log('LIBRARY TESTS: PASS');
