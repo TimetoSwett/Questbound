@@ -13,6 +13,7 @@
     "test:equipment": "node scripts/test-equipment.mjs",
     "test:library": "node scripts/test-library.mjs",
     "import:aon-spells": "tsx scripts/import-aon-spells.ts",
+    "import:aon-rules": "tsx scripts/import-aon-spells.ts --kind rule",
     "test:aon": "tsx scripts/test-aon-spells.mjs"
   },
   "prisma": {

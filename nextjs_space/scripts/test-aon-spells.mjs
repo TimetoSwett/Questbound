@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 const P = await import('../lib/aon-spell-parser.ts');
 const L = await import('../lib/library.ts');
+const R = await import('../lib/aon-rule-parser.ts');
 const { createPoliteFetcher, createExporter, readExportFile, loadFromFile } = await import('./import-aon-spells.ts');
 const deepJson = (a, b) => assert.deepEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)));
 const fx = (f) => readFileSync(new URL(`./fixtures/aon/${f}`, import.meta.url), 'utf8');
@@ -140,5 +141,85 @@ console.log('ok   helpers');
   assert.equal(rows.size, 3, 'idempotent: no new rows');
   deepJson((await loadFromFile(null, path, { dryRun: true, limit: 2 })).counts, { invalid: 1, valid: 2 });
   console.log('ok   export/load round trip');
+}
+
+// rules (Universal Monster Rules)
+const rfx = (f) => fx(`umr/${f}`);
+{
+  const ridx = R.parseRuleIndex(rfx('umr-index-head.html'));
+  assert.equal(ridx.length, 17);
+  deepJson(ridx[0], { name: 'Ability Damage and Drain', url: 'https://aonprd.com/UMR.aspx?ItemName=Ability%20Damage%20and%20Drain', summary: 'Some attacks or special abilities cause ability damage or drain.' });
+  assert.ok(ridx.some((i) => i.name === 'Damage Reduction') && ridx.some((i) => i.name === 'Spell Resistance'));
+  assert.ok(ridx.every((i) => i.name && i.url.startsWith('https://aonprd.com/UMR.aspx?ItemName=') && !/All$/.test(i.url)));
+  assert.equal(new Set(ridx.map((i) => i.url)).size, ridx.length, 'unique urls');
+  const grab = R.parseRulePage(rfx('grab.html'));
+  assert.equal(grab.name, 'Grab'); assert.equal(grab.data.format, 'grab'); assert.equal(grab.data.category, 'universal-monster-rule');
+  const rend = R.parseRulePage(rfx('rend.html'));
+  assert.equal(rend.name, 'Rend'); assert.equal(rend.data.format, 'rend (2 claws, 1d8+9)');
+  for (const r of [grab, rend]) {
+    assert.ok(r.data.text.length > 50);
+    assert.ok(!/<|&[a-z]+;|Format|Location\b/.test(r.data.text), `plain text for ${r.name}`);
+    assert.ok(!/^Source/m.test(r.data.text));
+    deepJson(L.ruleDataSchema.parse(r.data).aliases, []);
+  }
+  assert.ok(rend.data.text.startsWith('If it hits with two or more natural attacks'));
+  assert.throws(() => R.parseRulePage('<html>Server Error</html>'), /No rule title/);
+  // aliases: conservative
+  deepJson(R.aliasesFromFormat('Damage Reduction', ''), ['dr']);
+  deepJson(R.aliasesFromFormat('Spell Resistance', ''), ['sr']);
+  deepJson(R.aliasesFromFormat('Low-Light Vision', ''), ['low light vision']);
+  deepJson(R.aliasesFromFormat('Ability Damage and Drain', '1d4 Str drain'), ['ability damage', 'ability drain']);
+  deepJson(R.aliasesFromFormat('X', 'DR 5/silver'), ['dr']);
+  deepJson(R.aliasesFromFormat('X', 'fly 30 ft. (good)'), ['fly']);
+  deepJson(R.aliasesFromFormat('X', 'Resist acid 10'), ['resist']);
+  deepJson(R.aliasesFromFormat('X', 'vulnerable to fire'), ['vulnerable']);
+  deepJson(R.aliasesFromFormat('X', 'fear aura (30 ft., DC 15)'), ['fear aura']);
+  for (const junk of ['Reflex DC 15', 'DC 15', 'save will dc 12', 'curse name', 'bite', 'claw 1d6', 'hp 5', 'frequency 1/day', 'onset 1 min.', '', 'grab']) deepJson(R.aliasesFromFormat('Something', junk), []);
+  deepJson(R.aliasesFromFormat('Grab', 'grab'), [], 'alias never equals the name');
+  for (const i of ridx) {
+    const page = i.name; // alias sanity over every index rule's own format
+    const a = R.aliasesFromFormat(page, '');
+    assert.ok(a.every((x) => x.length <= 80 && !/name|\b(dc|hp|ac)\b/.test(x)), page);
+  }
+  console.log('ok   rule parser (index, pages, aliases)');
+}
+// rule export -> load round trip
+{
+  const { mkdtempSync, readFileSync: rf } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const path = `${mkdtempSync(`${tmpdir()}/aon-rule-export-`)}/rules.jsonl`;
+  const recs = ['grab.html', 'rend.html'].map((f) => {
+    const p = R.parseRulePage(rfx(f));
+    return { kind: 'rule', system: 'pf1e', name: p.name, summary: '', sourceUrl: R.ruleUrl(`UMR.aspx?ItemName=${p.name}`), data: L.ruleDataSchema.parse(p.data), spellLevels: [] };
+  });
+  const ex = createExporter(path);
+  assert.equal(ex.write(recs[0]), true); assert.equal(ex.write(recs[0]), false); assert.equal(ex.write(recs[1]), true);
+  const { appendFileSync: app } = await import('node:fs');
+  app(path, JSON.stringify({ ...recs[0], sourceUrl: 'https://aonprd.com/x', spellLevels: [{ cls: 'wizard', level: 1 }] }) + '\n'); // rules must not carry spellLevels
+  app(path, JSON.stringify({ ...recs[0], sourceUrl: 'https://aonprd.com/y', data: { ...recs[0].data, aliases: Array(11).fill('a') } }) + '\n');
+  const read = readExportFile(path);
+  assert.equal(read.records.length, 2); assert.equal(read.bad.length, 2);
+  assert.ok(read.records.every((r) => r.kind === 'rule' && r.spellLevels.length === 0));
+  deepJson(read.records[1], recs[1]);
+  const rows = new Map(); let n = 0;
+  const key = (w) => `${w.kind}|${w.system}|${w.nameKey}`;
+  const db = {
+    libraryEntry: {
+      findUnique: async ({ where }) => { const r = rows.get(key(where.kind_system_nameKey)); return r ? { id: r.id, source: r.source } : null; },
+      create: async ({ data }) => { const r = { ...data, id: `id${++n}`, spellLevels: data.spellLevels.create }; rows.set(key(r), r); return { id: r.id }; },
+      update: async ({ where, data }) => { const r = [...rows.values()].find((x) => x.id === where.id); Object.assign(r, data, data.spellLevels ? { spellLevels: data.spellLevels.create } : {}); return r; },
+    },
+    spellLevel: { deleteMany: async () => ({}) },
+  };
+  let res = await loadFromFile(db, path);
+  deepJson(res.counts, { invalid: 2, created: 2 });
+  const row = rows.get('rule|pf1e|grab');
+  assert.equal(row.source, 'aon'); assert.equal(row.kind, 'rule'); deepJson(row.spellLevels, []); deepJson(row.data, recs[0].data);
+  assert.ok(row.summary.length > 0, 'summary derived from rule text');
+  res = await loadFromFile(db, path);
+  deepJson(res.counts, { invalid: 2, updated: 2 });
+  assert.equal(rows.size, 2);
+  assert.ok(rf(path, 'utf8').endsWith('\n'));
+  console.log('ok   rule export/load round trip');
 }
 console.log('AON TESTS: PASS');

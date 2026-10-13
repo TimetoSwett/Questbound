@@ -88,6 +88,31 @@ deq(orderSearchResults(['fire shield', 'fire', 'fireball'].map((nameKey) => ({ n
 deq(orderSearchResults(nrows, 'Summon Monster I', 10).map((r) => r.nameKey), ['summon monster 1', 'greater summon monster 1', 'summon monster 2']);
 console.log('ok   ordering');
 
+// rules: schema + terms (pure)
+{
+  const ruleBase = { kind: 'rule', name: 'Grab', data: { format: 'grab', text: 'Grabs. More.' } };
+  let rp = parseCreateInput(ruleBase);
+  assert.ok(rp.ok, JSON.stringify(rp));
+  assert.equal(rp.value.data.category, 'universal-monster-rule'); deq(rp.value.data.aliases, []);
+  assert.equal(rp.value.summary, 'Grabs.'); assert.equal((rp.value.spellLevels ?? []).length, 0);
+  rp = parseCreateInput({ ...ruleBase, data: { ...ruleBase.data, aliases: ['  DR  ', 'Low-Light  Vision', 'dr'] } });
+  assert.ok(rp.ok); deq(rp.value.data.aliases, ['dr', 'low-light vision'], 'aliases normalized + deduped');
+  for (const bad of [
+    { ...ruleBase.data, aliases: ['x'.repeat(81)] }, { ...ruleBase.data, aliases: Array.from({ length: 11 }, (_, i) => `a${i}`) },
+    { ...ruleBase.data, aliases: [''] }, { ...ruleBase.data, aliases: ['a\u0007b'] }, { ...ruleBase.data, category: 'feat' }, { ...ruleBase.data, bogus: 1 },
+  ]) assert.equal(parseCreateInput({ ...ruleBase, data: bad }).ok, false, JSON.stringify(bad).slice(0, 60));
+  assert.ok(lib.ruleDataSchema.safeParse({ ...ruleBase.data, aliases: ['x'.repeat(80)] }).success);
+  const bt = lib.buildTerms([
+    { id: 'b', kind: 'rule', nameKey: 'grab', data: { aliases: ['grab', 'seize'] } },
+    { id: 'a', kind: 'rule', nameKey: 'damage reduction', data: { aliases: ['dr'] } },
+    { id: 'c', kind: 'spell', nameKey: 'dr', data: {} },
+  ]);
+  deq(bt.map((t) => t.term), ['damage reduction', 'seize', 'grab', 'dr', 'dr'], 'longest first, alias rows, no dup per entry');
+  deq(bt.slice(3).map((t) => t.entryId), ['a', 'c'], 'ties by id');
+  assert.ok(lib.etagMatches('W/"x", "y"', '"y"')); assert.ok(lib.etagMatches('*', '"y"')); assert.ok(!lib.etagMatches(null, '"y"'));
+  console.log('ok   rule schema & terms');
+}
+
 if (!process.env.DATABASE_URL) { console.log('skip DB tests (set DATABASE_URL to a TEST database)'); console.log('LIBRARY TESTS: PASS'); process.exit(0); }
 if (/hpminioma|prod/i.test(process.env.DATABASE_URL)) { console.error('Refusing to run DB tests against a production-looking DATABASE_URL'); process.exit(1); }
 
@@ -216,6 +241,86 @@ try {
   await prisma.user.delete({ where: { id: uB.id } });
   assert.equal((await prisma.libraryEntry.findUnique({ where: { id: orphan.id } })).createdById, null, 'SetNull on creator delete');
   console.log('ok   API routes (401/400/403/404/409/413, admin, cascade, SetNull)');
+
+  // rules: create, terms, lookup
+  {
+    let res;
+    const tj = (o) => new Request('http://t/api/library/lookup', { method: 'POST', headers: { 'content-type': 'application/json' }, body: typeof o === 'string' ? o : JSON.stringify(o) });
+    const termsRoute = load('app/api/library/terms/route.ts', rmocks);
+    const lookupRoute = load('app/api/library/lookup/route.ts', rmocks);
+    const tget = (q = '', inm) => termsRoute.GET(new Request(`http://t/api/library/terms${q}`, { headers: inm ? { 'if-none-match': inm } : {} }));
+    sessionUser = null;
+    assert.equal((await tget('?kind=rule')).status, 401);
+    assert.equal((await lookupRoute.POST(tj({ terms: ['a'] }))).status, 401);
+    sessionUser = uA.id;
+    const rn = (n) => `${tag} ${n}`;
+    const mkRule = async (name, aliases) => {
+      const r = await list.POST(J('POST', { kind: 'rule', name, data: { format: 'fmt', text: `${name} text. More.`, aliases } }));
+      assert.equal(r.status, 201, name);
+      return r.json();
+    };
+    const long1 = await mkRule(rn('Longest Rule Name'), [`${tag}alp`, `${tag} aliasone`]);
+    const short1 = await mkRule(rn('Zed'), [`${tag}zz`]);
+    assert.equal(long1.kind, 'rule'); assert.equal(long1.source, 'user'); deq(long1.spellLevels, []);
+    deq(long1.data.aliases, [`${tag}alp`, `${tag} aliasone`]);
+    assert.equal((await list.POST(J('POST', { kind: 'rule', name: rn('Bad'), data: { format: '', text: 'x', aliases: ['y'.repeat(81)] } }))).status, 400);
+    res = await list.POST(J('POST', { kind: 'rule', name: rn('Ignores Levels'), data: { format: '', text: 'x' }, spellLevels: [{ cls: 'wizard', level: 1 }] }));
+    assert.equal(res.status, 201); deq((await res.json()).spellLevels, [], 'rules never store spell levels');
+    const spell = await mk(rn('Zed'), [{ cls: 'wizard', level: 1 }]); // same name, different kind
+    await prisma.libraryEntry.update({ where: { id: spell.id }, data: { summary: 'spell zed' } });
+
+    // terms
+    res = await tget('?kind=rule');
+    assert.equal(res.status, 200);
+    const etag = res.headers.get('etag');
+    assert.ok(etag && etag.includes('rule'));
+    const terms = (await res.json()).filter((t) => t.term.includes(tag));
+    deq(terms.map((t) => t.term), [rn('Longest Rule Name').toLowerCase(), `${tag} aliasone`, rn('Ignores Levels').toLowerCase(), `${tag}alp`, rn('Zed').toLowerCase(), `${tag}zz`].sort((a, b) => b.length - a.length || (a < b ? -1 : 1)), 'longest first incl. alias rows');
+    assert.ok(terms.every((t) => t.kind === 'rule'));
+    assert.equal(terms.find((t) => t.term === `${tag}alp`).entryId, long1.id);
+    res = await tget('?kind=rule', etag); assert.equal(res.status, 304); assert.equal(res.headers.get('etag'), etag);
+    res = await tget('?kind=rule', `"nope", ${etag}`); assert.equal(res.status, 304);
+    res = await tget('?kind=rule', '"stale"'); assert.equal(res.status, 200);
+    assert.equal((await tget('?kind=bogus')).status, 400);
+    assert.ok((await (await tget()).json()).some((t) => t.kind === 'spell'), 'no kind filter -> all kinds');
+    await new Promise((r) => setTimeout(r, 15));
+    await prisma.libraryEntry.update({ where: { id: short1.id }, data: { data: { category: 'universal-monster-rule', format: 'fmt', text: 'changed', aliases: [`${tag}zz`, `${tag}zz2`] } } });
+    res = await tget('?kind=rule', etag);
+    assert.equal(res.status, 200, 'etag changed after update');
+    assert.notEqual(res.headers.get('etag'), etag);
+    assert.ok((await res.json()).some((t) => t.term === `${tag}zz2`));
+
+    // lookup
+    const look = async (body) => lookupRoute.POST(tj(body));
+    res = await look({ terms: [`${tag}ZZ`, 'nonexistent-zzz-term', rn('Longest Rule Name'), `  ${tag}ALP `, `${tag}zz`] });
+    assert.equal(res.status, 200);
+    let out = await res.json();
+    deq(out.map((o) => o.term), [`${tag}ZZ`, 'nonexistent-zzz-term', rn('Longest Rule Name'), `  ${tag}ALP `, `${tag}zz`], 'input order + original term echoed');
+    assert.equal(out[0].match.id, short1.id, 'alias match, normalized'); assert.equal(out[0].match.kind, 'rule');
+    assert.equal(out[1].match, null);
+    assert.equal(out[2].match.id, long1.id); assert.equal(out[2].match.name, rn('Longest Rule Name'));
+    assert.equal(out[3].match.id, long1.id);
+    deq(out[4], { ...out[0], term: `${tag}zz` }, 'duplicate terms resolve identically');
+    assert.deepEqual(Object.keys(out[2].match).sort(), ['id', 'kind', 'name', 'sourceUrl', 'summary']);
+    out = await (await look({ terms: [rn('Zed')] })).json();
+    assert.equal(out[0].match.kind, 'rule', 'rule beats spell on tie');
+    out = await (await look({ terms: [rn('Zed')], kind: 'spell' })).json();
+    assert.equal(out[0].match.id, spell.id); assert.equal(out[0].match.summary, 'spell zed');
+    out = await (await look({ terms: [`${tag}zz`], kind: 'spell' })).json();
+    assert.equal(out[0].match, null, 'kind filter excludes rule alias');
+    out = await (await look({ terms: [rn('Zed')], system: 'dnd35' })).json();
+    assert.equal(out[0].match, null, 'system filter');
+    deq(await (await look({ terms: [] })).json(), []);
+    assert.equal((await look({ terms: Array.from({ length: 50 }, (_, i) => `t${i}`) })).status, 200);
+    assert.equal((await look({ terms: Array.from({ length: 51 }, (_, i) => `t${i}`) })).status, 400, '>50 terms');
+    assert.equal((await look({ terms: ['x'.repeat(81)] })).status, 400, 'term >80 chars');
+    assert.equal((await look({ terms: ['x'.repeat(80)] })).status, 200);
+    assert.equal((await look({ terms: 'grab' })).status, 400, 'non-array');
+    assert.equal((await look({})).status, 400);
+    assert.equal((await look({ terms: [1] })).status, 400);
+    assert.equal((await look('{bad')).status, 400);
+    console.log('ok   rules: create, terms (ETag/304), lookup');
+  }
 } finally {
   await prisma.libraryEntry.deleteMany({ where: { OR: [{ nameKey: { contains: tag.toLowerCase() } }] } });
   await prisma.user.deleteMany({ where: { email: { startsWith: `${tag}_` } } });

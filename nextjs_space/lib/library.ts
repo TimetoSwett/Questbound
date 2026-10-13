@@ -4,7 +4,7 @@ import { z } from 'zod';
 // Pure helpers + DB helpers that take a Prisma-like client (so tests can mock
 // it and the future AoN importer can pass a transaction).
 
-export const LIBRARY_KINDS = ['spell'] as const;
+export const LIBRARY_KINDS = ['spell', 'rule'] as const;
 export type LibraryKind = (typeof LIBRARY_KINDS)[number];
 export const LIBRARY_SYSTEMS = ['pf1e', 'dnd35'] as const;
 export type LibrarySystem = (typeof LIBRARY_SYSTEMS)[number];
@@ -59,7 +59,28 @@ export const spellDataSchema = z.object({
 }).strict();
 export type SpellData = z.infer<typeof spellDataSchema>;
 
-export const dataSchemas: Record<LibraryKind, z.ZodTypeAny> = { spell: spellDataSchema };
+// Rules (e.g. AoN Universal Monster Rules). Plain text only; no SpellLevel rows.
+export const RULE_CATEGORIES = ['universal-monster-rule'] as const; // extensible
+export const ALIAS_MAX = 80;
+export const ALIASES_MAX_COUNT = 10;
+export const ruleDataSchema = z.object({
+  category: z.enum(RULE_CATEGORIES).default('universal-monster-rule'),
+  format: str(300),
+  text: str(20_000),
+  // Stored normalized like nameKey (so lookups/terms can match them directly); deduped.
+  aliases: z.array(z.string().max(ALIAS_MAX).refine((s) => !/[\u0000-\u001f\u007f]/.test(s), 'Alias has control characters')
+    .transform(normalizeNameKey).refine((s) => s.length > 0, 'Alias required')).max(ALIASES_MAX_COUNT).default([])
+    .transform((a) => [...new Set(a)]),
+}).strict();
+export type RuleData = z.infer<typeof ruleDataSchema>;
+
+export const dataSchemas: Record<LibraryKind, z.ZodTypeAny> = { spell: spellDataSchema, rule: ruleDataSchema };
+
+/** Long text of an entry's data (spell description / rule text), for default summaries. */
+export function dataLongText(d: unknown): unknown {
+  const o = (d ?? {}) as { description?: unknown; text?: unknown };
+  return o.description ?? o.text;
+}
 
 export const spellLevelsSchema = z.array(z.object({
   cls: z.string().trim().toLowerCase().min(1).max(40).regex(/^[a-z0-9][a-z0-9 /'()-]*$/, 'Invalid class name'),
@@ -109,7 +130,7 @@ export function parseCreateInput(body: unknown): Ok<ParsedEntryInput> | Err {
     ok: true,
     value: {
       kind: base.data.kind, system: base.data.system, name: base.data.name, nameKey: normalizeNameKey(base.data.name),
-      summary: base.data.summary !== undefined && base.data.summary.trim() ? sanitizeSummary(base.data.summary) : summaryFromDescription(d.description),
+      summary: base.data.summary !== undefined && base.data.summary.trim() ? sanitizeSummary(base.data.summary) : summaryFromDescription(dataLongText(d)),
       sourceUrl: base.data.sourceUrl ?? null, data: d, spellLevels: levels,
     },
   };
@@ -261,7 +282,7 @@ export type UpsertResult = { action: 'created' | 'matched' | 'updated'; id: stri
  */
 export async function upsertLibraryEntry(db: Db, input: UpsertInput): Promise<UpsertResult> {
   const nameKey = input.nameKey ?? normalizeNameKey(input.name);
-  const summary = input.summary ? sanitizeSummary(input.summary) : summaryFromDescription((input.data as any)?.description);
+  const summary = input.summary ? sanitizeSummary(input.summary) : summaryFromDescription(dataLongText(input.data));
   const run = async (tx: Db): Promise<UpsertResult> => {
     const existing = await tx.libraryEntry.findUnique({ where: { kind_system_nameKey: { kind: input.kind, system: input.system, nameKey } }, select: { id: true, source: true } });
     const levels = input.kind === 'spell' ? input.spellLevels ?? [] : [];
@@ -284,4 +305,88 @@ export async function upsertLibraryEntry(db: Db, input: UpsertInput): Promise<Up
     return { action: 'updated', id: existing.id };
   };
   return typeof db.$transaction === 'function' ? db.$transaction((tx: Db) => run(tx)) : run(db);
+}
+
+// ---- terms + batch lookup (rules first; any kind) ----
+export const LOOKUP_MAX_TERMS = 50;
+export const LOOKUP_TERM_MAX = 80;
+
+export const termsQuerySchema = z.object({
+  kind: z.enum(LIBRARY_KINDS).optional(),
+  system: z.enum(LIBRARY_SYSTEMS).default('pf1e'),
+}).strip();
+export type TermsQuery = z.infer<typeof termsQuerySchema>;
+
+export const lookupInputSchema = z.object({
+  terms: z.array(z.string().max(LOOKUP_TERM_MAX)).max(LOOKUP_MAX_TERMS),
+  kind: z.enum(LIBRARY_KINDS).optional(),
+  system: z.enum(LIBRARY_SYSTEMS).optional(),
+}).strict();
+
+const aliasesOf = (data: unknown): string[] => {
+  const a = (data as { aliases?: unknown } | null)?.aliases;
+  return Array.isArray(a) ? a.filter((x): x is string => typeof x === 'string').map(normalizeNameKey).filter(Boolean) : [];
+};
+
+export type TermRow = { term: string; entryId: string; kind: string };
+/** One row per name and per alias (normalized), deduped per entry; longest term first, then alphabetical. */
+export function buildTerms(rows: Array<{ id: string; kind: string; nameKey: string; data: unknown }>): TermRow[] {
+  const out: TermRow[] = [];
+  for (const r of rows) {
+    for (const term of new Set([normalizeNameKey(r.nameKey), ...aliasesOf(r.data)])) if (term) out.push({ term, entryId: r.id, kind: r.kind });
+  }
+  return out.sort((a, b) => b.term.length - a.term.length || (a.term < b.term ? -1 : a.term > b.term ? 1 : 0) || (a.entryId < b.entryId ? -1 : 1));
+}
+
+export function termsEtag(q: TermsQuery, count: number, maxUpdatedAt: Date | string | null): string {
+  const t = maxUpdatedAt ? new Date(maxUpdatedAt).getTime() : 0;
+  return `W/"terms-${q.kind ?? 'all'}-${q.system}-${count}-${t}"`;
+}
+
+/** If-None-Match match (comma lists, weak compare, "*"). */
+export function etagMatches(header: string | null, etag: string): boolean {
+  if (!header) return false;
+  const strip = (s: string) => s.trim().replace(/^W\//, '');
+  return header.split(',').some((h) => h.trim() === '*' || strip(h) === strip(etag));
+}
+
+export async function listTerms(db: Db, q: TermsQuery) {
+  const where = { system: q.system, ...(q.kind ? { kind: q.kind } : {}) };
+  const agg = await db.libraryEntry.aggregate({ where, _count: { _all: true }, _max: { updatedAt: true } });
+  const etag = termsEtag(q, agg._count._all, agg._max.updatedAt);
+  return {
+    etag,
+    load: async () => buildTerms(await db.libraryEntry.findMany({ where, select: { id: true, kind: true, nameKey: true, data: true }, orderBy: { id: 'asc' } })),
+  };
+}
+
+export type LookupMatch = { id: string; name: string; kind: string; summary: string; sourceUrl: string | null };
+type LookupRow = LookupMatch & { nameKey: string; system: string; data: unknown };
+
+/** Batch lookup: 2 queries total (nameKey IN keys, alias contains any key). Results in input order; name beats alias; then pf1e, kind, id. */
+export async function lookupTerms(db: Db, input: z.infer<typeof lookupInputSchema>): Promise<Array<{ term: string; match: LookupMatch | null }>> {
+  const keys = input.terms.map(normalizeNameKey);
+  const uniq = [...new Set(keys.filter(Boolean))];
+  const base = { ...(input.kind ? { kind: input.kind } : {}), ...(input.system ? { system: input.system } : {}) };
+  const select = { id: true, name: true, kind: true, summary: true, sourceUrl: true, nameKey: true, system: true, data: true };
+  let byName: LookupRow[] = [];
+  let byAlias: LookupRow[] = [];
+  if (uniq.length) {
+    byName = await db.libraryEntry.findMany({ where: { ...base, nameKey: { in: uniq } }, select });
+    byAlias = await db.libraryEntry.findMany({ where: { ...base, OR: uniq.map((k) => ({ data: { path: ['aliases'], array_contains: [k] } })) }, select });
+  }
+  const rank = (r: LookupRow) => `${r.system === 'pf1e' ? 0 : 1}|${r.kind}|${r.id}`;
+  const best = new Map<string, { r: LookupRow; score: string }>();
+  const offer = (k: string, r: LookupRow, tier: number) => {
+    const score = `${tier}|${rank(r)}`;
+    const cur = best.get(k);
+    if (!cur || score < cur.score) best.set(k, { r, score });
+  };
+  for (const r of byName) offer(r.nameKey, r, 0);
+  const want = new Set(uniq);
+  for (const r of byAlias) for (const a of aliasesOf(r.data)) if (want.has(a)) offer(a, r, 1);
+  return input.terms.map((term, i) => {
+    const b = best.get(keys[i]);
+    return { term, match: b ? { id: b.r.id, name: b.r.name, kind: b.r.kind, summary: b.r.summary, sourceUrl: b.r.sourceUrl } : null };
+  });
 }

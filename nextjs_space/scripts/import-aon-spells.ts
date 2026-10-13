@@ -4,8 +4,14 @@
  *
  *   npm run import:aon-spells -- [--limit N] [--dry-run] [--delay 2000]
  *        [--retry-failed] [--refresh-index] [--dir .aon-import] [--allow-remote-db] [--skip-dns-check]
- *        [--export <spells.jsonl>]
+ *        [--export <spells.jsonl>] [--kind spell|rule]
  *   npm run import:aon-spells -- --from-file <spells.jsonl> [--limit N] [--dry-run] [--allow-remote-db]
+ *   npm run import:aon-rules  -- [same options]   (= --kind rule: AoN Universal Monster Rules)
+ *
+ * - --kind rule: index is UMR.aspx?ItemName=All (one item per rule); each rule
+ *   page is fetched, parsed (lib/aon-rule-parser), validated with ruleDataSchema
+ *   and upserted as kind "rule" (no spellLevels). Default --dir is .aon-import-rules.
+ *   --from-file validates per record kind (rule -> ruleDataSchema).
  *
  * - --export: append every parsed spell (the exact upsert input: kind, system,
  *   name, summary, sourceUrl, data, spellLevels) as one JSON line. Resume-safe:
@@ -29,8 +35,9 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync, appendFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fetchStatblockHtml } from '../lib/statblock-fetch';
+import { AON_UMR_INDEX_URL, parseRuleIndex, parseRulePage } from '../lib/aon-rule-parser';
 import { AON_SPELL_INDEX_URL, parseSpellIndex, parseSpellPage, type AonIndexItem } from '../lib/aon-spell-parser';
-import { spellDataSchema, spellLevelsSchema, sanitizeSummary, upsertLibraryEntry, normalizeNameKey, type UpsertInput } from '../lib/library';
+import { spellDataSchema, spellLevelsSchema, ruleDataSchema, sanitizeSummary, upsertLibraryEntry, normalizeNameKey, type UpsertInput } from '../lib/library';
 
 type Status = 'created' | 'matched' | 'updated' | 'failed' | 'dry-ok';
 type Checkpoint = { version: 1; indexFetchedAt: string | null; items: AonIndexItem[]; status: Record<string, Status> };
@@ -38,7 +45,8 @@ type Checkpoint = { version: 1; indexFetchedAt: string | null; items: AonIndexIt
 const USER_AGENT = 'Mozilla/5.0 (compatible; QuestboundSpellImporter/1.0; polite PF1e spell library import, ~1 req/2s)';
 
 function args(argv: string[]) {
-  const o = { limit: Infinity, dryRun: false, delay: 2000, retryFailed: false, refreshIndex: false, dir: '.aon-import', allowRemoteDb: false, skipDnsCheck: false, exportPath: '', fromFile: '' };
+  const o = { limit: Infinity, dryRun: false, delay: 2000, retryFailed: false, refreshIndex: false, dir: '.aon-import', allowRemoteDb: false, skipDnsCheck: false, exportPath: '', fromFile: '', kind: 'spell' as 'spell' | 'rule' };
+  let dirSet = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--limit') o.limit = Math.max(0, Number(argv[++i]));
@@ -46,7 +54,8 @@ function args(argv: string[]) {
     else if (a === '--delay') o.delay = Math.max(1500, Number(argv[++i]) || 2000);
     else if (a === '--retry-failed') o.retryFailed = true;
     else if (a === '--refresh-index') o.refreshIndex = true;
-    else if (a === '--dir') o.dir = argv[++i];
+    else if (a === '--dir') { o.dir = argv[++i]; dirSet = true; }
+    else if (a === '--kind') { const k = argv[++i]; if (k !== 'spell' && k !== 'rule') throw new Error('--kind must be spell or rule'); o.kind = k; }
     else if (a === '--allow-remote-db') o.allowRemoteDb = true;
     else if (a === '--skip-dns-check') o.skipDnsCheck = true;
     else if (a === '--export') o.exportPath = argv[++i];
@@ -55,6 +64,7 @@ function args(argv: string[]) {
     else throw new Error(`Unknown option ${a}`);
   }
   if (!Number.isFinite(o.limit) && o.limit !== Infinity) throw new Error('--limit must be a number');
+  if (o.kind === 'rule' && !dirSet) o.dir = '.aon-import-rules';
   return o;
 }
 
@@ -103,7 +113,7 @@ export function createPoliteFetcher(delayMs: number, opts: { maxRetries?: number
   return { get, stats: () => ({ requests }) };
 }
 
-export type ExportRecord = UpsertInput & { kind: 'spell'; system: 'pf1e' | 'dnd35'; sourceUrl: string; summary: string };
+export type ExportRecord = UpsertInput & { kind: 'spell' | 'rule'; system: 'pf1e' | 'dnd35'; sourceUrl: string; summary: string };
 
 /** Read an export file: valid records (validated with the library schemas) + bad line numbers. Torn/blank lines are skipped. */
 export function readExportFile(path: string): { records: ExportRecord[]; bad: Array<{ line: number; error: string }>; urls: Set<string> } {
@@ -115,8 +125,15 @@ export function readExportFile(path: string): { records: ExportRecord[]; bad: Ar
     if (!line.trim()) return;
     try {
       const r = JSON.parse(line);
-      if (r?.kind !== 'spell' || !['pf1e', 'dnd35'].includes(r?.system) || typeof r?.name !== 'string' || !r.name.trim() || typeof r?.sourceUrl !== 'string') throw new Error('missing kind/system/name/sourceUrl');
-      const rec: ExportRecord = { kind: 'spell', system: r.system, name: r.name.trim().slice(0, 120), sourceUrl: r.sourceUrl, summary: sanitizeSummary(r.summary ?? ''), data: spellDataSchema.parse(r.data), spellLevels: spellLevelsSchema.parse(r.spellLevels ?? []) };
+      if (!['spell', 'rule'].includes(r?.kind) || !['pf1e', 'dnd35'].includes(r?.system) || typeof r?.name !== 'string' || !r.name.trim() || typeof r?.sourceUrl !== 'string') throw new Error('missing kind/system/name/sourceUrl');
+      const base = { system: r.system, name: r.name.trim().slice(0, 120), sourceUrl: r.sourceUrl, summary: sanitizeSummary(r.summary ?? '') };
+      let rec: ExportRecord;
+      if (r.kind === 'rule') {
+        if (Array.isArray(r.spellLevels) && r.spellLevels.length) throw new Error('rule records must not have spellLevels');
+        rec = { kind: 'rule', ...base, data: ruleDataSchema.parse(r.data), spellLevels: [] };
+      } else {
+        rec = { kind: 'spell', ...base, data: spellDataSchema.parse(r.data), spellLevels: spellLevelsSchema.parse(r.spellLevels ?? []) };
+      }
       records.push(rec);
       urls.add(rec.sourceUrl);
     } catch (e) {
@@ -190,23 +207,26 @@ async function main() {
   const cpPath = join(dir, o.dryRun ? 'checkpoint.dry-run.json' : 'checkpoint.json');
   const reportPath = join(dir, 'report.jsonl');
   const cp = loadCheckpoint(cpPath);
+  const isRule = o.kind === 'rule';
+  const noun = isRule ? 'rule' : 'spell';
+  const indexUrl = isRule ? AON_UMR_INDEX_URL : AON_SPELL_INDEX_URL;
   // --skip-dns-check: for sandboxes whose DNS returns proxy (198.18/15) addresses.
   // The host allowlist (aonprd.com, HTTPS only) still applies.
   const fetcher = createPoliteFetcher(o.delay, o.skipDnsCheck ? { resolver: async () => [{ address: '93.184.216.34' }] } : {});
 
   let stop = false;
-  const onSignal = (sig: string) => { if (stop) process.exit(130); stop = true; console.log(`\n${sig}: finishing current spell, then saving checkpoint (press again to force)`); };
+  const onSignal = (sig: string) => { if (stop) process.exit(130); stop = true; console.log(`\n${sig}: finishing current ${noun}, then saving checkpoint (press again to force)`); };
   process.on('SIGINT', () => onSignal('SIGINT'));
   process.on('SIGTERM', () => onSignal('SIGTERM'));
 
   if (!cp.items.length || o.refreshIndex) {
-    console.log(`Fetching spell index ${AON_SPELL_INDEX_URL}`);
-    const html = await fetcher.get(AON_SPELL_INDEX_URL, 8 * 1024 * 1024);
-    cp.items = parseSpellIndex(html);
+    console.log(`Fetching ${noun} index ${indexUrl}`);
+    const html = await fetcher.get(indexUrl, 8 * 1024 * 1024);
+    cp.items = isRule ? parseRuleIndex(html) : parseSpellIndex(html);
     cp.indexFetchedAt = new Date().toISOString();
-    if (!cp.items.length) throw new Error('Spell index parsed to 0 spells; layout changed?');
+    if (!cp.items.length) throw new Error(`${noun} index parsed to 0 items; layout changed?`);
     saveCheckpoint(cpPath, cp);
-    console.log(`Index: ${cp.items.length} spells (cached in checkpoint)`);
+    console.log(`Index: ${cp.items.length} ${noun}s (cached in checkpoint)`);
   }
 
   const { prisma } = o.dryRun ? { prisma: null } : await import('../lib/prisma');
@@ -220,11 +240,11 @@ async function main() {
     let status: Status;
     try {
       const html = await fetcher.get(item.url);
-      const p = parseSpellPage(html, item.name);
-      const data = spellDataSchema.parse(p.data);
-      const spellLevels = spellLevelsSchema.parse(p.spellLevels);
+      const p = isRule ? parseRulePage(html, item.name) : parseSpellPage(html, item.name);
+      const data = isRule ? ruleDataSchema.parse(p.data) : spellDataSchema.parse(p.data);
+      const spellLevels = isRule ? [] : spellLevelsSchema.parse((p as ReturnType<typeof parseSpellPage>).spellLevels);
       if (normalizeNameKey(p.name) !== normalizeNameKey(item.name)) appendFileSync(reportPath, JSON.stringify({ at: new Date().toISOString(), url: item.url, warning: `page name "${p.name}" != index name "${item.name}"` }) + '\n');
-      const rec: ExportRecord = { kind: 'spell', system: 'pf1e', name: p.name, summary: sanitizeSummary(item.summary), sourceUrl: item.url, data, spellLevels };
+      const rec: ExportRecord = { kind: o.kind, system: 'pf1e', name: p.name, summary: sanitizeSummary(item.summary), sourceUrl: item.url, data, spellLevels };
       exporter?.write(rec);
       if (o.dryRun) status = 'dry-ok';
       else status = (await upsertLibraryEntry(prisma!, rec)).action;
@@ -240,7 +260,7 @@ async function main() {
   }
   const secs = (Date.now() - t0) / 1000;
   const done = Object.values(counts).reduce((a, b) => a + b, 0);
-  console.log(`Done: ${JSON.stringify(counts)} in ${secs.toFixed(1)}s (${done ? (secs / done).toFixed(2) : '-'} s/spell, ${fetcher.stats().requests} requests). Checkpoint: ${cpPath}${counts.failed ? `; failures in ${reportPath}` : ''}`);
+  console.log(`Done: ${JSON.stringify(counts)} in ${secs.toFixed(1)}s (${done ? (secs / done).toFixed(2) : '-'} s/${noun}, ${fetcher.stats().requests} requests). Checkpoint: ${cpPath}${counts.failed ? `; failures in ${reportPath}` : ''}`);
   if (prisma) await prisma.$disconnect();
   if (stop) process.exit(130);
 }
