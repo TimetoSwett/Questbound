@@ -1,2 +1,3 @@
 .aon-import/
 .aon-import-rules/
+*.tsbuildinfo
