@@ -127,12 +127,12 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
         </div>
         {/* Tabs */}
         <div className="max-w-7xl mx-auto px-4">
-          <nav className="flex gap-1">
+          <nav className="flex gap-1 overflow-x-auto -mx-4 px-4">
             {tabs.map((t) => (
               <button
                 key={t.key}
                 onClick={() => setActiveTab(t.key)}
-                className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                className={`flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
                   activeTab === t.key
                     ? 'border-primary text-primary'
                     : 'border-transparent text-muted-foreground hover:text-foreground'
