@@ -54,7 +54,7 @@ export function LibraryClient() {
   const selectStyle = 'h-10 w-full rounded-md border border-input bg-background px-3 text-sm';
   return <div className="min-h-screen bg-background">
     <header className="border-b bg-card/80"><nav aria-label="Main navigation" className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-      <Link href="/dashboard" className="font-display text-xl font-bold text-primary">Questbound</Link>
+      <div className="flex items-center gap-2"><Link href="/dashboard" className="font-display text-xl font-bold text-primary">Questbound</Link><span className="text-muted-foreground" aria-hidden="true">/</span><span aria-current="page" className="flex items-center gap-1 text-sm font-medium"><BookOpen className="h-4 w-4" /> Library</span></div>
       <Button asChild variant="ghost"><Link href="/dashboard">Dashboard</Link></Button>
     </nav></header>
     <main className="mx-auto max-w-5xl space-y-6 px-4 py-6">
@@ -65,7 +65,7 @@ export function LibraryClient() {
         <div><Label htmlFor="library-level">Spell level</Label><select id="library-level" value={level} onChange={(event) => setLevel(event.target.value)} className={selectStyle}><option value="">All levels</option>{Array.from({ length: 10 }, (_, index) => <option key={index} value={index}>{index === 0 ? '0 (Cantrips)' : index}</option>)}</select></div>
         <div><Label htmlFor="library-limit">Result limit</Label><select id="library-limit" value={limit} onChange={(event) => setLimit(event.target.value)} className={selectStyle}><option value="20">20 results</option><option value="50">50 results</option></select></div>
       </div>
-      <div aria-live="polite">{search.loading ? <p className="text-muted-foreground">Searching spells…</p> : search.error ? <div><p role="alert">{search.error}</p><Button variant="outline" onClick={() => setRetry((value) => value + 1)}>Try again</Button></div> : <p className="text-sm text-muted-foreground">{search.results.length} results{search.results.length === Number(limit) ? ' — limit reached; narrow your search to find more spells.' : ''}</p>}</div>
+      <div aria-live="polite">{search.loading ? <p className="text-muted-foreground">Searching spells…</p> : search.error ? <div><p role="alert">{search.error}</p><Button variant="outline" onClick={() => setRetry((value) => value + 1)}>Try again</Button></div> : <p className="text-sm text-muted-foreground">{search.results.length} {search.results.length === 1 ? 'result' : 'results'}{search.results.length === Number(limit) ? ' — limit reached; narrow your search to find more spells.' : ''}</p>}</div>
       {!search.loading && !search.error && search.results.length === 0 && <p>No spells match these filters.</p>}
       <ul className="space-y-2">{search.results.map((spell) => <li key={spell.id}><button type="button" onClick={() => { setDetail({}); setSelected(spell); }} className="w-full rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-primary">
         <h2 className="font-display font-semibold">{spell.name}</h2><p className="text-sm text-primary">{spellLevelLabel(spell)}</p><p className="mt-1 text-sm text-muted-foreground">{spell.summary}</p>
