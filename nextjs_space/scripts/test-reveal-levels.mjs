@@ -118,6 +118,24 @@ ok(f.defense.acTotal === 28 && f.statistics.str === 35 && f.type === 'Dragon', '
 ok(!('gmNotes' in f), 'full: gmNotes still absent');
 ok((await C.presentCreature(mk({ revealLevel: 'hidden' }), 'player')) === null, 'hidden: null for players');
 
+// -- Case 4: stat block Special Attacks / SQ follow Offense / Statistics ------
+const sasq = { specialAbilities: [
+  { name: 'Breath Weapon', description: '60-ft cone of fire' },
+  { name: 'Special Attacks', description: 'grab (bite), rend' },
+  { name: 'SQ', description: 'change shape' },
+] };
+const onlySA = await C.presentCreature(mk({ ...sasq, revealLevel: 'named', unlockedSections: ['specialAbilities'] }), 'player');
+ok(onlySA.specialAbilities.specialAbilities.length === 1, 'SA/SQ never sent inside specialAbilities');
+ok(!('specialAttacks' in onlySA.offense) && !('specialQualities' in onlySA.statistics), 'SA/SQ absent while offense/statistics locked');
+const lockedAll = await C.presentCreature(mk({ ...sasq, revealLevel: 'unknown' }), 'player');
+ok(lockedAll.specialAbilities.specialAbilities.length === 1, 'locked: scrambled SA/SQ items dropped too');
+const off = await C.presentCreature(mk({ ...sasq, revealLevel: 'named', unlockedSections: ['offense'] }), 'player');
+ok(off.offense.specialAttacks === 'grab (bite), rend' && !('specialQualities' in off.statistics), 'offense reveals SA only');
+const st = await C.presentCreature(mk({ ...sasq, revealLevel: 'named', unlockedSections: ['statistics'] }), 'player');
+ok(st.statistics.specialQualities === 'change shape' && !('specialAttacks' in st.offense), 'statistics reveals SQ only');
+const full = await C.presentCreature(mk({ ...sasq, revealLevel: 'full' }), 'player');
+ok(full.offense.specialAttacks === 'grab (bite), rend' && full.statistics.specialQualities === 'change shape', 'full: SA and SQ');
+
 rmSync(outDir, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -201,6 +201,25 @@ export async function presentCreature(
     for (const k of SECTION_FIELDS[section]) out[k] = field(section, k);
     card[section] = out;
   }
+  // Stat block "Special Attacks" / "SQ" lines live in specialAbilities (see statblock-import) but belong to
+  // Offense / Statistics: never send them inside specialAbilities, and only expose them once that section shows.
+  const lineFor = (re: RegExp) => (Array.isArray(rec.specialAbilities) ? rec.specialAbilities : [])
+    .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object' && typeof (a as Record<string, unknown>).name === 'string' && re.test(String((a as Record<string, unknown>).name).trim()))
+    .map((a) => (typeof a.description === 'string' ? a.description.trim() : '')).filter(Boolean).join('; ');
+  const SA = /^special attacks$/i;
+  const SQ = /^(sq|special qualities)$/i;
+  const sa = card.specialAbilities as Record<string, unknown>;
+  if (Array.isArray(sa.specialAbilities)) {
+    // Filter by index against the raw list: when locked, the sent items are scrambled and can't be matched by name.
+    const raw = Array.isArray(rec.specialAbilities) ? rec.specialAbilities : [];
+    sa.specialAbilities = sa.specialAbilities.filter((_, i) => {
+      const name = raw[i] && typeof raw[i] === 'object' ? (raw[i] as Record<string, unknown>).name : null;
+      return !(typeof name === 'string' && (SA.test(name.trim()) || SQ.test(name.trim())));
+    });
+  }
+  if (shows('offense')) (card.offense as Record<string, unknown>).specialAttacks = lineFor(SA);
+  if (shows('statistics')) (card.statistics as Record<string, unknown>).specialQualities = lineFor(SQ);
+
   card.wikiPage = shows('wiki') && pg && pg.visibility === 'shared' ? { id: pg.id, title: pg.title } : null;
 
   for (const k of GM_ONLY_KEYS) delete card[k];
