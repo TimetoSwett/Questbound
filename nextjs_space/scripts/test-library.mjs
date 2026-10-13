@@ -13,17 +13,20 @@ function load(path, mocks = {}) {
   const source = readFileSync(new URL(path, root), 'utf8');
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
   const exports = {};
-  runInNewContext(js, { exports, console, URL, Request, Response, Date, require: (n) => (n in mocks ? mocks[n] : require(n)) });
+  runInNewContext(js, { exports, console, URL, Request, Response, Date, TextDecoder, require: (n) => (n in mocks ? mocks[n] : require(n)) });
   return exports;
 }
 // vm-realm objects differ by prototype: compare as JSON.
 const deq = (a, b, m) => assert.deepEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), m);
 const lib = load('lib/library.ts');
-const { normalizeNameKey, sanitizeSummary, summaryFromDescription, parseCreateInput, parsePatchInput, canEditEntry, canDeleteEntry, canCreateEntry, presentEntry, orderSearchResults, searchQuerySchema } = lib;
+const { escapeLike, normalizeNameKey, sanitizeSummary, summaryFromDescription, parseCreateInput, parsePatchInput, canEditEntry, canDeleteEntry, canCreateEntry, presentEntry, orderSearchResults, searchQuerySchema } = lib;
 
 // normalizer + summary
 assert.equal(normalizeNameKey('  Magic   Missile\t'), 'magic missile');
 assert.equal(normalizeNameKey('FIREBALL'), 'fireball');
+assert.equal(normalizeNameKey('Fire\u200bball\u00ad'), 'fireball');
+assert.equal(escapeLike('100%_a\\b'), '100\\%\\_a\\\\b');
+assert.equal(parseCreateInput({ kind: 'spell', name: 'Bad\u0007name', data: {} }).ok, false);
 assert.equal(normalizeNameKey('Cure\nLight  Wounds'), 'cure light wounds');
 assert.equal(sanitizeSummary('a\nb\r\n  c'), 'a b c');
 const long = sanitizeSummary('x'.repeat(500));

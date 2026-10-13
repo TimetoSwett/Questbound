@@ -18,8 +18,14 @@ export const SEARCH_DEFAULT_LIMIT = 20;
 export const SEARCH_MAX_LIMIT = 50;
 
 /** Lowercase, trim, collapse internal whitespace. */
+/** Lowercase, trim, collapse internal whitespace; drops invisible format chars (zero-width, bidi). */
 export function normalizeNameKey(name: string): string {
-  return String(name ?? '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+  return String(name ?? '').normalize('NFKC').replace(/\p{Cf}+/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/** Escape LIKE wildcards so Prisma startsWith/contains match literally (PostgreSQL default escape is backslash). */
+export function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 /** One short line: strip newlines/control chars, collapse spaces, cap at SUMMARY_MAX. */
@@ -61,7 +67,7 @@ export const spellLevelsSchema = z.array(z.object({
 }).strict()).max(40).default([])
   .refine((a) => new Set(a.map((x) => x.cls)).size === a.length, 'Duplicate class in spellLevels');
 
-const nameSchema = z.string().trim().min(1).max(NAME_MAX).refine((s) => normalizeNameKey(s).length > 0, 'Name required');
+const nameSchema = z.string().trim().min(1).max(NAME_MAX).refine((s) => !/[\u0000-\u001f\u007f]/.test(s), 'Name has control characters').refine((s) => normalizeNameKey(s).length > 0, 'Name required');
 const urlSchema = z.string().trim().url().max(500).refine((u) => /^https?:\/\//i.test(u), 'http(s) URL required');
 
 export const createInputSchema = z.object({
@@ -201,13 +207,14 @@ export function searchWhere(query: SearchQuery) {
 
 export async function searchLibrary(db: Db, query: SearchQuery) {
   const { key, base } = searchWhere(query);
+  const like = escapeLike(key);
   const include = { spellLevels: { select: { cls: true, level: true } } };
   const select = { id: true, kind: true, name: true, nameKey: true, system: true, source: true, sourceUrl: true, matchedAon: true, summary: true, createdById: true, createdAt: true, updatedAt: true, ...include };
-  const prefix = await db.libraryEntry.findMany({ where: { ...base, nameKey: { startsWith: key } }, orderBy: { nameKey: 'asc' }, take: query.limit, select });
+  const prefix = await db.libraryEntry.findMany({ where: { ...base, nameKey: { startsWith: like } }, orderBy: { nameKey: 'asc' }, take: query.limit, select });
   let rest: LibraryEntryRow[] = [];
   if (key && prefix.length < query.limit) {
     rest = await db.libraryEntry.findMany({
-      where: { ...base, nameKey: { contains: key }, NOT: { nameKey: { startsWith: key } } },
+      where: { ...base, nameKey: { contains: like }, NOT: { nameKey: { startsWith: like } } },
       orderBy: { nameKey: 'asc' }, take: query.limit - prefix.length, select,
     });
   }

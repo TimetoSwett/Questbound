@@ -17,8 +17,27 @@ export async function requireActor(): Promise<{ actor: NonNullable<LibraryActor>
 export async function readBoundedJson(request: Request): Promise<{ body: unknown } | { res: NextResponse }> {
   const len = Number(request.headers.get('content-length') || 0);
   if (len > MAX_BODY_BYTES) return { res: NextResponse.json({ error: 'Request too large' }, { status: 413 }) };
-  const raw = await request.text().catch(() => '');
-  if (raw.length > MAX_BODY_BYTES) return { res: NextResponse.json({ error: 'Request too large' }, { status: 413 }) };
+  // Count bytes while streaming so a chunked body (no content-length) can't
+  // be buffered unbounded, and multi-byte UTF-8 can't exceed the cap.
+  let raw = '';
+  if (request.body) {
+    const reader = request.body.getReader();
+    const decoder = new TextDecoder();
+    let bytes = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > MAX_BODY_BYTES) {
+          await reader.cancel().catch(() => {});
+          return { res: NextResponse.json({ error: 'Request too large' }, { status: 413 }) };
+        }
+        raw += decoder.decode(value, { stream: true });
+      }
+      raw += decoder.decode();
+    } catch { raw = ''; }
+  }
   try { return { body: JSON.parse(raw) }; } catch { return { res: NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }; }
 }
 

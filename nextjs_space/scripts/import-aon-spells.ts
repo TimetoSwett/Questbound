@@ -84,7 +84,9 @@ export function createPoliteFetcher(delayMs: number, opts: { maxRetries?: number
         return html;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        const retryable = status === 429 || status >= 500 || status === 0;
+        // Policy refusals (blocked host/address, redirect, size cap) are permanent; don't back off on them.
+        const policy = /^(Blocked|Redirect refused|Invalid URL|Source exceeds)/.test(msg);
+        const retryable = !policy && (status === 429 || status >= 500 || status === 0);
         if (!retryable || attempt >= maxRetries) throw Object.assign(new Error(msg), { status });
         let backoff = Math.min(300_000, 5000 * 2 ** attempt);
         if (retryAfter) {
@@ -169,8 +171,9 @@ async function main() {
   const dbUrl = process.env.DATABASE_URL ?? '';
   if (!o.dryRun) {
     if (!dbUrl) throw new Error('DATABASE_URL is required (or use --dry-run)');
-    const host = (() => { try { return new URL(dbUrl).hostname; } catch { return ''; } })();
-    if (!['localhost', '127.0.0.1', '::1', ''].includes(host) && !o.allowRemoteDb) throw new Error(`Refusing non-local DB host "${host}" without --allow-remote-db`);
+    // Unparseable URLs count as remote; a ?host= override (libpq/Prisma) must also be local or a socket path.
+    const host = (() => { try { const u = new URL(dbUrl); const q = u.searchParams.get('host'); return q && !q.startsWith('/') ? q : u.hostname; } catch { return '(unparseable)'; } })();
+    if (!['localhost', '127.0.0.1', '::1', '[::1]', ''].includes(host) && !o.allowRemoteDb) throw new Error(`Refusing non-local DB host "${host}" without --allow-remote-db`);
   }
   if (o.fromFile) {
     const { prisma } = o.dryRun ? { prisma: null } : await import('../lib/prisma');
