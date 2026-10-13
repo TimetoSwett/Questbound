@@ -189,6 +189,28 @@ export async function PUT(request: Request) {
     if (!creature) return NextResponse.json({ error: 'Invalid creatureId' }, { status: 400 });
   }
 
+  // Spell libraryEntryId must be a string id that exists; otherwise drop it (don't reject the save).
+  // The sheet always keeps its own full copy of the spell details.
+  if (data.spells !== undefined && typeof data.spells !== 'string') {
+    const known = (data.spells as { known?: unknown })?.known;
+    if (Array.isArray(known)) {
+      const ids = [...new Set(
+        known.map((s: unknown) => (s as { libraryEntryId?: unknown })?.libraryEntryId)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      )];
+      const existing = ids.length
+        ? new Set((await prisma.libraryEntry.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((e) => e.id))
+        : new Set<string>();
+      for (const s of known as Array<{ libraryEntryId?: unknown }>) {
+        if (s && typeof s === 'object' && 'libraryEntryId' in s) {
+          if (typeof s.libraryEntryId !== 'string' || !existing.has(s.libraryEntryId)) {
+            delete s.libraryEntryId;
+          }
+        }
+      }
+    }
+  }
+
   // Stringify JSON fields if they are objects
   const jsonFields = ['skills', 'equipment', 'feats', 'spells', 'classes'];
   for (const f of jsonFields) {
