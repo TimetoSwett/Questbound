@@ -10,7 +10,7 @@ import { PF1E_SKILLS, abilityMod, formatMod } from '@/lib/pf1e-skills';
 import type { SkillDef } from '@/lib/pf1e-skills';
 import { TipTapEditor } from '@/components/tiptap-editor';
 import Image from 'next/image';
-import { SpellPicker } from '@/components/library/spell-picker';
+import { SpellPicker, normalizeSpellClass } from '@/components/library/spell-picker';
 import { rulesUrl } from '@/components/library/types';
 import { EquipmentEditor } from './equipment-editor';
 import { equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange } from '@/lib/equipment';
@@ -715,14 +715,15 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                         onChange={(name) => {
                           const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
                           spells.known = [...(spells.known ?? [])];
-                          spells.known[i] = { ...(spells.known[i] ?? {}), name };
+                          // Typing over a picked spell's name breaks its link to the library entry.
+                          spells.known[i] = { ...(spells.known[i] ?? {}), name, libraryEntryId: undefined, sourceUrl: null };
                           update('spells', spells); autoSave();
                         }} onPick={(entry) => {
                           const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
                           spells.known = [...(spells.known ?? [])];
                           if (!spells.known[i]) return;
-                          const characterClasses = (data?.classes ?? []).map((cls: ClassEntry) => cls.name.trim().toLowerCase());
-                          const level = entry.spellLevels.find((item) => characterClasses.includes(item.cls.toLowerCase()))?.level ?? entry.spellLevels[0]?.level ?? 0;
+                          const characterClasses = (data?.classes ?? []).map((cls: ClassEntry) => normalizeSpellClass(cls.name));
+                          const level = entry.spellLevels.find((item) => characterClasses.includes(normalizeSpellClass(item.cls)))?.level ?? entry.spellLevels[0]?.level ?? 0;
                           spells.known[i] = { ...spells.known[i], name: entry.name, level, school: entry.data.school, description: entry.data.description, sourceUrl: entry.sourceUrl, libraryEntryId: entry.id };
                           update('spells', spells); autoSave();
                         }} />

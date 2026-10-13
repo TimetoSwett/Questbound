@@ -16,7 +16,7 @@ export function SpellPicker({ value, classes, disabled, onChange, onPick }: {
   const request = useRef<AbortController | null>(null);
   const latest = useRef({ value, onPick });
   useEffect(() => { latest.current = { value, onPick }; }, [value, onPick]);
-  const classKey = classes.map((cls) => cls.trim().toLowerCase()).filter(Boolean).join(',');
+  const classKey = [...new Set(classes.map(normalizeSpellClass).filter(Boolean))].join(',');
   useEffect(() => {
     if (!focused || !value.trim() || disabled) return;
     const controller = new AbortController();
@@ -79,4 +79,9 @@ export function SpellPicker({ value, classes, disabled, onChange, onPick }: {
     </div>}
     {!open && status && <p className="text-xs text-muted-foreground" role="status">{status}</p>}
   </div>;
+}
+
+/** "Wizard (Evoker)" -> "wizard": ignore parenthetical archetypes/variants when matching spell lists. */
+export function normalizeSpellClass(cls: string): string {
+  return cls.replace(/\([^)]*\)/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
