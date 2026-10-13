@@ -15,16 +15,16 @@ export async function GET(request: Request) {
   return NextResponse.json({ results: rows.map((r) => presentEntry(r, a.actor, { includeData: false })) });
 }
 
-// POST /api/library — any logged-in user creates a source="user" entry.
+// POST /api/library — any logged-in user creates a source="user" spell; rules are admin-only.
 export async function POST(request: Request) {
   const a = await requireActor();
   if ('res' in a) return a.res;
-  if (!canCreateEntry(a.actor)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const b = await readBoundedJson(request);
   if ('res' in b) return b.res;
   const p = parseCreateInput(b.body);
   if (!p.ok) return NextResponse.json({ error: p.error, issues: p.issues }, { status: 400 });
   const v = p.value;
+  if (!canCreateEntry(a.actor, v.kind)) return NextResponse.json({ error: 'Only admins can create rules' }, { status: 403 });
   try {
     const row = await prisma.libraryEntry.create({
       data: {

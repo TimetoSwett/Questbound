@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { canDeleteEntry, canEditEntry, parsePatchInput, presentEntry } from '@/lib/library';
+import { canDeleteEntry, canEditEntry, parsePatchInput, patchRequestsRuleKind, presentEntry } from '@/lib/library';
 import { entryInclude, isUniqueViolation, readBoundedJson, requireActor } from '@/lib/library-api';
 
 type Context = { params: Promise<{ id: string }> };
@@ -15,7 +15,7 @@ export async function GET(_request: Request, context: Context) {
   return row ? NextResponse.json(presentEntry(row, a.actor)) : notFound();
 }
 
-// PATCH — creator or admin; source="aon" entries are admin-only.
+// PATCH — creator or admin; source="aon" entries and all rules are admin-only; `kind` is never patchable (non-admins asking for 'rule' get 403).
 export async function PATCH(request: Request, context: Context) {
   const a = await requireActor();
   if ('res' in a) return a.res;
@@ -25,6 +25,7 @@ export async function PATCH(request: Request, context: Context) {
   if (!canEditEntry(a.actor, existing)) return NextResponse.json({ error: 'You cannot edit this entry' }, { status: 403 });
   const b = await readBoundedJson(request);
   if ('res' in b) return b.res;
+  if (!a.actor.isAdmin && patchRequestsRuleKind(b.body)) return NextResponse.json({ error: 'Only admins can create rules' }, { status: 403 });
   const p = parsePatchInput(existing.kind, b.body);
   if (!p.ok) return NextResponse.json({ error: p.error, issues: p.issues }, { status: 400 });
   const { spellLevels, data, ...fields } = p.value;
@@ -48,7 +49,7 @@ export async function DELETE(_request: Request, context: Context) {
   const a = await requireActor();
   if ('res' in a) return a.res;
   const { id } = await context.params;
-  const existing = await prisma.libraryEntry.findUnique({ where: { id }, select: { createdById: true, source: true } });
+  const existing = await prisma.libraryEntry.findUnique({ where: { id }, select: { kind: true, createdById: true, source: true } });
   if (!existing) return notFound();
   if (!canDeleteEntry(a.actor, existing)) return NextResponse.json({ error: 'You cannot delete this entry' }, { status: 403 });
   await prisma.libraryEntry.delete({ where: { id } });

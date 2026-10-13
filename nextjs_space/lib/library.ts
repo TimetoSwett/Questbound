@@ -162,13 +162,24 @@ export function parsePatchInput(kind: string, body: unknown): Ok<ParsedPatch> | 
 
 // ---- permissions ----
 export type LibraryActor = { id: string; isAdmin: boolean } | null;
-type PermEntry = { createdById: string | null; source: string };
+type PermEntry = { createdById: string | null; source: string; kind?: string };
 
-export function canCreateEntry(actor: LibraryActor): boolean { return !!actor?.id; }
-/** Edit/delete: admins always; AoN entries otherwise read-only; else only the creator. */
+/** Any logged-in user may create spells; rules (which drive site-wide term lookup) are admin-only. */
+export function canCreateEntry(actor: LibraryActor, kind?: string): boolean {
+  if (!actor?.id) return false;
+  return kind === 'rule' ? actor.isAdmin : true;
+}
+/** True if a raw PATCH body asks to set kind='rule' (checked before schema validation, which rejects `kind`). */
+export function patchRequestsRuleKind(body: unknown): boolean {
+  if (!body || typeof body !== 'object') return false;
+  const k = (body as { kind?: unknown }).kind;
+  return typeof k === 'string' && k.trim().toLowerCase() === 'rule';
+}
+/** Edit/delete: admins always; rules are admin-only; AoN entries otherwise read-only; else only the creator. */
 export function canEditEntry(actor: LibraryActor, entry: PermEntry): boolean {
   if (!actor?.id) return false;
   if (actor.isAdmin) return true;
+  if (entry.kind === 'rule') return false;
   if (entry.source === 'aon') return false;
   return !!entry.createdById && entry.createdById === actor.id;
 }
@@ -329,13 +340,22 @@ const aliasesOf = (data: unknown): string[] => {
 };
 
 export type TermRow = { term: string; entryId: string; kind: string };
-/** One row per name and per alias (normalized), deduped per entry; longest term first, then alphabetical. */
-export function buildTerms(rows: Array<{ id: string; kind: string; nameKey: string; data: unknown }>): TermRow[] {
-  const out: TermRow[] = [];
+/**
+ * One row per term (normalized name and aliases). When a term is shared the AoN entry wins,
+ * then name over alias, then lowest id. Longest term first, then alphabetical.
+ */
+export function buildTerms(rows: Array<{ id: string; kind: string; nameKey: string; source?: string; data: unknown }>): TermRow[] {
+  const best = new Map<string, { row: TermRow; score: string }>();
   for (const r of rows) {
-    for (const term of new Set([normalizeNameKey(r.nameKey), ...aliasesOf(r.data)])) if (term) out.push({ term, entryId: r.id, kind: r.kind });
+    const nameTerm = normalizeNameKey(r.nameKey);
+    for (const term of new Set([nameTerm, ...aliasesOf(r.data)])) {
+      if (!term) continue;
+      const score = `${r.source === 'aon' ? 0 : 1}|${term === nameTerm ? 0 : 1}|${r.id}`;
+      const cur = best.get(term);
+      if (!cur || score < cur.score) best.set(term, { row: { term, entryId: r.id, kind: r.kind }, score });
+    }
   }
-  return out.sort((a, b) => b.term.length - a.term.length || (a.term < b.term ? -1 : a.term > b.term ? 1 : 0) || (a.entryId < b.entryId ? -1 : 1));
+  return [...best.values()].map((v) => v.row).sort((a, b) => b.term.length - a.term.length || (a.term < b.term ? -1 : a.term > b.term ? 1 : 0));
 }
 
 export function termsEtag(q: TermsQuery, count: number, maxUpdatedAt: Date | string | null): string {
@@ -356,19 +376,19 @@ export async function listTerms(db: Db, q: TermsQuery) {
   const etag = termsEtag(q, agg._count._all, agg._max.updatedAt);
   return {
     etag,
-    load: async () => buildTerms(await db.libraryEntry.findMany({ where, select: { id: true, kind: true, nameKey: true, data: true }, orderBy: { id: 'asc' } })),
+    load: async () => buildTerms(await db.libraryEntry.findMany({ where, select: { id: true, kind: true, nameKey: true, source: true, data: true }, orderBy: { id: 'asc' } })),
   };
 }
 
 export type LookupMatch = { id: string; name: string; kind: string; summary: string; sourceUrl: string | null };
-type LookupRow = LookupMatch & { nameKey: string; system: string; data: unknown };
+type LookupRow = LookupMatch & { nameKey: string; system: string; source: string; data: unknown };
 
-/** Batch lookup: 2 queries total (nameKey IN keys, alias contains any key). Results in input order; name beats alias; then pf1e, kind, id. */
+/** Batch lookup: 2 queries total (nameKey IN keys, alias contains any key). Results in input order; AoN beats user, name beats alias, then pf1e, kind, id. */
 export async function lookupTerms(db: Db, input: z.infer<typeof lookupInputSchema>): Promise<Array<{ term: string; match: LookupMatch | null }>> {
   const keys = input.terms.map(normalizeNameKey);
   const uniq = [...new Set(keys.filter(Boolean))];
   const base = { ...(input.kind ? { kind: input.kind } : {}), ...(input.system ? { system: input.system } : {}) };
-  const select = { id: true, name: true, kind: true, summary: true, sourceUrl: true, nameKey: true, system: true, data: true };
+  const select = { id: true, name: true, kind: true, summary: true, sourceUrl: true, nameKey: true, system: true, source: true, data: true };
   let byName: LookupRow[] = [];
   let byAlias: LookupRow[] = [];
   if (uniq.length) {
@@ -376,9 +396,10 @@ export async function lookupTerms(db: Db, input: z.infer<typeof lookupInputSchem
     byAlias = await db.libraryEntry.findMany({ where: { ...base, OR: uniq.map((k) => ({ data: { path: ['aliases'], array_contains: [k] } })) }, select });
   }
   const rank = (r: LookupRow) => `${r.system === 'pf1e' ? 0 : 1}|${r.kind}|${r.id}`;
+  const srcRank = (r: LookupRow) => (r.source === 'aon' ? 0 : 1);
   const best = new Map<string, { r: LookupRow; score: string }>();
   const offer = (k: string, r: LookupRow, tier: number) => {
-    const score = `${tier}|${rank(r)}`;
+    const score = `${srcRank(r)}|${tier}|${rank(r)}`;
     const cur = best.get(k);
     if (!cur || score < cur.score) best.set(k, { r, score });
   };

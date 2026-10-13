@@ -63,7 +63,10 @@ console.log('ok   validation');
 // permissions
 const alice = { id: 'alice', isAdmin: false }, bob = { id: 'bob', isAdmin: false }, admin = { id: 'root', isAdmin: true };
 const userEntry = { createdById: 'alice', source: 'user' }, aonEntry = { createdById: null, source: 'aon' }, orphan = { createdById: null, source: 'user' };
-assert.ok(canCreateEntry(alice)); assert.ok(!canCreateEntry(null));
+assert.ok(canCreateEntry(alice)); assert.ok(!canCreateEntry(null)); assert.ok(canCreateEntry(alice, 'spell'));
+assert.ok(!canCreateEntry(alice, 'rule')); assert.ok(canCreateEntry(admin, 'rule')); assert.ok(!canCreateEntry(null, 'rule'));
+for (const src of ['user', 'aon']) { assert.ok(!canEditEntry(alice, { createdById: 'alice', source: src, kind: 'rule' }), 'rules admin-only for creator'); assert.ok(!canDeleteEntry(alice, { createdById: 'alice', source: src, kind: 'rule' })); assert.ok(canEditEntry(admin, { createdById: 'alice', source: src, kind: 'rule' })); }
+assert.ok(lib.patchRequestsRuleKind({ kind: 'rule' })); assert.ok(lib.patchRequestsRuleKind({ kind: ' Rule ' })); assert.ok(!lib.patchRequestsRuleKind({ kind: 'spell' })); assert.ok(!lib.patchRequestsRuleKind(null));
 assert.ok(canEditEntry(alice, userEntry)); assert.ok(!canEditEntry(bob, userEntry)); assert.ok(canEditEntry(admin, userEntry));
 assert.ok(!canEditEntry(alice, aonEntry)); assert.ok(canEditEntry(admin, aonEntry)); assert.ok(!canDeleteEntry(alice, aonEntry));
 assert.ok(!canEditEntry(alice, { createdById: 'alice', source: 'aon' }), 'aon read-only even for creator');
@@ -107,8 +110,20 @@ console.log('ok   ordering');
     { id: 'a', kind: 'rule', nameKey: 'damage reduction', data: { aliases: ['dr'] } },
     { id: 'c', kind: 'spell', nameKey: 'dr', data: {} },
   ]);
-  deq(bt.map((t) => t.term), ['damage reduction', 'seize', 'grab', 'dr', 'dr'], 'longest first, alias rows, no dup per entry');
-  deq(bt.slice(3).map((t) => t.entryId), ['a', 'c'], 'ties by id');
+  deq(bt.map((t) => t.term), ['damage reduction', 'seize', 'grab', 'dr'], 'longest first, alias rows, one row per term');
+  deq(bt.slice(3).map((t) => t.entryId), ['c'], 'name match (c) beats alias (a) among non-aon');
+  const mixed = lib.buildTerms([
+    { id: 'u1', kind: 'rule', nameKey: 'dr', source: 'user', data: {} },
+    { id: 'z9', kind: 'rule', nameKey: 'damage reduction', source: 'aon', data: { aliases: ['dr'] } },
+    { id: 'a1', kind: 'rule', nameKey: 'other', source: 'user', data: { aliases: ['shared'] } },
+    { id: 'a0', kind: 'spell', nameKey: 'shared', source: 'user', data: {} },
+    { id: 'b1', kind: 'rule', nameKey: 'tie', source: 'user', data: {} },
+    { id: 'b0', kind: 'spell', nameKey: 'tie', source: 'user', data: {} },
+  ]);
+  deq(mixed.filter((t) => t.term === 'dr'), [{ term: 'dr', entryId: 'z9', kind: 'rule' }], 'AoN alias beats user name');
+  deq(mixed.filter((t) => t.term === 'shared'), [{ term: 'shared', entryId: 'a0', kind: 'spell' }], 'name beats alias among non-aon');
+  deq(mixed.filter((t) => t.term === 'tie'), [{ term: 'tie', entryId: 'b0', kind: 'spell' }], 'then id');
+  assert.equal(new Set(mixed.map((t) => t.term)).size, mixed.length, 'terms unique');
   assert.ok(lib.etagMatches('W/"x", "y"', '"y"')); assert.ok(lib.etagMatches('*', '"y"')); assert.ok(!lib.etagMatches(null, '"y"'));
   console.log('ok   rule schema & terms');
 }
@@ -253,7 +268,11 @@ try {
     assert.equal((await tget('?kind=rule')).status, 401);
     assert.equal((await lookupRoute.POST(tj({ terms: ['a'] }))).status, 401);
     sessionUser = uA.id;
+    // non-admin cannot create rules
     const rn = (n) => `${tag} ${n}`;
+    assert.equal((await list.POST(J('POST', { kind: 'rule', name: rn('Sneaky'), data: { format: '', text: 'x' } }))).status, 403, 'non-admin POST rule');
+    assert.equal(await prisma.libraryEntry.count({ where: { nameKey: rn('Sneaky').toLowerCase() } }), 0);
+    sessionUser = uAdmin.id;
     const mkRule = async (name, aliases) => {
       const r = await list.POST(J('POST', { kind: 'rule', name, data: { format: 'fmt', text: `${name} text. More.`, aliases } }));
       assert.equal(r.status, 201, name);
@@ -261,11 +280,23 @@ try {
     };
     const long1 = await mkRule(rn('Longest Rule Name'), [`${tag}alp`, `${tag} aliasone`]);
     const short1 = await mkRule(rn('Zed'), [`${tag}zz`]);
-    assert.equal(long1.kind, 'rule'); assert.equal(long1.source, 'user'); deq(long1.spellLevels, []);
+    assert.equal(long1.kind, 'rule'); assert.equal(long1.source, 'user'); assert.equal(long1.createdById, uAdmin.id); deq(long1.spellLevels, []);
     deq(long1.data.aliases, [`${tag}alp`, `${tag} aliasone`]);
     assert.equal((await list.POST(J('POST', { kind: 'rule', name: rn('Bad'), data: { format: '', text: 'x', aliases: ['y'.repeat(81)] } }))).status, 400);
     res = await list.POST(J('POST', { kind: 'rule', name: rn('Ignores Levels'), data: { format: '', text: 'x' }, spellLevels: [{ cls: 'wizard', level: 1 }] }));
     assert.equal(res.status, 201); deq((await res.json()).spellLevels, [], 'rules never store spell levels');
+    // non-admin cannot patch/delete/convert
+    sessionUser = uA.id;
+    assert.equal((await one.PATCH(J('PATCH', { summary: 'x' }), ctx(long1.id))).status, 403, 'non-admin PATCH rule');
+    assert.equal((await one.DELETE(new Request('http://t'), ctx(long1.id))).status, 403, 'non-admin DELETE rule');
+    const mine = await mk(rn('Mine Spell'), []);
+    assert.equal((await one.PATCH(J('PATCH', { kind: 'rule' }), ctx(mine.id))).status, 403, 'non-admin PATCH kind->rule');
+    assert.equal((await prisma.libraryEntry.findUnique({ where: { id: mine.id } })).kind, 'spell');
+    assert.equal((await one.PATCH(J('PATCH', { kind: 'rule', data: { text: 'x' } }), ctx(mine.id))).status, 403);
+    assert.equal((await prisma.libraryEntry.findUnique({ where: { id: long1.id } })).summary, long1.summary, 'rule untouched');
+    sessionUser = uAdmin.id;
+    assert.equal((await one.PATCH(J('PATCH', { kind: 'rule' }), ctx(mine.id))).status, 400, 'kind never patchable, even for admin');
+    sessionUser = uA.id;
     const spell = await mk(rn('Zed'), [{ cls: 'wizard', level: 1 }]); // same name, different kind
     await prisma.libraryEntry.update({ where: { id: spell.id }, data: { summary: 'spell zed' } });
 
@@ -319,7 +350,31 @@ try {
     assert.equal((await look({})).status, 400);
     assert.equal((await look({ terms: [1] })).status, 400);
     assert.equal((await look('{bad')).status, 400);
-    console.log('ok   rules: create, terms (ETag/304), lookup');
+    console.log('ok   rules: create (admin-only), terms (ETag/304), lookup');
+
+    // DR hijack: a non-AoN 'DR' rule must not beat AoN Damage Reduction, and terms stay one row per term
+    const aonDr = await prisma.libraryEntry.findFirst({ where: { kind: 'rule', system: 'pf1e', source: 'aon', nameKey: 'damage reduction' } });
+    if (aonDr) {
+      const hijack = await prisma.libraryEntry.findUnique({ where: { kind_system_nameKey: { kind: 'rule', system: 'pf1e', nameKey: 'dr' } } });
+      let mine2 = null;
+      try {
+        if (!hijack) mine2 = await prisma.libraryEntry.create({ data: { kind: 'rule', system: 'pf1e', name: 'DR', nameKey: 'dr', source: 'user', createdById: uAdmin.id, summary: `${tag} hijack`, data: { category: 'universal-monster-rule', format: '', text: 'x', aliases: [] } } });
+        out = await (await look({ terms: ['DR', ' dr '] })).json();
+        for (const o of out) { assert.equal(o.match.id, aonDr.id, 'DR resolves to AoN Damage Reduction'); assert.equal(o.match.name, aonDr.name); }
+        const dr = (await (await tget('?kind=rule')).json()).filter((t) => t.term === 'dr');
+        assert.equal(dr.length, 1, 'one terms row for dr');
+        assert.equal(dr[0].entryId, aonDr.id);
+        // always-tracked variant: a user rule aliasing an AoN name loses too
+        const al = await prisma.libraryEntry.create({ data: { kind: 'rule', system: 'pf1e', name: rn('DR Alias'), nameKey: `${tag} dr alias`.toLowerCase(), source: 'user', createdById: uAdmin.id, summary: 's', data: { category: 'universal-monster-rule', format: '', text: 'x', aliases: ['damage reduction'] } } });
+        out = await (await look({ terms: ['Damage Reduction'] })).json();
+        assert.equal(out[0].match.id, aonDr.id, 'user alias does not beat AoN name');
+        assert.equal((await (await tget('?kind=rule')).json()).filter((t) => t.term === 'damage reduction').length, 1);
+        await prisma.libraryEntry.delete({ where: { id: al.id } });
+      } finally {
+        if (mine2) await prisma.libraryEntry.delete({ where: { id: mine2.id } }).catch(() => {});
+      }
+      console.log('ok   DR hijack guard (lookup + terms)');
+    } else console.log('skip DR hijack guard (no AoN Damage Reduction in DB)');
   }
 } finally {
   await prisma.libraryEntry.deleteMany({ where: { OR: [{ nameKey: { contains: tag.toLowerCase() } }] } });
