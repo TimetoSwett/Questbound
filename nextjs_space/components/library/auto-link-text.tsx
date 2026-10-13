@@ -5,14 +5,30 @@ import { buildTermIndex, matchTerms, type TermIndex } from '@/lib/library-term-m
 import { fetchLibraryTerms } from '@/lib/library-terms-client';
 import { LibraryTermPopover } from '@/components/library/library-term-popover';
 
+// One shared term index per (system, kind) for the whole page, built once and shared by every AutoLinkText.
+type IndexEntry = { index: TermIndex | null; listeners: Set<() => void>; started: boolean };
+const indexes = new Map<string, IndexEntry>();
+const entryFor = (key: string) => {
+  let e = indexes.get(key);
+  if (!e) { e = { index: null, listeners: new Set(), started: false }; indexes.set(key, e); }
+  return e;
+};
+
 export function useLibraryTermIndex(system = 'pf1e', kind = 'rule'): TermIndex | null {
-  const [index, setIndex] = React.useState<TermIndex | null>(null);
-  React.useEffect(() => {
-    let alive = true;
-    void fetchLibraryTerms(system, kind).then(rows => { if (alive) setIndex(buildTermIndex(rows)); });
-    return () => { alive = false; };
-  }, [system, kind]);
-  return index;
+  const key = `${system}:${kind}`;
+  const subscribe = React.useCallback((cb: () => void) => {
+    const e = entryFor(key);
+    e.listeners.add(cb);
+    if (!e.started) {
+      e.started = true;
+      void fetchLibraryTerms(system, kind).then(rows => {
+        e.index = buildTermIndex(rows);
+        e.listeners.forEach(l => l());
+      });
+    }
+    return () => { e.listeners.delete(cb); };
+  }, [key, system, kind]);
+  return React.useSyncExternalStore(subscribe, () => entryFor(key).index, () => null);
 }
 
 export function AutoLinkText({ text, system = 'pf1e', kind = 'rule' }: { text: string; system?: string; kind?: string }) {
