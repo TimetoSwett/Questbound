@@ -11,7 +11,9 @@
     "test:loot": "node scripts/test-loot.mjs",
     "test:realtime": "node scripts/test-realtime.mjs",
     "test:equipment": "node scripts/test-equipment.mjs",
-    "test:library": "node scripts/test-library.mjs"
+    "test:library": "node scripts/test-library.mjs",
+    "import:aon-spells": "tsx scripts/import-aon-spells.ts",
+    "test:aon": "tsx scripts/test-aon-spells.mjs"
   },
   "prisma": {
     "seed": "tsx --require dotenv/config scripts/safe-seed.ts"
