@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
-import { type LibrarySpell, spellLevelLabel } from './types';
+import { type LibrarySpell, SPELL_CLASSES, spellLevelLabel } from './types';
 
 export function SpellPicker({ value, classes, disabled, onChange, onPick }: {
   value: string; classes: string[]; disabled?: boolean;
@@ -16,7 +16,7 @@ export function SpellPicker({ value, classes, disabled, onChange, onPick }: {
   const request = useRef<AbortController | null>(null);
   const latest = useRef({ value, onPick });
   useEffect(() => { latest.current = { value, onPick }; }, [value, onPick]);
-  const classKey = [...new Set(classes.map(normalizeSpellClass).filter(Boolean))].join(',');
+  const classKey = [...new Set(classes.map((cls) => resolveSpellClass(cls, SPELL_CLASSES)).filter(Boolean))].join(',');
   useEffect(() => {
     if (!focused || !value.trim() || disabled) return;
     const controller = new AbortController();
@@ -84,4 +84,15 @@ export function SpellPicker({ value, classes, disabled, onChange, onPick }: {
 /** "Wizard (Evoker)" -> "wizard": ignore parenthetical archetypes/variants when matching spell lists. */
 export function normalizeSpellClass(cls: string): string {
   return cls.replace(/\([^)]*\)/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * Match a character class against stored spell-list class names. An exact (trimmed,
+ * case-insensitive) match wins, so "Summoner (Unchained)" keeps its own list; only when
+ * there is no exact match are parentheticals stripped ("Wizard (Evoker)" -> "wizard").
+ */
+export function resolveSpellClass(cls: string, known: readonly string[]): string {
+  const exact = cls.trim().toLowerCase().replace(/\s+/g, ' ');
+  const stored = known.map((k) => k.trim().toLowerCase());
+  return stored.includes(exact) ? exact : normalizeSpellClass(cls);
 }

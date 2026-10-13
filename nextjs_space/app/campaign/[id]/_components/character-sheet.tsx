@@ -10,7 +10,7 @@ import { PF1E_SKILLS, abilityMod, formatMod } from '@/lib/pf1e-skills';
 import type { SkillDef } from '@/lib/pf1e-skills';
 import { TipTapEditor } from '@/components/tiptap-editor';
 import Image from 'next/image';
-import { SpellPicker, normalizeSpellClass } from '@/components/library/spell-picker';
+import { SpellPicker, resolveSpellClass } from '@/components/library/spell-picker';
 import { rulesUrl } from '@/components/library/types';
 import { EquipmentEditor } from './equipment-editor';
 import { equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange } from '@/lib/equipment';
@@ -722,8 +722,9 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                           const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
                           spells.known = [...(spells.known ?? [])];
                           if (!spells.known[i]) return;
-                          const characterClasses = (data?.classes ?? []).map((cls: ClassEntry) => normalizeSpellClass(cls.name));
-                          const level = entry.spellLevels.find((item) => characterClasses.includes(normalizeSpellClass(item.cls)))?.level ?? entry.spellLevels[0]?.level ?? 0;
+                          const storedClasses = entry.spellLevels.map((item) => item.cls.trim().toLowerCase());
+                          const characterClasses = (data?.classes ?? []).map((cls: ClassEntry) => resolveSpellClass(cls.name, storedClasses));
+                          const level = entry.spellLevels.find((item) => characterClasses.includes(item.cls.trim().toLowerCase()))?.level ?? entry.spellLevels[0]?.level ?? 0;
                           spells.known[i] = { ...spells.known[i], name: entry.name, level, school: entry.data.school, description: entry.data.description, sourceUrl: entry.sourceUrl, libraryEntryId: entry.id };
                           update('spells', spells); autoSave();
                         }} />
