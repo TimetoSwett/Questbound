@@ -4,18 +4,17 @@ import * as React from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
 import { ExternalLink } from 'lucide-react';
 import { clearHoveredTerm, setHoveredTerm } from '@/components/library/term-hover-store';
-import { entryText, fetchLibraryEntry, lookupLibraryTerm, type TermMatch } from '@/lib/library-terms-client';
+import { entryText, fetchLibraryEntry, type FullEntry } from '@/lib/library-terms-client';
 
-type Props = { term: string; children: React.ReactNode };
+type Props = { term: string; entryId: string; children: React.ReactNode };
 type LoadState<T> = { status: 'idle' | 'loading' | 'done'; value: T | null };
 
 const CLOSE_DELAY_MS = 150;
 const safeHref = (url: string | null | undefined) => (url && /^https?:\/\//i.test(url) ? url : null);
 
-export function LibraryTermPopover({ term, children }: Props) {
+export function LibraryTermPopover({ term, entryId, children }: Props) {
   const [open, setOpen] = React.useState(false);
-  const [match, setMatch] = React.useState<LoadState<TermMatch>>({ status: 'idle', value: null });
-  const [full, setFull] = React.useState<LoadState<string>>({ status: 'idle', value: null });
+  const [entry, setEntry] = React.useState<LoadState<FullEntry>>({ status: 'idle', value: null });
   const [expanded, setExpanded] = React.useState(false);
   const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const viaKeyboard = React.useRef(false);
@@ -30,20 +29,13 @@ export function LibraryTermPopover({ term, children }: Props) {
     cancelClose();
     viaKeyboard.current = keyboard;
     setOpen(true);
-    if (match.status === 'idle') {
-      setMatch({ status: 'loading', value: null });
-      void lookupLibraryTerm(term).then(value => setMatch({ status: 'done', value }));
+    if (entry.status === 'idle') {
+      setEntry({ status: 'loading', value: null });
+      void fetchLibraryEntry(entryId).then(value => setEntry({ status: 'done', value }));
     }
   };
 
-  const toggleFull = () => {
-    const next = !expanded;
-    setExpanded(next);
-    if (next && full.status === 'idle' && match.value) {
-      setFull({ status: 'loading', value: null });
-      void fetchLibraryEntry(match.value.id).then(entry => setFull({ status: 'done', value: entryText(entry) }));
-    }
-  };
+  const toggleFull = () => setExpanded(x => !x);
 
   const onPointer = (e: React.PointerEvent) => {
     if (e.pointerType === 'mouse') setHoveredTerm(openFromKey);
@@ -57,7 +49,8 @@ export function LibraryTermPopover({ term, children }: Props) {
   const openFromKey = React.useCallback(() => showRef.current(false), []);
   React.useEffect(() => () => clearHoveredTerm(openFromKey), [openFromKey]);
 
-  const m = match.value;
+  const m = entry.value;
+  const fullText = entryText(m);
   const href = safeHref(m?.sourceUrl);
 
   return (
@@ -97,17 +90,17 @@ export function LibraryTermPopover({ term, children }: Props) {
           onPointerLeave={scheduleClose}
           className="z-50 w-80 max-w-[calc(100vw-1rem)] rounded-md border bg-popover p-3 text-sm text-popover-foreground shadow-md outline-none"
         >
-          {match.status !== 'done' ? (
+          {entry.status !== 'done' ? (
             <p className="text-muted-foreground" aria-live="polite">Loading…</p>
           ) : !m ? (
             <p className="text-muted-foreground">No library entry found for “{term}”.</p>
           ) : (
             <div className="space-y-2">
               <div className="flex items-baseline justify-between gap-2">
-                <p className="font-semibold">{m.name}</p>
-                <span className="text-xs uppercase tracking-wide text-muted-foreground">{m.kind}</span>
+                <p className="font-semibold">{String(m.name)}</p>
+                <span className="text-xs uppercase tracking-wide text-muted-foreground">{String(m.kind)}</span>
               </div>
-              {m.summary ? <p className="whitespace-pre-wrap">{m.summary}</p> : null}
+              {typeof m.summary === 'string' && m.summary ? <p className="whitespace-pre-wrap">{m.summary}</p> : null}
               <div className="flex items-center gap-3 text-xs">
                 <button type="button" className="underline text-primary" aria-expanded={expanded} aria-controls={fullId} onClick={toggleFull}>
                   {expanded ? 'Hide full text' : 'Show full text'}
@@ -120,7 +113,7 @@ export function LibraryTermPopover({ term, children }: Props) {
               </div>
               {expanded ? (
                 <div id={fullId} className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs" aria-live="polite">
-                  {full.status !== 'done' ? 'Loading…' : full.value ?? 'Full text unavailable.'}
+                  {fullText ?? 'Full text unavailable.'}
                 </div>
               ) : null}
             </div>

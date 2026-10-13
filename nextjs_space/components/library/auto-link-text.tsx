@@ -38,7 +38,7 @@ export function AutoLinkText({ text, system = 'pf1e', kind = 'rule' }: { text: s
   return (
     <>
       {segments.map((s, i) => (s.match
-        ? <LibraryTermPopover key={i} term={s.text}>{s.text}</LibraryTermPopover>
+        ? <LibraryTermPopover key={i} term={s.text} entryId={s.match.entryId}>{s.text}</LibraryTermPopover>
         : <React.Fragment key={i}>{s.text}</React.Fragment>))}
     </>
   );
