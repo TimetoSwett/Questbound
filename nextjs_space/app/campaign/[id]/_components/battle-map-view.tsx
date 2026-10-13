@@ -1004,8 +1004,10 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   const [dismissedHandout, setDismissedHandout] = useState<number | null>(null);
 
   // Any DM dialog / popover / inline editor open on the map defers live updates.
+  // The Bestiary palette is a persistent side panel GMs leave expanded, not an
+  // editor; counting it held every player move until the panel was collapsed.
   const dmDialogOpen = isDM && !!(
-    newTokenOpen || settingsOpen || handoutOpen || pinDialog || paletteOpen ||
+    newTokenOpen || settingsOpen || handoutOpen || pinDialog ||
     encOpen || encNameOpen || snapOpen || snapNameOpen || confirmRestore ||
     hpEditId || condOpenId || textDraft
   );
