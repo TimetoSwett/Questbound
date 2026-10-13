@@ -183,14 +183,34 @@ export const searchQuerySchema = z.object({
 }).strip();
 export type SearchQuery = z.infer<typeof searchQuerySchema>;
 
+const ROMAN = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x'];
+
+/**
+ * Alternate nameKey for numbered spells (AoN stores 'summon monster 1', users type 'summon monster i').
+ * Only for 2+ word keys, only the LAST word, only exact roman i..x <-> digit 1..10. Otherwise null.
+ */
+export function numeralAltKey(key: string): string | null {
+  const words = key.split(' ');
+  if (words.length < 2) return null;
+  const last = words[words.length - 1];
+  const ri = ROMAN.indexOf(last);
+  let alt: string | null = null;
+  if (ri >= 0) alt = String(ri + 1);
+  else if (/^(?:[1-9]|10)$/.test(last)) alt = ROMAN[Number(last) - 1];
+  if (alt === null) return null;
+  return [...words.slice(0, -1), alt].join(' ');
+}
+
 /** Prefix matches first, then other contains-matches; each block alphabetical by nameKey. */
 export function orderSearchResults<T extends { nameKey: string }>(rows: T[], q: string, limit: number): T[] {
   const key = normalizeNameKey(q);
+  const alt = numeralAltKey(key);
+  const isPrefix = (r: T) => r.nameKey.startsWith(key) || (alt !== null && r.nameKey.startsWith(alt));
   const seen = new Set<T>();
   const uniq = rows.filter((r) => (seen.has(r) ? false : (seen.add(r), true)));
   const byKey = (a: T, b: T) => (a.nameKey < b.nameKey ? -1 : a.nameKey > b.nameKey ? 1 : 0);
-  const prefix = uniq.filter((r) => r.nameKey.startsWith(key)).sort(byKey);
-  const rest = uniq.filter((r) => !r.nameKey.startsWith(key)).sort(byKey);
+  const prefix = uniq.filter(isPrefix).sort(byKey);
+  const rest = uniq.filter((r) => !isPrefix(r)).sort(byKey);
   return [...prefix, ...rest].slice(0, limit);
 }
 
@@ -207,14 +227,15 @@ export function searchWhere(query: SearchQuery) {
 
 export async function searchLibrary(db: Db, query: SearchQuery) {
   const { key, base } = searchWhere(query);
-  const like = escapeLike(key);
+  const likes = [key, numeralAltKey(key)].filter((k): k is string => k !== null).map(escapeLike);
+  const anyOf = (op: 'startsWith' | 'contains') => (likes.length === 1 ? { nameKey: { [op]: likes[0] } } : { OR: likes.map((l) => ({ nameKey: { [op]: l } })) });
   const include = { spellLevels: { select: { cls: true, level: true } } };
   const select = { id: true, kind: true, name: true, nameKey: true, system: true, source: true, sourceUrl: true, matchedAon: true, summary: true, createdById: true, createdAt: true, updatedAt: true, ...include };
-  const prefix = await db.libraryEntry.findMany({ where: { ...base, nameKey: { startsWith: like } }, orderBy: { nameKey: 'asc' }, take: query.limit, select });
+  const prefix = await db.libraryEntry.findMany({ where: { ...base, ...anyOf('startsWith') }, orderBy: { nameKey: 'asc' }, take: query.limit, select });
   let rest: LibraryEntryRow[] = [];
   if (key && prefix.length < query.limit) {
     rest = await db.libraryEntry.findMany({
-      where: { ...base, nameKey: { contains: like }, NOT: { nameKey: { startsWith: like } } },
+      where: { AND: [base, anyOf('contains'), { NOT: anyOf('startsWith') }] },
       orderBy: { nameKey: 'asc' }, take: query.limit - prefix.length, select,
     });
   }

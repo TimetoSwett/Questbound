@@ -77,6 +77,13 @@ console.log('ok   permissions & presenter');
 const rows = ['xfire', 'fireball', 'fire shield', 'wall of fire', 'firebrand'].map((nameKey) => ({ nameKey }));
 deq(orderSearchResults(rows, 'FIRE', 10).map((r) => r.nameKey), ['fire shield', 'fireball', 'firebrand', 'wall of fire', 'xfire']);
 assert.equal(orderSearchResults(rows, 'fire', 2).length, 2);
+assert.equal(lib.numeralAltKey('summon monster i'), 'summon monster 1');
+assert.equal(lib.numeralAltKey('summon monster ix'), 'summon monster 9');
+assert.equal(lib.numeralAltKey('summon monster 10'), 'summon monster x');
+assert.equal(lib.numeralAltKey('summon monster 1'), 'summon monster i');
+for (const k of ['i', '1', 'invisib', 'magic missile', 'summon monster 11', 'summon monster xi', 'summon monster iv2', 'iron i x']) assert.equal(lib.numeralAltKey(k), k === 'iron i x' ? 'iron i 10' : null, k);
+const nrows = ['summon monster 1', 'summon monster 2', 'greater summon monster 1'].map((nameKey) => ({ nameKey }));
+deq(orderSearchResults(nrows, 'Summon Monster I', 10).map((r) => r.nameKey), ['summon monster 1', 'greater summon monster 1', 'summon monster 2']);
 console.log('ok   ordering');
 
 if (!process.env.DATABASE_URL) { console.log('skip DB tests (set DATABASE_URL to a TEST database)'); console.log('LIBRARY TESTS: PASS'); process.exit(0); }
@@ -111,6 +118,23 @@ try {
   assert.equal(r.length, 1);
   r = await s({ q: tag, limit: '2' });
   assert.equal(r.length, 2);
+  // roman <-> digit numeral matching against the real AoN import (read-only)
+  const aon = (q) => s({ q, system: 'pf1e' });
+  r = await aon('summon monster i');
+  assert.equal(r[0]?.name, 'Summon Monster 1', 'roman i finds AoN digit name');
+  r = await aon('summon monster 1');
+  assert.equal(r[0]?.name, 'Summon Monster 1', 'digit still works');
+  r = await aon('Summon  Monster IX'); assert.equal(r[0]?.name, 'Summon Monster 9');
+  for (const q of ['i', 'invisib', 'magic missile']) {
+    const k = normalizeNameKey(q);
+    const got = (await aon(q)).map((x) => x.name);
+    assert.ok(got.length > 0, q);
+    assert.ok((await aon(q)).every((x) => x.nameKey.includes(k)), `${q} unaffected (plain contains only)`);
+  }
+  assert.equal((await aon('magic missile'))[0]?.name, 'Magic Missile');
+  await mk(`${tag} Ward II`, []);
+  r = await s({ q: `${tag} ward 2` }); deq(r.map((x) => x.name), [`${tag} Ward II`], 'digit finds user roman entry');
+  r = await s({ q: `${tag}%` }); assert.equal(r.length, 0, 'LIKE still escaped');
   console.log('ok   DB search ordering & filters');
 
   // upsert matching
