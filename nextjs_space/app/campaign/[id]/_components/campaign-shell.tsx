@@ -14,6 +14,7 @@ import { TownsTab } from './towns-tab';
 import { NpcsTab } from './npcs-tab';
 import { LootTab } from './loot-tab';
 import { RollLog } from './roll-log';
+import { CampaignEventsProvider } from '@/hooks/use-campaign-events';
 
 const DESKTOP_QUERY = '(min-width: 1024px)';
 function subscribeDesktop(cb: () => void) {
@@ -99,6 +100,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
       ];
 
   return (
+    <CampaignEventsProvider campaignId={campaignId}>
     <div className="min-h-screen bg-background flex flex-col">
       {/* Top navbar */}
       <header className="sticky top-0 z-50 bg-card/80 backdrop-blur-md border-b border-border">
@@ -166,5 +168,6 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
         )}
       </div>
     </div>
+    </CampaignEventsProvider>
   );
 }

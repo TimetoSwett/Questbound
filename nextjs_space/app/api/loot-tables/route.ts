@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+import { publish } from '@/lib/realtime';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
@@ -26,12 +27,17 @@ async function save(request: Request, update: boolean) {
   if (denied) return denied;
   if (!validCoinBudget(table, [])) return invalidLoot('Possible coin reward exceeds copper limit');
   const entries = table.entries.map((entry, sort) => ({ ...entry, sort }));
-  if (!update) return NextResponse.json(await prisma.lootTable.create({ data: { campaignId, name: table.name, rolls: table.rolls, entries: { create: entries } }, include }), { status: 201 });
+  if (!update) {
+    const created = await prisma.lootTable.create({ data: { campaignId, name: table.name, rolls: table.rolls, entries: { create: entries } }, include });
+    publish(campaignId, 'battle');
+    return NextResponse.json(created, { status: 201 });
+  }
   const result = await prisma.$transaction(async tx => {
     const existing = await tx.lootTable.findFirst({ where: { id, campaignId } });
     if (!existing) return null;
     return tx.lootTable.update({ where: { id, campaignId }, data: { name: table.name, rolls: table.rolls, entries: { deleteMany: {}, create: entries } }, include });
   });
+  if (result) publish(campaignId, 'battle');
   return result ? NextResponse.json(result) : NextResponse.json({ error: 'Not found' }, { status: 404 });
 }
 export async function POST(request: Request) { return save(request, false); }
@@ -42,5 +48,6 @@ export async function DELETE(request: Request) {
   const denied = await requireLootGM(parsed.data.campaignId);
   if (denied) return denied;
   const result = await prisma.lootTable.deleteMany({ where: parsed.data });
+  if (result.count) publish(parsed.data.campaignId, 'battle');
   return result.count ? NextResponse.json({ ok: true }) : NextResponse.json({ error: 'Not found' }, { status: 404 });
 }

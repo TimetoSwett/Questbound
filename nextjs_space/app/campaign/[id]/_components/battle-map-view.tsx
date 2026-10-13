@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { DiceRoller } from './dice-roller';
+import { useCampaignTopic, type CampaignEvent } from '@/hooks/use-campaign-events';
 
 interface Token { hidden?: boolean; id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; portraitKey?: string; hp?: number; maxHp?: number; conditions?: string[]; creatureId?: string; }
 interface Highlight { id: string; x: number; y: number; w: number; h: number; color: string; label: string; }
@@ -271,6 +272,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   const versionRef = useRef(0);
   const baseTokensRef = useRef<Token[]>([]);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingSavesRef = useRef(0);
 
   const fetchBattle = useCallback(async () => {
     const res = await fetch(`/api/maps/battle?campaignId=${campaignId}`);
@@ -312,11 +314,26 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   // Live updates for players: the DM's token moves and fog changes land
   // without a page refresh. The DM is the source of truth (every DM action
   // saves immediately), so only non-DM viewers poll.
+  // Live refresh (SSE invalidation + fallback poll). Ignores stale versions;
+  // the DM only adopts strictly newer server state and never while one of
+  // their own saves is in flight (so queued saves keep their 409 merge path).
+  // Players always re-apply: creature reveals change their filtered view
+  // without bumping battleMapVersion.
+  const liveLoad = useCallback(async (evt?: CampaignEvent) => {
+    if (evt?.version !== undefined && evt.version <= versionRef.current) return;
+    if (isDM && pendingSavesRef.current > 0) return;
+    const d = await fetchBattle();
+    if (!d) return;
+    const v = Number.isInteger(d?.version) ? d.version : 0;
+    if (v < versionRef.current) return;
+    if (isDM && (v === versionRef.current || pendingSavesRef.current > 0)) return;
+    applyBattle(d);
+  }, [isDM, fetchBattle, applyBattle]);
+  const pollMs = useCampaignTopic(['battle'], liveLoad);
   useEffect(() => {
-    if (isDM) return;
-    const id = setInterval(() => { load(); }, 3000);
+    const id = setInterval(() => { liveLoad(); }, pollMs);
     return () => clearInterval(id);
-  }, [isDM, load]);
+  }, [pollMs, liveLoad]);
 
   // The player's own characters in this campaign (server scopes to owner
   // for non-DM), used to decide which tokens they may drag.
@@ -396,7 +413,9 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
       }
       toast.error('Battle map is busy, please try again');
     };
-    saveQueueRef.current = saveQueueRef.current.then(run, run);
+    pendingSavesRef.current++;
+    const tracked = async () => { try { await run(); } finally { pendingSavesRef.current--; } };
+    saveQueueRef.current = saveQueueRef.current.then(tracked, tracked);
     await saveQueueRef.current;
   };
 

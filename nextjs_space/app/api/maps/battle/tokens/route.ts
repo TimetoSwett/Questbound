@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+import { publish } from '@/lib/realtime';
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
@@ -22,7 +23,7 @@ export async function PATCH(request: Request) {
   // Atomic read-modify-write: lock the campaign row so concurrent moves (or a
   // DM full-state save) can't interleave, change only this token, and bump
   // battleMapVersion so a stale DM PUT is rejected rather than undoing it.
-  type Result = { status: number; body: Record<string, unknown> };
+  type Result = { status: number; body: Record<string, unknown>; version?: number };
   const result: Result = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${campaignId} FOR UPDATE`;
     const campaign = await tx.campaign.findUnique({ where: { id: campaignId }, select: { battleMapState: true } });
@@ -43,8 +44,9 @@ export async function PATCH(request: Request) {
     }
 
     const next = { ...st, tokens: tokens.map((t: any) => (t?.id === tokenId ? { ...t, x, y } : t)) };
-    await tx.campaign.update({ where: { id: campaignId }, data: { battleMapState: next, battleMapVersion: { increment: 1 } } });
-    return { status: 200, body: { ok: true, token: { ...token, x, y } } };
+    const updated = await tx.campaign.update({ where: { id: campaignId }, data: { battleMapState: next, battleMapVersion: { increment: 1 } }, select: { battleMapVersion: true } });
+    return { status: 200, body: { ok: true, token: { ...token, x, y } }, version: updated.battleMapVersion };
   });
+  if (result.status === 200) publish(campaignId, 'battle', { version: result.version });
   return NextResponse.json(result.body, { status: result.status });
 }

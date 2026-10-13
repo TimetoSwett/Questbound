@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+import { publish } from '@/lib/realtime';
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
@@ -54,5 +55,6 @@ export async function POST(request: Request) {
   }
   const { updated, created } = result;
 
+  publish(updated.campaignId, 'battle');
   return NextResponse.json({ updated, created });
 }

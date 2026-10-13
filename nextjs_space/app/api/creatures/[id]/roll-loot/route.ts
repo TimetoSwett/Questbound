@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+import { publish } from '@/lib/realtime';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
@@ -32,6 +33,7 @@ export async function POST(request: Request, context: Context) {
       for (const item of rolled.items) items.push(await tx.inventoryItem.create({ data: { ...item, campaignId, characterId: null } }));
       return { items, cp: rolled.cp };
     });
+    if (result) publish(campaignId, 'battle');
     return result ? NextResponse.json(result) : NextResponse.json({ error: 'Not found' }, { status: 404 });
   } catch (error) {
     if (error instanceof z.ZodError) return invalidLoot('Invalid stored loot; edit it before rolling');

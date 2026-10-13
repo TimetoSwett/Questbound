@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+import { publish } from '@/lib/realtime';
 import { NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { auth } from '@/auth';
@@ -30,5 +31,6 @@ export async function POST(request: Request) {
     },
     include: { wikiPage: { select: { id: true, title: true, visibility: true } } },
   });
+  publish(src.campaignId, 'battle');
   return NextResponse.json(await presentCreature(copy, role));
 }

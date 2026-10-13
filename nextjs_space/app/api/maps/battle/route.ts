@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+import { publish } from '@/lib/realtime';
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
@@ -70,5 +71,6 @@ export async function PUT(request: Request) {
     if (!cur) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json({ error: 'Battle map changed since it was loaded', version: cur.battleMapVersion }, { status: 409 });
   }
+  publish(campaignId, 'battle', { version: version + 1 });
   return NextResponse.json({ ok: true, version: version + 1 });
 }

@@ -91,7 +91,9 @@ const prisma = {
     try { return await fn(tx); } catch (error) { balance = oldBalance; added = oldAdded; writes = oldWrites; throw error; }
   },
 };
-const mocks = { 'next/server': responseMock, '@/lib/prisma': { prisma }, '@/lib/loot-api': api, '@/lib/loot-validation': validation, '@/lib/loot': loot };
+const published = [];
+const realtimeMock = { publish: (campaignId, topic, opts) => published.push({ campaignId, topic, ...opts }) };
+const mocks = { '@/lib/realtime': realtimeMock, 'next/server': responseMock, '@/lib/prisma': { prisma }, '@/lib/loot-api': api, '@/lib/loot-validation': validation, '@/lib/loot': loot };
 const tables = load('app/api/loot-tables/route.ts', mocks);
 const settings = load('app/api/creatures/[id]/loot/route.ts', mocks);
 const roll = load('app/api/creatures/[id]/roll-loot/route.ts', mocks);
@@ -146,6 +148,7 @@ for (const revealLevel of ['hidden', 'unknown', 'named', 'full']) {
 }
 assert.equal((await creatures.presentCreature({ ...row, revealLevel: 'full' }, 'dm')).lootTableId, 'secret-table');
 const creatureRoutes = load('app/api/creatures/route.ts', {
+  '@/lib/realtime': realtimeMock,
   'next/server': responseMock,
   '@/auth': { auth: async () => ({ user: { id: 'player' } }) },
   '@/lib/prisma': { prisma: { creature: { findUnique: async () => ({ ...row, revealLevel: 'full' }), findMany: async () => [{ ...row, revealLevel: 'full' }] } } },
@@ -158,4 +161,5 @@ for (const query of ['id=creature', 'campaignId=campaign']) {
   const body = await response.json();
   for (const entry of Array.isArray(body) ? body : [body]) for (const key of ['lootTableId', 'lootList', 'lootTable']) assert.equal(key in entry, false);
 }
+assert.ok(published.length > 0 && published.every((e) => e.topic === 'battle' && !e.gmOnly), 'loot writes publish battle invalidations');
 console.log('Loot dice, weights, coins, validation, GM access, campaign scoping, player privacy, balance limits, and transaction rollback tests passed.');

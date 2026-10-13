@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+import { publish } from '@/lib/realtime';
 import { NextResponse } from 'next/server';
 import type { Prisma } from '@prisma/client';
 import { auth } from '@/auth';
@@ -60,6 +61,7 @@ export async function POST(request: Request) {
   if (!parsed.success) return NextResponse.json({ error: 'Invalid creature', issues: parsed.error.issues }, { status: 400 });
   if (!(await validWikiPage(parsed.data, campaignId))) return NextResponse.json({ error: 'Wiki page not in campaign' }, { status: 400 });
   const creature = await prisma.creature.create({ data: { ...parsed.data, campaignId } as Prisma.CreatureUncheckedCreateInput, include: wikiSelect });
+  publish(campaignId, 'battle');
   return NextResponse.json(await presentCreature(creature, role));
 }
 
@@ -78,6 +80,7 @@ export async function PUT(request: Request) {
   if (!parsed.success) return NextResponse.json({ error: 'Invalid creature', issues: parsed.error.issues }, { status: 400 });
   if (!(await validWikiPage(parsed.data, existing.campaignId))) return NextResponse.json({ error: 'Wiki page not in campaign' }, { status: 400 });
   const updated = await prisma.creature.update({ where: { id }, data: parsed.data as Prisma.CreatureUncheckedUpdateInput, include: wikiSelect });
+  publish(existing.campaignId, 'battle');
   return NextResponse.json(await presentCreature(updated, role));
 }
 
@@ -93,5 +96,6 @@ export async function DELETE(request: Request) {
   const role = await getUserRole(session.user.id, existing.campaignId);
   if (role !== 'dm') return NextResponse.json({ error: 'Only DM' }, { status: 403 });
   await prisma.creature.delete({ where: { id } });
+  publish(existing.campaignId, 'battle');
   return NextResponse.json({ ok: true });
 }

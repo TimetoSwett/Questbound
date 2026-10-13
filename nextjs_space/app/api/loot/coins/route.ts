@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+import { publish } from '@/lib/realtime';
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
@@ -44,5 +45,6 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  publish(campaignId, 'battle');
   return NextResponse.json({ partyCp: campaign.partyCp });
 }

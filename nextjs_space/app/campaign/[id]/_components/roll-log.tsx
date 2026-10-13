@@ -5,6 +5,7 @@ import { Dices, EyeOff, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import { useCampaignTopic } from '@/hooks/use-campaign-events';
 
 interface Roll {
   id: string;
@@ -17,7 +18,6 @@ interface Roll {
 }
 
 const PAGE_SIZE = 100;
-const POLL_MS = 3000;
 
 type RollCursor = Pick<Roll, 'createdAt' | 'id'>;
 
@@ -93,11 +93,13 @@ export function RollLog({ campaignId, role }: { campaignId: string; role: string
     };
   }, [campaignId, scrollToBottom]);
 
-  // Live updates: the app has no realtime channel, so poll every few seconds.
+  // Live updates: SSE invalidations trigger fetchNew; polling is the fallback
+  // (slow while the stream is healthy). The GET route filters secret rolls.
+  const pollMs = useCampaignTopic(['rolls'], fetchNew);
   useEffect(() => {
-    const t = setInterval(fetchNew, POLL_MS);
+    const t = setInterval(fetchNew, pollMs);
     return () => clearInterval(t);
-  }, [fetchNew]);
+  }, [fetchNew, pollMs]);
 
   const loadOlder = async () => {
     if (!rolls.length || loadingMore || !hasMore) return;

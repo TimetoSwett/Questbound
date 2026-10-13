@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+import { publish } from '@/lib/realtime';
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
@@ -59,6 +60,7 @@ export async function POST(request: Request) {
     data: { campaignId, characterId, name, quantity, valueGp, weight, notes },
     include: { character: { select: { id: true, name: true, userId: true } } },
   });
+  publish(campaignId, 'battle');
   return NextResponse.json(item);
 }
 
@@ -105,6 +107,7 @@ export async function PUT(request: Request) {
     data: patch,
     include: { character: { select: { id: true, name: true, userId: true } } },
   });
+  publish(existing.campaignId, 'battle');
   return NextResponse.json(item);
 }
 
@@ -123,5 +126,6 @@ export async function DELETE(request: Request) {
   if (role !== 'dm') return NextResponse.json({ error: 'Only DM can delete items' }, { status: 403 });
 
   await prisma.inventoryItem.delete({ where: { id } });
+  publish(existing.campaignId, 'battle');
   return NextResponse.json({ ok: true });
 }

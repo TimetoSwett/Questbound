@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+import { publish } from '@/lib/realtime';
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
@@ -126,5 +127,6 @@ export async function POST(request: Request) {
     },
     select: rollSelect,
   });
+  publish(campaignId, 'rolls', { gmOnly: isSecret });
   return NextResponse.json(roll, { status: 201 });
 }

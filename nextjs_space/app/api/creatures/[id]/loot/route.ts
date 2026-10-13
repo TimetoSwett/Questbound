@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+import { publish } from '@/lib/realtime';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
@@ -36,5 +37,6 @@ export async function PUT(request: Request, context: Context) {
   if (result === 'missing') return NextResponse.json({ error: 'Not found' }, { status: 404 });
   if (result === 'table') return invalidLoot('Loot table must belong to this campaign');
   if (result === 'invalid') return invalidLoot('Invalid loot or possible coin reward exceeds copper limit');
+  publish(campaignId, 'battle');
   return NextResponse.json(result);
 }
