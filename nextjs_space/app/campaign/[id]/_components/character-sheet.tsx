@@ -77,8 +77,18 @@ function resolveSection(key: string): string {
   return SECTION_ALIASES[key] ?? key;
 }
 
-function CollapsibleSection({ title, actions, children }: { title: string; actions?: React.ReactNode; children: React.ReactNode }) {
-  const [open, setOpen] = useState(true);
+function CollapsibleSection({ sectionKey, title, actions, children, openSections, setOpenSections }: {
+  sectionKey: string;
+  title: string;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+  openSections: Record<string, boolean>;
+  setOpenSections: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+}) {
+  const open = openSections[sectionKey] ?? true;
+  const setOpen = (v: boolean | ((o: boolean) => boolean)) => {
+    setOpenSections((prev) => ({ ...prev, [sectionKey]: typeof v === 'function' ? v(prev[sectionKey] ?? true) : v }));
+  };
   return (
     <div className="bg-card rounded-lg border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
       <div className="flex items-center justify-between gap-2 p-4 min-h-[44px]">
@@ -106,6 +116,8 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
   const [sectionState, setSectionState] = useState(() => resolveSection(initialSection ?? 'core-combat') as string);
   const setSection = (s: string) => setSectionState(resolveSection(s));
   const isSection = (key: string): boolean => sectionState === key;
+  // Collapsible open/closed state persists across tab switches.
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ skills: true, feats: true, spells: true, notes: true });
   const [portraitUrl, setPortraitUrl] = useState<string | null>(null);
   const saveTimer = useRef<any>(null);
 
@@ -542,7 +554,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
       {/* DETAILS TAB: Feats, Skills, Spells & Notes */}
       {isSection('details') && (
         <div className="space-y-4">
-          <CollapsibleSection title="Skills">
+          <CollapsibleSection sectionKey="skills" title="Skills" openSections={openSections} setOpenSections={setOpenSections}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -604,7 +616,10 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           </CollapsibleSection>
 
           <CollapsibleSection
+            sectionKey="feats"
             title="Feats & Special Abilities"
+            openSections={openSections}
+            setOpenSections={setOpenSections}
             actions={editable ? (
               <Button variant="ghost" size="sm" onClick={() => { update('feats', [...(data?.feats ?? []), { name: '', description: '' }]); autoSave(); }}>+ Add Feat</Button>
             ) : undefined}
@@ -631,10 +646,10 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           )}
           </CollapsibleSection>
 
-          <CollapsibleSection title="Spells">
+          <CollapsibleSection sectionKey="spells" title="Spells" openSections={openSections} setOpenSections={setOpenSections}>
           <div className="space-y-4">
           {/* Spell Slots */}
-          <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+          <div>
             <h3 className="font-display font-semibold text-sm mb-3">Spell Slots per Day</h3>
             <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
               {Array.from({ length: 10 }, (_, lvl) => (
@@ -655,7 +670,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           </div>
 
           {/* Known Spells */}
-          <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+          <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-display font-semibold text-sm">Known / Prepared Spells</h3>
               {editable && (
@@ -729,7 +744,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           </div>
           </CollapsibleSection>
 
-          <CollapsibleSection title="Notes & Backstory">
+          <CollapsibleSection sectionKey="notes" title="Notes & Backstory" openSections={openSections} setOpenSections={setOpenSections}>
           <TipTapEditor content={data?.notes ?? ''} onChange={(html: string) => { update('notes', html); autoSave(); }} editable={editable} placeholder="Write your character's backstory, notes, and other details..." />
           </CollapsibleSection>
         </div>
