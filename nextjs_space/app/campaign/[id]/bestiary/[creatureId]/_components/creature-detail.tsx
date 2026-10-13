@@ -12,6 +12,10 @@ import { toast } from 'sonner';
 import { CreatureLootEditor } from '../../../_components/loot-editor';
 import type { ImportDraft } from '@/lib/statblock-import';
 import { FadeIn } from '@/components/ui/animate';
+import { AutoLinkText } from '@/components/library/auto-link-text';
+
+// Only the stat block's Special Attacks / SQ lines get library auto-links.
+const isSaSqLine = (name: unknown) => typeof name === 'string' && /^(special attacks|sq|special qualities)$/i.test(name.trim());
 
 // Keys the PUT endpoint accepts (creatureInputSchema, strict). Never send anything else.
 const SAVE_KEYS = [
@@ -656,7 +660,7 @@ function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
               {special.map((a: any, i: number) => (
                 <div key={i} className="mb-2">
                   <p className="text-sm font-semibold">{a?.name}</p>
-                  {a?.description ? <p className="text-sm text-muted-foreground">{a.description}</p> : null}
+                  {a?.description ? <p className="text-sm text-muted-foreground">{isSaSqLine(a?.name) ? <AutoLinkText text={String(a.description)} /> : a.description}</p> : null}
                 </div>
               ))}
             </PlayerSection>
