@@ -621,6 +621,9 @@ function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
                     {a?.damage ? <span className="text-muted-foreground"> — {a.damage}{a?.critical ? ` (${a.critical})` : ''}</span> : null}
                   </div>
                 ))}
+                {!lOffense && typeof offense.specialAttacks === 'string' && offense.specialAttacks ? (
+                  <p className="text-sm mt-1"><span className="font-semibold">Special Attacks </span><AutoLinkText text={offense.specialAttacks} /></p>
+                ) : null}
                 {(offense.spells?.known ?? []).length > 0 && (
                   <div className="mt-2">
                     <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Spells</p>
@@ -651,6 +654,9 @@ function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
                 {(statistics.skills ?? []).length > 0 && (
                   <p className="text-sm"><span className="text-muted-foreground">Skills: </span>{(statistics.skills ?? []).map((s: any) => `${s?.name ?? ''} ${s?.bonus ?? ''}`.trim()).filter(Boolean).join(', ')}</p>
                 )}
+                {!lStats && typeof statistics.specialQualities === 'string' && statistics.specialQualities ? (
+                  <p className="text-sm"><span className="text-muted-foreground">SQ: </span><AutoLinkText text={statistics.specialQualities} /></p>
+                ) : null}
                 {(statistics.gear ?? []).length > 0 && (
                   <p className="text-sm"><span className="text-muted-foreground">Gear: </span>{(statistics.gear ?? []).map((g: any) => g?.name).filter(Boolean).join(', ')}</p>
                 )}
