@@ -277,6 +277,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   // deferred (flag only; on close we refetch, which yields the latest state).
   const dmDialogOpenRef = useRef(false);
   const deferredLiveRef = useRef(false);
+  const liveLoadRef = useRef<() => void>(() => {});
 
   const fetchBattle = useCallback(async () => {
     const res = await fetch(`/api/maps/battle?campaignId=${campaignId}`);
@@ -325,16 +326,19 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   // without bumping battleMapVersion.
   const liveLoad = useCallback(async (evt?: CampaignEvent) => {
     if (evt?.version !== undefined && evt.version <= versionRef.current) return;
-    if (isDM && pendingSavesRef.current > 0) return;
+    // Deferred (not dropped) while a DM save is in flight; replayed when saves settle.
+    if (isDM && pendingSavesRef.current > 0) { deferredLiveRef.current = true; return; }
     if (isDM && dmDialogOpenRef.current) { deferredLiveRef.current = true; return; }
     const d = await fetchBattle();
     if (!d) return;
     if (isDM && dmDialogOpenRef.current) { deferredLiveRef.current = true; return; }
     const v = Number.isInteger(d?.version) ? d.version : 0;
     if (v < versionRef.current) return;
-    if (isDM && (v === versionRef.current || pendingSavesRef.current > 0)) return;
+    if (isDM && pendingSavesRef.current > 0) { deferredLiveRef.current = true; return; }
+    if (isDM && v === versionRef.current) return;
     applyBattle(d);
   }, [isDM, fetchBattle, applyBattle]);
+  useEffect(() => { liveLoadRef.current = () => { void liveLoad(); }; }, [liveLoad]);
   const pollMs = useCampaignTopic(['battle'], liveLoad);
   useEffect(() => {
     const id = setInterval(() => { liveLoad(); }, pollMs);
@@ -420,7 +424,17 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
       toast.error('Battle map is busy, please try again');
     };
     pendingSavesRef.current++;
-    const tracked = async () => { try { await run(); } finally { pendingSavesRef.current--; } };
+    const tracked = async () => {
+      try { await run(); } finally {
+        pendingSavesRef.current--;
+        // Replay a refetch deferred during the save, unless a dialog is still open
+        // (then the dialog-close effect replays it).
+        if (pendingSavesRef.current === 0 && deferredLiveRef.current && !dmDialogOpenRef.current) {
+          deferredLiveRef.current = false;
+          liveLoadRef.current();
+        }
+      }
+    };
     saveQueueRef.current = saveQueueRef.current.then(tracked, tracked);
     await saveQueueRef.current;
   };

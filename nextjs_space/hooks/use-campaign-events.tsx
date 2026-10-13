@@ -27,46 +27,143 @@ export function CampaignEventsProvider({ campaignId, children }: { campaignId: s
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof EventSource === 'undefined') return;
+    const url = `/api/campaigns/${encodeURIComponent(campaignId)}/events`;
     let es: EventSource | null = null;
     let retry = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let closed = false;
+    let disposed = false;
     let everOpened = false;
+    // Dormant: the server closed us (session expired / removed from campaign).
+    // We stop reconnecting and only run slow, backed-off checks (plus on
+    // focus/visibility) until access is back, then reconnect + full resync.
+    let dormant: null | 'session-expired' | 'not-a-member' = null;
+    let dormantTry = 0;
+    let lastFocusCheck = 0;
+    let probeAbort: AbortController | null = null;
     const emit = (evt: CampaignEvent) => listeners.forEach((fn) => { try { fn(evt); } catch { /* ignore */ } });
+    const clearTimer = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    const closeEs = () => { if (es) { es.onerror = null; es.close(); es = null; } };
+
+    // Status of the stream endpoint without keeping a stream open.
+    const probeStatus = async (): Promise<number> => {
+      probeAbort?.abort();
+      const ac = new AbortController();
+      probeAbort = ac;
+      try {
+        const r = await fetch(url, { signal: ac.signal, cache: 'no-store' });
+        return r.status;
+      } catch {
+        return 0;
+      } finally {
+        ac.abort();
+        if (probeAbort === ac) probeAbort = null;
+      }
+    };
+    const hasSession = async (): Promise<boolean | null> => {
+      try {
+        const r = await fetch('/api/auth/session', { cache: 'no-store' });
+        if (!r.ok) return null;
+        const d = await r.json().catch(() => null);
+        return !!d?.user;
+      } catch {
+        return null;
+      }
+    };
+
+    const goDormant = (reason: 'session-expired' | 'not-a-member') => {
+      closeEs();
+      clearTimer();
+      setHealthy(false);
+      if (dormant !== reason) dormantTry = 0;
+      dormant = reason;
+      scheduleDormantCheck();
+    };
+    const scheduleDormantCheck = () => {
+      if (disposed || !dormant) return;
+      clearTimer();
+      // session-expired: 5s doubling to 5 min; not-a-member: 60s doubling to 30 min.
+      const [base, cap] = dormant === 'session-expired' ? [5000, 300000] : [60000, 1800000];
+      const delay = Math.min(cap, base * 2 ** Math.min(dormantTry, 10)) * (0.75 + Math.random() / 4);
+      dormantTry++;
+      timer = setTimeout(dormantCheck, delay);
+    };
+    const dormantCheck = async () => {
+      timer = null;
+      if (disposed || !dormant) return;
+      if (dormant === 'session-expired') {
+        const ok = await hasSession();
+        if (disposed || !dormant) return;
+        if (!ok) return scheduleDormantCheck();
+      }
+      const status = await probeStatus();
+      if (disposed || !dormant) return;
+      if (status === 200) { dormant = null; dormantTry = 0; retry = 1; connect(); return; }
+      if (status === 401) dormant = 'session-expired';
+      else if (status === 403) dormant = 'not-a-member';
+      scheduleDormantCheck();
+    };
+    const onFocus = () => {
+      if (!dormant || disposed || document.visibilityState === 'hidden') return;
+      const now = Date.now();
+      // Throttle focus checks: 5s for expired sessions, 60s for removed members.
+      if (now - lastFocusCheck < (dormant === 'session-expired' ? 5000 : 60000)) return;
+      lastFocusCheck = now;
+      clearTimer();
+      dormantCheck();
+    };
 
     const connect = () => {
-      if (closed) return;
-      es = new EventSource(`/api/campaigns/${encodeURIComponent(campaignId)}/events`);
-      es.addEventListener('ready', () => {
+      if (disposed || dormant) return;
+      closeEs();
+      const src = new EventSource(url);
+      es = src;
+      src.addEventListener('ready', () => {
         setHealthy(true);
         // After a reconnect we may have missed events: refetch everything.
         if (everOpened || retry > 0) emit({ topic: 'resync' });
         everOpened = true;
         retry = 0;
       });
-      es.addEventListener('update', (e) => {
+      src.addEventListener('update', (e) => {
         try {
           const d = JSON.parse((e as MessageEvent).data);
           if (d && typeof d.topic === 'string') emit({ topic: d.topic, version: typeof d.version === 'number' ? d.version : undefined });
         } catch { /* ignore malformed */ }
       });
-      es.addEventListener('bye', () => { es?.close(); setHealthy(false); closed = true; });
-      es.onerror = () => {
+      src.addEventListener('bye', (e) => {
+        let reason = '';
+        try { reason = JSON.parse((e as MessageEvent).data)?.reason ?? ''; } catch { /* ignore */ }
+        goDormant(reason === 'not-a-member' ? 'not-a-member' : 'session-expired');
+      });
+      src.onerror = async () => {
+        if (es !== src) return;
         setHealthy(false);
-        es?.close();
-        es = null;
-        if (closed) return;
-        // Exponential backoff with jitter, capped at 60s.
-        const delay = Math.min(60000, 1000 * 2 ** Math.min(retry, 6)) * (0.5 + Math.random() / 2);
+        closeEs();
+        if (disposed || dormant) return;
         retry++;
+        // A failed (re)connect may be an auth problem: EventSource hides the
+        // status, so probe it and go dormant instead of hammering on 401/403.
+        const status = await probeStatus();
+        if (disposed || dormant) return;
+        if (status === 401) return goDormant('session-expired');
+        if (status === 403) return goDormant('not-a-member');
+        // Exponential backoff with jitter, capped at 60s.
+        const delay = Math.min(60000, 1000 * 2 ** Math.min(retry - 1, 6)) * (0.5 + Math.random() / 2);
+        clearTimer();
         timer = setTimeout(connect, delay);
       };
     };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
     connect();
     return () => {
-      closed = true;
-      if (timer) clearTimeout(timer);
-      es?.close();
+      disposed = true;
+      dormant = null;
+      clearTimer();
+      probeAbort?.abort();
+      closeEs();
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
       setHealthy(false);
     };
   }, [campaignId, listeners]);

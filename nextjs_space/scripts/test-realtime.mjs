@@ -92,7 +92,8 @@ function client() {
     })();
     return s;
   };
-  return { req, login, stream };
+  const logout = () => { for (const k of Object.keys(jar)) delete jar[k]; };
+  return { req, login, stream, logout };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const until = async (fn, ms, what) => { const end = Date.now() + ms; while (Date.now() < end) { if (fn()) return; await sleep(50); } throw new Error(`timeout: ${what}`); };
@@ -153,6 +154,21 @@ await step('secret roll: GM-only event, filtered refetch', async () => {
   const pub = await pl.req('POST', '/api/dice-rolls', { campaignId, expression: '1d6' });
   assert.equal(pub.status, 201);
   await until(() => plS.events.some((e) => e.data?.topic === 'rolls'), 3000, 'player public rolls event');
+});
+await step('re-auth: 401 when signed out, stream reopens after login', async () => {
+  const email = `rt_gm_${tag}@example.com`;
+  const extra = client();
+  await extra.login(email, `Pw!${tag}`);
+  extra.logout();
+  const s1 = await extra.stream(campaignId);
+  assert.equal(s1.status, 401, 'signed-out probe must be 401 (client goes dormant, checks session)');
+  const sess = await (await extra.req('GET', '/api/auth/session')).json();
+  assert.ok(!sess?.user, 'session endpoint reports no user when signed out');
+  await extra.login(email, `Pw!${tag}`);
+  const s2 = await extra.stream(campaignId);
+  assert.equal(s2.status, 200);
+  await until(() => s2.events.some((e) => e.event === 'ready'), 5000, 'ready after re-login');
+  s2.abort();
 });
 await step('membership removal closes player stream', async () => {
   const { PrismaClient } = require('@prisma/client');
