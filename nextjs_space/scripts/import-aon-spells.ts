@@ -4,6 +4,15 @@
  *
  *   npm run import:aon-spells -- [--limit N] [--dry-run] [--delay 2000]
  *        [--retry-failed] [--refresh-index] [--dir .aon-import] [--allow-remote-db] [--skip-dns-check]
+ *        [--export <spells.jsonl>]
+ *   npm run import:aon-spells -- --from-file <spells.jsonl> [--limit N] [--dry-run] [--allow-remote-db]
+ *
+ * - --export: append every parsed spell (the exact upsert input: kind, system,
+ *   name, summary, sourceUrl, data, spellLevels) as one JSON line. Resume-safe:
+ *   records already in the file (by sourceUrl) are not appended again, and a
+ *   torn last line from a kill is skipped/terminated.
+ * - --from-file: no network. Validates each line with the library schemas and
+ *   upserts it (same idempotent upsert), so a live deploy can load from file.
  *
  * - Target DB: DATABASE_URL. Non-localhost databases are refused unless
  *   --allow-remote-db is given (guards against hitting production by accident).
@@ -21,7 +30,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync, appendFileSync, exi
 import { join, resolve } from 'node:path';
 import { fetchStatblockHtml } from '../lib/statblock-fetch';
 import { AON_SPELL_INDEX_URL, parseSpellIndex, parseSpellPage, type AonIndexItem } from '../lib/aon-spell-parser';
-import { spellDataSchema, spellLevelsSchema, sanitizeSummary, upsertLibraryEntry, normalizeNameKey } from '../lib/library';
+import { spellDataSchema, spellLevelsSchema, sanitizeSummary, upsertLibraryEntry, normalizeNameKey, type UpsertInput } from '../lib/library';
 
 type Status = 'created' | 'matched' | 'updated' | 'failed' | 'dry-ok';
 type Checkpoint = { version: 1; indexFetchedAt: string | null; items: AonIndexItem[]; status: Record<string, Status> };
@@ -29,7 +38,7 @@ type Checkpoint = { version: 1; indexFetchedAt: string | null; items: AonIndexIt
 const USER_AGENT = 'Mozilla/5.0 (compatible; QuestboundSpellImporter/1.0; polite PF1e spell library import, ~1 req/2s)';
 
 function args(argv: string[]) {
-  const o = { limit: Infinity, dryRun: false, delay: 2000, retryFailed: false, refreshIndex: false, dir: '.aon-import', allowRemoteDb: false, skipDnsCheck: false };
+  const o = { limit: Infinity, dryRun: false, delay: 2000, retryFailed: false, refreshIndex: false, dir: '.aon-import', allowRemoteDb: false, skipDnsCheck: false, exportPath: '', fromFile: '' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--limit') o.limit = Math.max(0, Number(argv[++i]));
@@ -40,6 +49,8 @@ function args(argv: string[]) {
     else if (a === '--dir') o.dir = argv[++i];
     else if (a === '--allow-remote-db') o.allowRemoteDb = true;
     else if (a === '--skip-dns-check') o.skipDnsCheck = true;
+    else if (a === '--export') o.exportPath = argv[++i];
+    else if (a === '--from-file') o.fromFile = argv[++i];
     else if (a === '--help' || a === '-h') { console.log(readFileSync(new URL(import.meta.url)).toString().split('*/')[0]); process.exit(0); }
     else throw new Error(`Unknown option ${a}`);
   }
@@ -90,6 +101,59 @@ export function createPoliteFetcher(delayMs: number, opts: { maxRetries?: number
   return { get, stats: () => ({ requests }) };
 }
 
+export type ExportRecord = UpsertInput & { kind: 'spell'; system: 'pf1e' | 'dnd35'; sourceUrl: string; summary: string };
+
+/** Read an export file: valid records (validated with the library schemas) + bad line numbers. Torn/blank lines are skipped. */
+export function readExportFile(path: string): { records: ExportRecord[]; bad: Array<{ line: number; error: string }>; urls: Set<string> } {
+  const records: ExportRecord[] = [];
+  const bad: Array<{ line: number; error: string }> = [];
+  const urls = new Set<string>();
+  if (!existsSync(path)) return { records, bad, urls };
+  readFileSync(path, 'utf8').split('\n').forEach((line, i) => {
+    if (!line.trim()) return;
+    try {
+      const r = JSON.parse(line);
+      if (r?.kind !== 'spell' || !['pf1e', 'dnd35'].includes(r?.system) || typeof r?.name !== 'string' || !r.name.trim() || typeof r?.sourceUrl !== 'string') throw new Error('missing kind/system/name/sourceUrl');
+      const rec: ExportRecord = { kind: 'spell', system: r.system, name: r.name.trim().slice(0, 120), sourceUrl: r.sourceUrl, summary: sanitizeSummary(r.summary ?? ''), data: spellDataSchema.parse(r.data), spellLevels: spellLevelsSchema.parse(r.spellLevels ?? []) };
+      records.push(rec);
+      urls.add(rec.sourceUrl);
+    } catch (e) {
+      bad.push({ line: i + 1, error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+    }
+  });
+  return { records, bad, urls };
+}
+
+/** Appender that never writes a sourceUrl twice and repairs a torn last line first. */
+export function createExporter(path: string) {
+  const { urls } = readExportFile(path);
+  if (existsSync(path)) {
+    const buf = readFileSync(path);
+    if (buf.length && buf[buf.length - 1] !== 0x0a) appendFileSync(path, '\n');
+  }
+  return {
+    has: (url: string) => urls.has(url),
+    write(rec: ExportRecord): boolean {
+      if (urls.has(rec.sourceUrl)) return false;
+      appendFileSync(path, JSON.stringify(rec) + '\n');
+      urls.add(rec.sourceUrl);
+      return true;
+    },
+  };
+}
+
+/** Upsert every record of an export file (no network). */
+export async function loadFromFile(db: Parameters<typeof upsertLibraryEntry>[0] | null, path: string, opts: { limit?: number; dryRun?: boolean; log?: (s: string) => void } = {}) {
+  const { records, bad } = readExportFile(path);
+  const todo = records.slice(0, opts.limit ?? undefined);
+  const counts: Record<string, number> = { invalid: bad.length };
+  for (const rec of todo) {
+    const action = opts.dryRun || !db ? 'valid' : (await upsertLibraryEntry(db, rec)).action;
+    counts[action] = (counts[action] ?? 0) + 1;
+  }
+  return { counts, bad, total: records.length };
+}
+
 function loadCheckpoint(path: string): Checkpoint {
   if (!existsSync(path)) return { version: 1, indexFetchedAt: null, items: [], status: {} };
   return JSON.parse(readFileSync(path, 'utf8'));
@@ -108,8 +172,18 @@ async function main() {
     const host = (() => { try { return new URL(dbUrl).hostname; } catch { return ''; } })();
     if (!['localhost', '127.0.0.1', '::1', ''].includes(host) && !o.allowRemoteDb) throw new Error(`Refusing non-local DB host "${host}" without --allow-remote-db`);
   }
+  if (o.fromFile) {
+    const { prisma } = o.dryRun ? { prisma: null } : await import('../lib/prisma');
+    const t = Date.now();
+    const res = await loadFromFile(prisma, resolve(o.fromFile), { limit: o.limit === Infinity ? undefined : o.limit, dryRun: o.dryRun });
+    for (const b of res.bad.slice(0, 20)) console.log(`  invalid line ${b.line}: ${b.error}`);
+    console.log(`From file: ${res.total} valid records; ${JSON.stringify(res.counts)} in ${((Date.now() - t) / 1000).toFixed(1)}s${o.dryRun ? ' (dry run, no DB writes)' : ''}`);
+    if (prisma) await prisma.$disconnect();
+    return;
+  }
   const dir = resolve(o.dir);
   mkdirSync(dir, { recursive: true });
+  const exporter = o.exportPath ? createExporter(resolve(o.exportPath)) : null;
   const cpPath = join(dir, o.dryRun ? 'checkpoint.dry-run.json' : 'checkpoint.json');
   const reportPath = join(dir, 'report.jsonl');
   const cp = loadCheckpoint(cpPath);
@@ -147,9 +221,10 @@ async function main() {
       const data = spellDataSchema.parse(p.data);
       const spellLevels = spellLevelsSchema.parse(p.spellLevels);
       if (normalizeNameKey(p.name) !== normalizeNameKey(item.name)) appendFileSync(reportPath, JSON.stringify({ at: new Date().toISOString(), url: item.url, warning: `page name "${p.name}" != index name "${item.name}"` }) + '\n');
-      const summary = sanitizeSummary(item.summary) || undefined;
+      const rec: ExportRecord = { kind: 'spell', system: 'pf1e', name: p.name, summary: sanitizeSummary(item.summary), sourceUrl: item.url, data, spellLevels };
+      exporter?.write(rec);
       if (o.dryRun) status = 'dry-ok';
-      else status = (await upsertLibraryEntry(prisma!, { kind: 'spell', system: 'pf1e', name: p.name, sourceUrl: item.url, summary: summary ?? '', data, spellLevels })).action;
+      else status = (await upsertLibraryEntry(prisma!, rec)).action;
     } catch (e) {
       status = 'failed';
       const err = e instanceof Error ? e.message : String(e);

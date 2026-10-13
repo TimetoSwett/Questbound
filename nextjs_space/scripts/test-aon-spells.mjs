@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 const P = await import('../lib/aon-spell-parser.ts');
 const L = await import('../lib/library.ts');
-const { createPoliteFetcher } = await import('./import-aon-spells.ts');
+const { createPoliteFetcher, createExporter, readExportFile, loadFromFile } = await import('./import-aon-spells.ts');
+const deepJson = (a, b) => assert.deepEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)));
 const fx = (f) => readFileSync(new URL(`./fixtures/aon/${f}`, import.meta.url), 'utf8');
 
 // index
@@ -93,5 +94,51 @@ console.log('ok   helpers');
     await assert.rejects(pf.get('https://evil.example.com/x'), /Blocked host/);
     console.log('ok   polite fetcher');
   } else console.log('skip polite fetcher (no DNS)');
+}
+// export -> load round trip (temp file, in-memory DB mock implementing the upsert surface)
+{
+  const { mkdtempSync, appendFileSync: app, readFileSync: rf } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const path = `${mkdtempSync(`${tmpdir()}/aon-export-`)}/spells.jsonl`;
+  const recs = ['fireball.html', 'magic-missile.html', 'wish.html'].map((f, i) => {
+    const p = P.parseSpellPage(fx(f));
+    return { kind: 'spell', system: 'pf1e', name: p.name, summary: i === 2 ? '' : `Summary ${i}`, sourceUrl: P.spellUrl(`SpellDisplay.aspx?ItemName=${p.name}`), data: L.spellDataSchema.parse(p.data), spellLevels: p.spellLevels };
+  });
+  let ex = createExporter(path);
+  assert.equal(ex.write(recs[0]), true);
+  assert.equal(ex.write(recs[0]), false, 'no dupes in one run');
+  app(path, JSON.stringify(recs[1]).slice(0, 50)); // simulate a kill mid-write (torn line)
+  ex = createExporter(path); // resume
+  assert.equal(ex.write(recs[0]), false, 'no dupes across resume');
+  assert.equal(ex.write(recs[1]), true); assert.equal(ex.write(recs[2]), true);
+  const read = readExportFile(path);
+  assert.equal(read.records.length, 3); assert.equal(read.bad.length, 1, 'torn line reported, not fatal');
+  assert.ok(rf(path, 'utf8').endsWith('\n'));
+  deepJson(read.records[0], recs[0]);
+  // in-memory db
+  const rows = new Map(); let n = 0;
+  const key = (w) => `${w.kind}|${w.system}|${w.nameKey}`;
+  const db = {
+    libraryEntry: {
+      findUnique: async ({ where }) => { const r = rows.get(key(where.kind_system_nameKey)); return r ? { id: r.id, source: r.source } : null; },
+      create: async ({ data }) => { const r = { ...data, id: `id${++n}`, spellLevels: data.spellLevels.create }; rows.set(key(r), r); return { id: r.id }; },
+      update: async ({ where, data }) => { const r = [...rows.values()].find((x) => x.id === where.id); Object.assign(r, data, data.spellLevels ? { spellLevels: data.spellLevels.create } : {}); return r; },
+    },
+    spellLevel: { deleteMany: async () => ({}) },
+  };
+  let res = await loadFromFile(db, path);
+  deepJson(res.counts, { invalid: 1, created: 3 });
+  const fbRow = rows.get('spell|pf1e|fireball');
+  assert.equal(fbRow.source, 'aon'); assert.equal(fbRow.summary, 'Summary 0'); assert.equal(fbRow.sourceUrl, recs[0].sourceUrl);
+  deepJson(fbRow.data, recs[0].data); deepJson(fbRow.spellLevels, recs[0].spellLevels);
+  assert.ok(rows.get('spell|pf1e|wish').summary.startsWith('Wish is the mightiest spell'), 'empty summary derived from description');
+  rows.get('spell|pf1e|magic missile').source = 'user'; rows.get('spell|pf1e|magic missile').data = { description: 'mine' };
+  res = await loadFromFile(db, path);
+  deepJson(res.counts, { invalid: 1, updated: 2, matched: 1 });
+  assert.equal(rows.get('spell|pf1e|magic missile').data.description, 'mine', 'user entry untouched');
+  assert.equal(rows.get('spell|pf1e|magic missile').matchedAon, true);
+  assert.equal(rows.size, 3, 'idempotent: no new rows');
+  deepJson((await loadFromFile(null, path, { dryRun: true, limit: 2 })).counts, { invalid: 1, valid: 2 });
+  console.log('ok   export/load round trip');
 }
 console.log('AON TESTS: PASS');
