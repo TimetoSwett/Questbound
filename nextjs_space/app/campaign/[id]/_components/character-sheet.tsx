@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Save, Upload, Heart, Swords, Shield, BookOpen, Scroll, Package, Sparkles, FileText, User, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { Save, Upload, Heart, Shield, BookOpen, Package, User, ChevronDown, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -63,10 +63,49 @@ function TextField({ label, value, onChange, disabled, className, placeholder }:
   );
 }
 
-export function CharacterSheet({ characterId, editable }: { characterId: string; editable: boolean }) {
+// Maps old sheet tab ids to the merged tabs (core+combat, feats+skills+spells+notes).
+const SECTION_ALIASES: Record<string, string> = {
+  core: 'core-combat',
+  combat: 'core-combat',
+  feats: 'details',
+  skills: 'details',
+  spells: 'details',
+  notes: 'details',
+};
+
+function resolveSection(key: string): string {
+  return SECTION_ALIASES[key] ?? key;
+}
+
+function CollapsibleSection({ title, actions, children }: { title: string; actions?: React.ReactNode; children: React.ReactNode }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="bg-card rounded-lg border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+      <div className="flex items-center justify-between gap-2 p-4 min-h-[44px]">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="flex items-center gap-2 text-left flex-1"
+        >
+          <h3 className="font-display font-semibold text-sm">{title}</h3>
+          <ChevronDown className={`w-4 h-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+        {actions}
+      </div>
+      {open && <div className="px-4 pb-4">{children}</div>}
+    </div>
+  );
+}
+
+export function CharacterSheet({ characterId, editable, initialSection }: { characterId: string; editable: boolean; initialSection?: string }) {
   const [data, setData] = useState<any>(null);
   const [saving, setSaving] = useState(false);
-  const [section, setSection] = useState<string>('core');
+  // Old tab ids (core, combat, feats, skills, spells, notes) map to the merged tabs.
+  // Keep the state type as string so old tab ids can be resolved at runtime.
+  const [sectionState, setSectionState] = useState(() => resolveSection(initialSection ?? 'core-combat') as string);
+  const setSection = (s: string) => setSectionState(resolveSection(s));
+  const isSection = (key: string): boolean => sectionState === key;
   const [portraitUrl, setPortraitUrl] = useState<string | null>(null);
   const saveTimer = useRef<any>(null);
 
@@ -249,13 +288,9 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
   if (!data) return <div className="text-center py-20 text-muted-foreground">Loading character...</div>;
 
   const sections = [
-    { key: 'core', label: 'Core', icon: User },
-    { key: 'combat', label: 'Combat', icon: Swords },
-    { key: 'skills', label: 'Skills', icon: BookOpen },
+    { key: 'core-combat', label: 'Core & Combat', icon: User },
     { key: 'equipment', label: 'Inventory', icon: Package },
-    { key: 'feats', label: 'Feats', icon: Sparkles },
-    { key: 'spells', label: 'Spells', icon: Sparkles },
-    { key: 'notes', label: 'Notes', icon: FileText },
+    { key: 'details', label: 'Feats, Skills, Spells & Notes', icon: BookOpen },
   ];
 
   return (
@@ -263,9 +298,9 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
       {/* Section tabs */}
       <div className="flex flex-wrap gap-1 bg-card/50 p-1 rounded-lg">
         {sections.map((s) => (
-          <button key={s.key} onClick={() => setSection(s.key)}
+          <button key={s.key} onClick={() => setSection(resolveSection(s.key))}
             className={`flex items-center gap-1 px-3 py-1.5 text-sm rounded-md transition-colors ${
-              section === s.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+              isSection(s.key) ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             }`}>
             <s.icon className="w-3.5 h-3.5" /> {s.label}
           </button>
@@ -277,8 +312,8 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
         </div>
       </div>
 
-      {/* CORE SECTION */}
-      {section === 'core' && (
+      {/* CORE & COMBAT SECTION */}
+      {isSection('core-combat') && (
         <div className="space-y-4">
           {/* Name + Portrait */}
           <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4">
@@ -389,12 +424,8 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
               </div>
             )}
           </div>
-        </div>
-      )}
 
-      {/* COMBAT SECTION */}
-      {section === 'combat' && (
-        <div className="space-y-4">
+      {/* COMBAT (merged into Core & Combat) */}
           <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
             <h3 className="font-display font-semibold text-sm mb-3 flex items-center gap-1"><Shield className="w-4 h-4 text-primary" /> Armor Class</h3>
             <div className="grid grid-cols-3 gap-4 mb-4">
@@ -469,10 +500,10 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
         </div>
       )}
 
-      {/* SKILLS SECTION */}
-      {section === 'skills' && (
-        <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
-          <h3 className="font-display font-semibold text-sm mb-3">Skills</h3>
+      {/* DETAILS TAB: Feats, Skills, Spells & Notes */}
+      {isSection('details') && (
+        <div className="space-y-4">
+          <CollapsibleSection title="Skills">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -531,11 +562,10 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+          </CollapsibleSection>
 
       {/* EQUIPMENT SECTION */}
-      {section === 'equipment' && (
+      {isSection('equipment') && (
         <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-display font-semibold text-sm">Equipment & Inventory</h3>
@@ -573,15 +603,12 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
         </div>
       )}
 
-      {/* FEATS SECTION */}
-      {section === 'feats' && (
-        <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-display font-semibold text-sm">Feats & Special Abilities</h3>
-            {editable && (
+          <CollapsibleSection
+            title="Feats & Special Abilities"
+            actions={editable ? (
               <Button variant="ghost" size="sm" onClick={() => { update('feats', [...(data?.feats ?? []), { name: '', description: '' }]); autoSave(); }}>+ Add Feat</Button>
-            )}
-          </div>
+            ) : undefined}
+          >
           {(data?.feats ?? []).length === 0 ? (
             <p className="text-xs text-muted-foreground py-4 text-center">No feats</p>
           ) : (
@@ -602,12 +629,10 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
               ))}
             </div>
           )}
-        </div>
-      )}
+          </CollapsibleSection>
 
-      {/* SPELLS SECTION */}
-      {section === 'spells' && (
-        <div className="space-y-4">
+          <CollapsibleSection title="Spells">
+          <div className="space-y-4">
           {/* Spell Slots */}
           <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
             <h3 className="font-display font-semibold text-sm mb-3">Spell Slots per Day</h3>
@@ -701,14 +726,12 @@ export function CharacterSheet({ characterId, editable }: { characterId: string;
               </div>
             )}
           </div>
-        </div>
-      )}
+          </div>
+          </CollapsibleSection>
 
-      {/* NOTES SECTION */}
-      {section === 'notes' && (
-        <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
-          <h3 className="font-display font-semibold text-sm mb-3">Notes & Backstory</h3>
+          <CollapsibleSection title="Notes & Backstory">
           <TipTapEditor content={data?.notes ?? ''} onChange={(html: string) => { update('notes', html); autoSave(); }} editable={editable} placeholder="Write your character's backstory, notes, and other details..." />
+          </CollapsibleSection>
         </div>
       )}
     </div>
