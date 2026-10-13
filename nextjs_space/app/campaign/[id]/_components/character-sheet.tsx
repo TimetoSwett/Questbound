@@ -10,6 +10,8 @@ import { PF1E_SKILLS, abilityMod, formatMod } from '@/lib/pf1e-skills';
 import type { SkillDef } from '@/lib/pf1e-skills';
 import { TipTapEditor } from '@/components/tiptap-editor';
 import Image from 'next/image';
+import { SpellPicker } from '@/components/library/spell-picker';
+import { rulesUrl } from '@/components/library/types';
 import { EquipmentEditor } from './equipment-editor';
 import { equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange } from '@/lib/equipment';
 import { AddSpellToLibraryDialog } from './add-spell-dialog';
@@ -20,7 +22,7 @@ const ALIGNMENTS = ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'];
 interface SkillEntry { name: string; ranks: number; classSkill: boolean; misc: number; }
 interface EquipItem { name: string; weight: number; quantity: number; value: string; notes: string; }
 interface FeatEntry { name: string; description: string; }
-interface SpellEntry { name: string; level: number; school: string; description: string; cast: number; maxCast: number; libraryEntryId?: string; }
+interface SpellEntry { name: string; level: number; school: string; description: string; cast: number; maxCast: number; libraryEntryId?: string; sourceUrl?: string | null; }
 interface ClassEntry { name: string; level: number; }
 
 function NumField({ label, value, onChange, disabled, className }: {
@@ -709,12 +711,21 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                 {(data?.spells?.known ?? []).map((spell: SpellEntry, i: number) => (
                   <div key={i} className="p-3 bg-muted/50 rounded-lg">
                     <div className="grid grid-cols-[1fr_50px_80px_60px_56px] gap-2 items-center">
-                      <Input value={spell?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                        const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-                        spells.known = [...(spells.known ?? [])];
-                        spells.known[i] = { ...(spells.known[i] ?? {}), name: e.target.value };
-                        update('spells', spells); autoSave();
-                      }} disabled={!editable} className="h-7 text-xs" placeholder="Spell name" />
+                      <SpellPicker value={spell?.name ?? ''} classes={(data?.classes ?? []).map((cls: ClassEntry) => cls.name)} disabled={!editable}
+                        onChange={(name) => {
+                          const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                          spells.known = [...(spells.known ?? [])];
+                          spells.known[i] = { ...(spells.known[i] ?? {}), name };
+                          update('spells', spells); autoSave();
+                        }} onPick={(entry) => {
+                          const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                          spells.known = [...(spells.known ?? [])];
+                          if (!spells.known[i]) return;
+                          const characterClasses = (data?.classes ?? []).map((cls: ClassEntry) => cls.name.trim().toLowerCase());
+                          const level = entry.spellLevels.find((item) => characterClasses.includes(item.cls.toLowerCase()))?.level ?? entry.spellLevels[0]?.level ?? 0;
+                          spells.known[i] = { ...spells.known[i], name: entry.name, level, school: entry.data.school, description: entry.data.description, sourceUrl: entry.sourceUrl, libraryEntryId: entry.id };
+                          update('spells', spells); autoSave();
+                        }} />
                       <Input type="number" value={spell?.level ?? 0} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                         const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
                         spells.known = [...(spells.known ?? [])];
@@ -754,6 +765,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                         </div>
                       )}
                     </div>
+                    {rulesUrl(spell.sourceUrl) && <a href={rulesUrl(spell.sourceUrl)} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-primary hover:underline">See full rules</a>}
                     <textarea value={spell?.description ?? ''} onChange={(e) => {
                       const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
                       spells.known = [...(spells.known ?? [])];

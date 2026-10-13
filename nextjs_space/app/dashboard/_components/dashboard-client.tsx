@@ -45,6 +45,7 @@ function Header({ userName }: { userName: string }) {
           <span className="font-display text-xl font-bold text-primary tracking-tight">Questbound</span>
         </div>
         <div className="flex items-center gap-3">
+          <Button asChild variant="ghost" size="sm"><Link href="/library">Library</Link></Button>
           <span className="text-sm text-muted-foreground hidden sm:block">Welcome, <span className="text-foreground font-medium">{userName}</span></span>
           <Button variant="ghost" size="sm" onClick={async () => { await signOut({ redirect: false }); window.location.href = '/login'; }}>
             <LogOut className="w-4 h-4 mr-1" /> Sign Out
