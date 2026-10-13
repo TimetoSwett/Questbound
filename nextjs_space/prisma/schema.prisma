@@ -172,6 +172,10 @@ model Character {
 
   // Equipment: [{name, weight, quantity, value, notes}]
   equipment Json @default("[]")
+  // Equipped gear (see lib/equipment.ts for the shape): armor, shield,
+  // weapons, the 14 body slots and 2 unslotted slots. Armor/shield feed
+  // armorBonus/shieldBonus, max Dex, armor check penalty and spell failure.
+  equipped  Json @default("{}")
 
   // Feats: [{name, description}]
   feats Json @default("[]")
