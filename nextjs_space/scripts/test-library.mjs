@@ -83,6 +83,8 @@ assert.equal(lib.numeralAltKey('summon monster 10'), 'summon monster x');
 assert.equal(lib.numeralAltKey('summon monster 1'), 'summon monster i');
 for (const k of ['i', '1', 'invisib', 'magic missile', 'summon monster 11', 'summon monster xi', 'summon monster iv2', 'iron i x']) assert.equal(lib.numeralAltKey(k), k === 'iron i x' ? 'iron i 10' : null, k);
 const nrows = ['summon monster 1', 'summon monster 2', 'greater summon monster 1'].map((nameKey) => ({ nameKey }));
+deq(orderSearchResults(['ward 5', 'ward 50', 'ward v', 'ward vi'].map((nameKey) => ({ nameKey })), 'Ward V', 2).map((r) => r.nameKey), ['ward 5', 'ward v'], 'exact (both forms) before prefix');
+deq(orderSearchResults(['fire shield', 'fire', 'fireball'].map((nameKey) => ({ nameKey })), 'fire', 3).map((r) => r.nameKey), ['fire', 'fire shield', 'fireball']);
 deq(orderSearchResults(nrows, 'Summon Monster I', 10).map((r) => r.nameKey), ['summon monster 1', 'greater summon monster 1', 'summon monster 2']);
 console.log('ok   ordering');
 
@@ -135,6 +137,13 @@ try {
   await mk(`${tag} Ward II`, []);
   r = await s({ q: `${tag} ward 2` }); deq(r.map((x) => x.name), [`${tag} Ward II`], 'digit finds user roman entry');
   r = await s({ q: `${tag}%` }); assert.equal(r.length, 0, 'LIKE still escaped');
+  // exact-first: exact roman + digit forms beat alphabetically-earlier prefix matches, even with a small limit
+  for (const n of ['Rune 50', 'Rune 5', 'Rune V', 'Rune VI', 'Greater Rune V']) await mk(`${tag} ${n}`, []);
+  r = await s({ q: `${tag} rune v`, limit: '2' }); deq(r.map((x) => x.name), [`${tag} Rune 5`, `${tag} Rune V`], 'both exact forms first within limit');
+  r = await s({ q: `${tag} rune v`, limit: '1' }); deq(r.map((x) => x.name), [`${tag} Rune 5`]);
+  r = await s({ q: `${tag} rune v` }); deq(r.map((x) => x.name), [`${tag} Rune 5`, `${tag} Rune V`, `${tag} Rune 50`, `${tag} Rune VI`], 'exact, then prefix, no dupes');
+  r = await s({ q: `rune v`, limit: '50' }); assert.equal(r.filter((x) => x.name.startsWith(tag)).length, 5, 'contains block still included');
+  assert.equal(new Set(r.map((x) => x.id)).size, r.length);
   console.log('ok   DB search ordering & filters');
 
   // upsert matching

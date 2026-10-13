@@ -201,17 +201,19 @@ export function numeralAltKey(key: string): string | null {
   return [...words.slice(0, -1), alt].join(' ');
 }
 
-/** Prefix matches first, then other contains-matches; each block alphabetical by nameKey. */
+/** Exact matches (key or numeral alternate) first, then prefix matches, then other contains-matches; each block alphabetical by nameKey. */
 export function orderSearchResults<T extends { nameKey: string }>(rows: T[], q: string, limit: number): T[] {
   const key = normalizeNameKey(q);
   const alt = numeralAltKey(key);
+  const isExact = (r: T) => Boolean(key) && (r.nameKey === key || (alt !== null && r.nameKey === alt));
   const isPrefix = (r: T) => r.nameKey.startsWith(key) || (alt !== null && r.nameKey.startsWith(alt));
   const seen = new Set<T>();
   const uniq = rows.filter((r) => (seen.has(r) ? false : (seen.add(r), true)));
   const byKey = (a: T, b: T) => (a.nameKey < b.nameKey ? -1 : a.nameKey > b.nameKey ? 1 : 0);
-  const prefix = uniq.filter(isPrefix).sort(byKey);
-  const rest = uniq.filter((r) => !isPrefix(r)).sort(byKey);
-  return [...prefix, ...rest].slice(0, limit);
+  const exact = uniq.filter(isExact).sort(byKey);
+  const prefix = uniq.filter((r) => !isExact(r) && isPrefix(r)).sort(byKey);
+  const rest = uniq.filter((r) => !isExact(r) && !isPrefix(r)).sort(byKey);
+  return [...exact, ...prefix, ...rest].slice(0, limit);
 }
 
 // Minimal structural Prisma client type so callers can pass prisma or a tx.
@@ -227,19 +229,24 @@ export function searchWhere(query: SearchQuery) {
 
 export async function searchLibrary(db: Db, query: SearchQuery) {
   const { key, base } = searchWhere(query);
-  const likes = [key, numeralAltKey(key)].filter((k): k is string => k !== null).map(escapeLike);
+  const keys = [key, numeralAltKey(key)].filter((k): k is string => k !== null);
+  const likes = keys.map(escapeLike);
   const anyOf = (op: 'startsWith' | 'contains') => (likes.length === 1 ? { nameKey: { [op]: likes[0] } } : { OR: likes.map((l) => ({ nameKey: { [op]: l } })) });
   const include = { spellLevels: { select: { cls: true, level: true } } };
   const select = { id: true, kind: true, name: true, nameKey: true, system: true, source: true, sourceUrl: true, matchedAon: true, summary: true, createdById: true, createdAt: true, updatedAt: true, ...include };
-  const prefix = await db.libraryEntry.findMany({ where: { ...base, ...anyOf('startsWith') }, orderBy: { nameKey: 'asc' }, take: query.limit, select });
+  // Exact matches (equals: no LIKE, so the raw keys are used) are fetched first so the limit can't cut them off.
+  const exact: LibraryEntryRow[] = key ? await db.libraryEntry.findMany({ where: { ...base, nameKey: { in: keys } }, orderBy: { nameKey: 'asc' }, take: query.limit, select }) : [];
+  const exactIds = exact.map((r) => r.id);
+  const notExact = exactIds.length ? { id: { notIn: exactIds } } : {};
+  const prefix: LibraryEntryRow[] = exact.length >= query.limit ? [] : await db.libraryEntry.findMany({ where: { AND: [base, anyOf('startsWith'), notExact] }, orderBy: { nameKey: 'asc' }, take: query.limit - exact.length, select });
   let rest: LibraryEntryRow[] = [];
-  if (key && prefix.length < query.limit) {
+  if (key && exact.length + prefix.length < query.limit) {
     rest = await db.libraryEntry.findMany({
-      where: { AND: [base, anyOf('contains'), { NOT: anyOf('startsWith') }] },
-      orderBy: { nameKey: 'asc' }, take: query.limit - prefix.length, select,
+      where: { AND: [base, anyOf('contains'), { NOT: anyOf('startsWith') }, notExact] },
+      orderBy: { nameKey: 'asc' }, take: query.limit - exact.length - prefix.length, select,
     });
   }
-  return orderSearchResults([...prefix, ...rest] as LibraryEntryRow[], key, query.limit);
+  return orderSearchResults([...exact, ...prefix, ...rest] as LibraryEntryRow[], key, query.limit);
 }
 
 // ---- importer upsert ----
