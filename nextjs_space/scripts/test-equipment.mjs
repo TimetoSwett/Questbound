@@ -58,12 +58,14 @@ user = 'other'; assert.equal((await put(valid)).status, 403);
 user = 'owner'; assert.equal((await put({ weapons: Array(51).fill(weapon) })).status, 400);
 const linked = { ...valid, armor: { ...armor, inventoryItemId: 'item' } };
 for (const invalidItem of [[], [{ id: 'item', campaignId: 'other', characterId: 'character' }], [{ id: 'item', campaignId: 'campaign', characterId: 'other' }], [{ id: 'item', campaignId: 'campaign', characterId: null }]]) {
-  carried = invalidItem; assert.equal((await put(linked)).status, 400);
+  carried = invalidItem;
+  const r = await put(linked); assert.equal(r.status, 200);
+  const b = await r.json(); assert.equal(b.equipped.armor.inventoryItemId, null); assert.equal(b.equipped.armor.name, armor.name); assert.equal(b.armorBonus, 6);
 }
-assert.equal(writes, 0);
+assert.equal(writes, 4);
 carried = [{ id: 'item', campaignId: 'campaign', characterId: 'character' }];
 let res = await put(linked); assert.equal(res.status, 200);
 let body = await res.json(); assert.equal(body.armorBonus, 6); assert.equal(body.shieldBonus, 2); assert.equal(body.equipped.armor.inventoryItemId, 'item');
 res = await put({}); body = await res.json(); assert.equal(body.armorBonus, 3); assert.equal(body.shieldBonus, 4);
-character.campaignId = null; assert.equal((await put(linked)).status, 400); assert.equal((await put(valid)).status, 200);
+character.campaignId = null; res = await put(linked); assert.equal(res.status, 200); assert.equal((await res.json()).equipped.armor.inventoryItemId, null); assert.equal((await put(valid)).status, 200);
 console.log('Equipment math, validation, authorization, inventory scoping and save synchronization tests passed.');

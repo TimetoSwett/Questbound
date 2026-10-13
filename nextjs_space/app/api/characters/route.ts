@@ -145,12 +145,20 @@ export async function PUT(request: Request) {
     const ids = [...new Set([equipped.armor, equipped.shield, ...(equipped.weapons ?? []), ...Object.values(equipped.slots ?? {})]
       .flatMap(item => item?.inventoryItemId ? [item.inventoryItemId] : []))];
     if (ids.length) {
-      if (!character.campaignId) return NextResponse.json({ error: 'Inventory links require a campaign' }, { status: 400 });
-      const carried = await prisma.inventoryItem.findMany({
-        where: { id: { in: ids }, campaignId: character.campaignId, characterId: id },
-        select: { id: true },
-      });
-      if (carried.length !== ids.length) return NextResponse.json({ error: 'Equipment must link to inventory carried by this character in this campaign' }, { status: 400 });
+      // Items moved to someone else (or out of the campaign) since the slot was
+      // set just lose the link; the typed name and stats stay and the save goes through.
+      const carried = character.campaignId
+        ? new Set((await prisma.inventoryItem.findMany({
+            where: { id: { in: ids }, campaignId: character.campaignId, characterId: id },
+            select: { id: true },
+          })).map(item => item.id))
+        : new Set<string>();
+      const unlink = <T extends { inventoryItemId?: string | null }>(item: T | null | undefined): T | null | undefined =>
+        item?.inventoryItemId && !carried.has(item.inventoryItemId) ? { ...item, inventoryItemId: null } : item;
+      equipped.armor = unlink(equipped.armor);
+      equipped.shield = unlink(equipped.shield);
+      if (equipped.weapons) equipped.weapons = equipped.weapons.map(w => unlink(w)!);
+      if (equipped.slots) equipped.slots = Object.fromEntries(Object.entries(equipped.slots).map(([k, v]) => [k, unlink(v)])) as typeof equipped.slots;
     }
     data.equipped = equipped;
     const effects = equipmentEffects(equipped, typeof data.armorBonus === 'number' ? data.armorBonus : character.armorBonus, typeof data.shieldBonus === 'number' ? data.shieldBonus : character.shieldBonus);
