@@ -14,11 +14,13 @@ type Listener = (evt: CampaignEvent) => void;
 export const FAST_POLL_MS = 3000;
 export const SLOW_POLL_MS = 30000;
 
-type Ctx = { healthy: boolean; subscribe: (fn: Listener) => () => void };
+export type CampaignStreamPause = null | 'session-expired' | 'not-a-member';
+type Ctx = { healthy: boolean; paused: CampaignStreamPause; subscribe: (fn: Listener) => () => void };
 const CampaignEventsContext = createContext<Ctx | null>(null);
 
 export function CampaignEventsProvider({ campaignId, children }: { campaignId: string; children: ReactNode }) {
   const [healthy, setHealthy] = useState(false);
+  const [paused, setPaused] = useState<CampaignStreamPause>(null);
   const [listeners] = useState(() => new Set<Listener>());
   const subscribe = useCallback((fn: Listener) => {
     listeners.add(fn);
@@ -40,6 +42,8 @@ export function CampaignEventsProvider({ campaignId, children }: { campaignId: s
     let dormantTry = 0;
     let lastFocusCheck = 0;
     let probeAbort: AbortController | null = null;
+    let sessionAbort: AbortController | null = null;
+    let checking = false; // single-flight guard for dormant checks
     const emit = (evt: CampaignEvent) => listeners.forEach((fn) => { try { fn(evt); } catch { /* ignore */ } });
     const clearTimer = () => { if (timer) { clearTimeout(timer); timer = null; } };
     const closeEs = () => { if (es) { es.onerror = null; es.close(); es = null; } };
@@ -60,22 +64,29 @@ export function CampaignEventsProvider({ campaignId, children }: { campaignId: s
       }
     };
     const hasSession = async (): Promise<boolean | null> => {
+      sessionAbort?.abort();
+      const ac = new AbortController();
+      sessionAbort = ac;
       try {
-        const r = await fetch('/api/auth/session', { cache: 'no-store' });
+        const r = await fetch('/api/auth/session', { cache: 'no-store', signal: ac.signal });
         if (!r.ok) return null;
         const d = await r.json().catch(() => null);
         return !!d?.user;
       } catch {
         return null;
+      } finally {
+        if (sessionAbort === ac) sessionAbort = null;
       }
     };
+    const abortChecks = () => { sessionAbort?.abort(); sessionAbort = null; probeAbort?.abort(); probeAbort = null; };
 
     const goDormant = (reason: 'session-expired' | 'not-a-member') => {
       closeEs();
       clearTimer();
       setHealthy(false);
-      if (dormant !== reason) dormantTry = 0;
+      if (dormant !== reason) { dormantTry = 0; abortChecks(); checking = false; }
       dormant = reason;
+      setPaused(reason);
       scheduleDormantCheck();
     };
     const scheduleDormantCheck = () => {
@@ -89,21 +100,27 @@ export function CampaignEventsProvider({ campaignId, children }: { campaignId: s
     };
     const dormantCheck = async () => {
       timer = null;
-      if (disposed || !dormant) return;
-      if (dormant === 'session-expired') {
-        const ok = await hasSession();
+      if (disposed || !dormant || checking) return;
+      checking = true;
+      try {
+        if (dormant === 'session-expired') {
+          const ok = await hasSession();
+          if (disposed || !dormant) return;
+          if (!ok) return scheduleDormantCheck();
+        }
+        const status = await probeStatus();
         if (disposed || !dormant) return;
-        if (!ok) return scheduleDormantCheck();
+        if (status === 200) { dormant = null; dormantTry = 0; retry = 1; setPaused(null); connect(); return; }
+        if (status === 401 && dormant !== 'session-expired') { dormant = 'session-expired'; dormantTry = 0; setPaused(dormant); }
+        else if (status === 403 && dormant !== 'not-a-member') { dormant = 'not-a-member'; dormantTry = 0; setPaused(dormant); }
+        scheduleDormantCheck();
+      } finally {
+        checking = false;
       }
-      const status = await probeStatus();
-      if (disposed || !dormant) return;
-      if (status === 200) { dormant = null; dormantTry = 0; retry = 1; connect(); return; }
-      if (status === 401) dormant = 'session-expired';
-      else if (status === 403) dormant = 'not-a-member';
-      scheduleDormantCheck();
     };
     const onFocus = () => {
-      if (!dormant || disposed || document.visibilityState === 'hidden') return;
+      // Single-flight: never start a second check or advance backoff while one runs.
+      if (!dormant || disposed || checking || document.visibilityState === 'hidden') return;
       const now = Date.now();
       // Throttle focus checks: 5s for expired sessions, 60s for removed members.
       if (now - lastFocusCheck < (dormant === 'session-expired' ? 5000 : 60000)) return;
@@ -160,7 +177,7 @@ export function CampaignEventsProvider({ campaignId, children }: { campaignId: s
       disposed = true;
       dormant = null;
       clearTimer();
-      probeAbort?.abort();
+      abortChecks();
       closeEs();
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onFocus);
@@ -168,16 +185,18 @@ export function CampaignEventsProvider({ campaignId, children }: { campaignId: s
     };
   }, [campaignId, listeners]);
 
-  const value = useMemo(() => ({ healthy, subscribe }), [healthy, subscribe]);
+  const value = useMemo(() => ({ healthy, paused, subscribe }), [healthy, paused, subscribe]);
   return createElement(CampaignEventsContext.Provider, { value }, children);
 }
 
 /**
  * Call `onChange` (debounced) when one of `topics` is invalidated, or after a
  * reconnect. Returns the poll interval to use: slow while the stream is
- * healthy, fast otherwise (and when there is no provider).
+ * healthy, fast otherwise (and when there is no provider), or null while the
+ * stream is paused (signed out / removed): callers must not poll then; a full
+ * 'resync' fires when access returns.
  */
-export function useCampaignTopic(topics: CampaignTopic[], onChange: (evt: CampaignEvent) => void, debounceMs = 150): number {
+export function useCampaignTopic(topics: CampaignTopic[], onChange: (evt: CampaignEvent) => void, debounceMs = 150): number | null {
   const ctx = useContext(CampaignEventsContext);
   const cbRef = useRef(onChange);
   useEffect(() => { cbRef.current = onChange; }, [onChange]);
@@ -196,5 +215,6 @@ export function useCampaignTopic(topics: CampaignTopic[], onChange: (evt: Campai
     });
     return () => { unsub(); if (timer) clearTimeout(timer); };
   }, [ctx, key, debounceMs]);
+  if (ctx?.paused) return null;
   return ctx?.healthy ? SLOW_POLL_MS : FAST_POLL_MS;
 }

@@ -97,6 +97,7 @@ export function RollLog({ campaignId, role }: { campaignId: string; role: string
   // (slow while the stream is healthy). The GET route filters secret rolls.
   const pollMs = useCampaignTopic(['rolls'], fetchNew);
   useEffect(() => {
+    if (pollMs === null) return; // stream paused (signed out / removed): no polling
     const t = setInterval(fetchNew, pollMs);
     return () => clearInterval(t);
   }, [fetchNew, pollMs]);

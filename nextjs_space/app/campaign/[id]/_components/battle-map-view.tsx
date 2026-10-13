@@ -341,6 +341,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   useEffect(() => { liveLoadRef.current = () => { void liveLoad(); }; }, [liveLoad]);
   const pollMs = useCampaignTopic(['battle'], liveLoad);
   useEffect(() => {
+    if (pollMs === null) return; // stream paused (signed out / removed): no polling
     const id = setInterval(() => { liveLoad(); }, pollMs);
     return () => clearInterval(id);
   }, [pollMs, liveLoad]);
