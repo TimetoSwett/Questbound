@@ -67,3 +67,14 @@ export function weaponTotals(weapon: Weapon, bab: number, strMod: number, dexMod
     damage: `${weapon.damage}${damageBonus === 0 ? '' : damageBonus > 0 ? `+${damageBonus}` : damageBonus}`,
   };
 }
+
+/** True when a named armor/shield piece is equipped (blank names are placeholders). */
+export function hasPiece(equipped: Equipped | null | undefined, key: 'armor' | 'shield'): boolean {
+  return !!equipped?.[key]?.name?.trim();
+}
+
+/** Manual armor/shield bonus to keep after an equipment change: unequipping a piece resets it to 0
+ *  (the stored bonus was the piece's own AC bonus, so keeping it would leave the AC applied). */
+export function manualBonusAfterChange(previous: Equipped | null | undefined, next: Equipped | null | undefined, key: 'armor' | 'shield', current: number): number {
+  return hasPiece(previous, key) && !hasPiece(next, key) ? 0 : current;
+}

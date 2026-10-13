@@ -5,7 +5,7 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
 import { equippedSchema } from '@/lib/equipment-validation';
-import { equipmentEffects } from '@/lib/equipment';
+import { equipmentEffects, manualBonusAfterChange, type Equipped } from '@/lib/equipment';
 import { removeCharacterTokens } from '@/lib/battle-map';
 
 export async function GET(request: Request) {
@@ -161,7 +161,11 @@ export async function PUT(request: Request) {
       if (equipped.slots) equipped.slots = Object.fromEntries(Object.entries(equipped.slots).map(([k, v]) => [k, unlink(v)])) as typeof equipped.slots;
     }
     data.equipped = equipped;
-    const effects = equipmentEffects(equipped, typeof data.armorBonus === 'number' ? data.armorBonus : character.armorBonus, typeof data.shieldBonus === 'number' ? data.shieldBonus : character.shieldBonus);
+    // An explicitly changed manual bonus wins; otherwise unequipping resets the stale piece bonus.
+    const previous = (character.equipped ?? null) as Equipped | null;
+    const baseArmor = (typeof data.armorBonus === 'number' && data.armorBonus !== character.armorBonus) ? data.armorBonus : manualBonusAfterChange(previous, equipped, 'armor', character.armorBonus);
+    const baseShield = (typeof data.shieldBonus === 'number' && data.shieldBonus !== character.shieldBonus) ? data.shieldBonus : manualBonusAfterChange(previous, equipped, 'shield', character.shieldBonus);
+    const effects = equipmentEffects(equipped, baseArmor, baseShield);
     data.armorBonus = effects.armorBonus;
     data.shieldBonus = effects.shieldBonus;
   }

@@ -11,7 +11,7 @@ import type { SkillDef } from '@/lib/pf1e-skills';
 import { TipTapEditor } from '@/components/tiptap-editor';
 import Image from 'next/image';
 import { EquipmentEditor } from './equipment-editor';
-import { equipmentEffects, equipmentSkillPenalty } from '@/lib/equipment';
+import { equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange } from '@/lib/equipment';
 
 const SIZES = ['Fine', 'Diminutive', 'Tiny', 'Small', 'Medium', 'Large', 'Huge', 'Gargantuan', 'Colossal'];
 const ALIGNMENTS = ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'];
@@ -556,7 +556,15 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
 
       {isSection('equipped') && <EquipmentEditor value={data.equipped ?? {}} characterId={characterId} campaignId={data.campaignId} editable={editable}
         bab={Number(data.bab) || 0} strMod={stats?.strMod ?? 0} dexMod={stats?.dexMod ?? 0} sizeMod={Number(data.sizeMod) || 0}
-        onChange={value => { update('equipped', value); autoSave(); }} />}
+        onChange={value => {
+          for (const key of ['armor', 'shield'] as const) {
+            const field = key === 'armor' ? 'armorBonus' : 'shieldBonus';
+            const current = parseInt(data[field]) || 0;
+            const next = manualBonusAfterChange(data.equipped, value, key, current);
+            if (next !== current) update(field, next);
+          }
+          update('equipped', value); autoSave();
+        }} />}
 
       {/* DETAILS TAB: Feats, Skills, Spells & Notes */}
       {isSection('details') && (
