@@ -8,7 +8,7 @@ function load(path, mocks = {}) {
   const source = readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
   const exports = {};
-  runInNewContext(js, { exports, URL, require: name => name in mocks ? mocks[name] : require(name) });
+  runInNewContext(js, { exports, URL, Buffer, require: name => name in mocks ? mocks[name] : require(name) });
   return exports;
 }
 const equipment = load('lib/equipment.ts');
@@ -34,6 +34,21 @@ assert.equal(weaponTotals({ ...weapon, ability: 'dex' }, 6, 3, 5, 1).attack, 13)
 assert.equal(weaponTotals(weapon, 6, 3, 5).damage, '1d8+5');
 assert.equal(weaponTotals({ ...weapon, damageBonus: 0 }, 0, -2, 0).damage, '1d8-2');
 assert.equal(weaponTotals({ ...weapon, damageBonus: 0 }, 0, 0, 0).damage, '1d8');
+for (const category of ['melee', 'thrown', 'composite']) {
+  assert.equal(weaponTotals({ ...weapon, category, ability: 'dex' }, 6, 3, 5).damage, '1d8+5');
+  assert.equal(weaponTotals({ ...weapon, category, damageBonus: 0 }, 0, -2, 0).damage, '1d8-2');
+}
+assert.equal(weaponTotals({ ...weapon, category: 'ranged' }, 6, 3, 5).damage, '1d8+2');
+assert.equal(weaponTotals({ ...weapon, category: 'ranged', damageBonus: 0 }, 0, -2, 0).damage, '1d8');
+for (const category of ['melee', 'ranged', 'thrown', 'composite']) assert.equal(validation.equippedSchema.safeParse({ weapons: [{ ...weapon, category }] }).success, true);
+assert.equal(validation.equippedSchema.safeParse({ weapons: [{ ...weapon, category: 'invalid' }] }).success, false);
+const legacy = validation.equippedSchema.parse({ weapons: [{ ...weapon, range: 60 }] }).weapons[0];
+assert.equal(legacy.range, 60);
+assert.equal(legacy.category, undefined);
+assert.equal(JSON.stringify(legacy), JSON.stringify({ ...weapon, range: 60 }));
+assert.equal(weaponTotals(legacy, 6, 3, 5).damage, '1d8+5');
+for (const range of [undefined, 'ranged', -1, 1.5, 100001]) assert.equal(validation.equippedSchema.safeParse({ weapons: [{ ...weapon, range }] }).success, false);
+assert.equal(validation.equippedSchema.safeParse({ weapons: [{ ...weapon, rangeFeet: 60 }] }).success, false);
 const valid = { armor, shield, weapons: [weapon], slots: { head: { name: 'Hat' }, unslotted2: null } };
 assert.equal(validation.equippedSchema.safeParse(valid).success, true);
 for (const invalid of [null, 'bad', { armor: { ...armor, name: 'x'.repeat(201) } }, { shield: { ...shield, spellFailure: 101 } }, { armor: { ...armor, checkPenalty: 1 } }, { armor: { ...armor, maxDex: Infinity } }, { weapons: Array(51).fill(weapon) }, { weapons: [{ ...weapon, ability: 'wis' }] }, { slots: { extra: { name: 'Bad' } } }, { slots: { head: { name: 'Hat', inventoryItemId: '' } } }]) assert.equal(validation.equippedSchema.safeParse(invalid).success, false);
@@ -56,6 +71,17 @@ const put = equipped => route.PUT(new Request('https://test/api', { method: 'PUT
 user = null; assert.equal((await put(valid)).status, 401);
 user = 'other'; assert.equal((await put(valid)).status, 403);
 user = 'owner'; assert.equal((await put({ weapons: Array(51).fill(weapon) })).status, 400);
+const oversized = { slots: { head: { name: 'Hat', notes: 'é'.repeat(32768) } } };
+assert.ok(JSON.stringify(oversized).length < 64 * 1024);
+const tooLarge = await put(oversized);
+assert.equal(tooLarge.status, 413);
+assert.match((await tooLarge.json()).error, /64 KiB/);
+assert.equal(writes, 0);
+// At the byte limit, schema validation still runs (this payload has an unknown field).
+const atLimit = { padding: 'x'.repeat(64 * 1024 - Buffer.byteLength(JSON.stringify({ padding: '' }))) };
+assert.equal(Buffer.byteLength(JSON.stringify(atLimit)), 64 * 1024);
+assert.equal((await put(atLimit)).status, 400);
+assert.equal((await put({ padding: atLimit.padding + 'x' })).status, 413);
 const linked = { ...valid, armor: { ...armor, inventoryItemId: 'item' } };
 for (const invalidItem of [[], [{ id: 'item', campaignId: 'other', characterId: 'character' }], [{ id: 'item', campaignId: 'campaign', characterId: 'other' }], [{ id: 'item', campaignId: 'campaign', characterId: null }]]) {
   carried = invalidItem;

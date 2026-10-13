@@ -68,10 +68,11 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
             <div><Label>Attack ability</Label><select aria-label="Attack ability" className="w-full min-h-[44px] rounded-md border bg-card" disabled={!editable} value={weapon.ability} onChange={e => change({ ...weapon, ability: e.target.value as 'str' | 'dex' })}><option value="str">Strength</option><option value="dex">Dexterity</option></select></div>
             {(['damage', 'crit', 'type'] as const).map(field => <div key={field}><Label>{field === 'damage' ? 'Damage dice' : field === 'crit' ? 'Critical' : 'Damage type'}</Label><Input aria-label={field} maxLength={100} value={weapon[field]} disabled={!editable} onChange={e => change({ ...weapon, [field]: e.target.value })} /></div>)}
             {numeric('Damage bonus', weapon.damageBonus, v => change({ ...weapon, damageBonus: v ?? 0 }))}
+            <div><Label>Weapon category</Label><select aria-label="Weapon category" className="w-full min-h-[44px] rounded-md border bg-card" disabled={!editable} value={weapon.category ?? 'melee'} onChange={e => change({ ...weapon, category: e.target.value as Weapon['category'] })}><option value="melee">Melee</option><option value="ranged">Ranged</option><option value="thrown">Thrown</option><option value="composite">Composite</option></select></div>
             {numeric('Range (ft)', weapon.range, v => change({ ...weapon, range: v ?? 0 }), false, 0, 100000)}
           </div>
           <p className="font-mono text-sm">Attack {formatMod(totals.attack)} · Damage {totals.damage}</p>
-          <p className="text-xs text-muted-foreground">Attack includes BAB, selected ability, bonus and size. Damage includes Strength and damage bonus.</p>
+          <p className="text-xs text-muted-foreground">Attack includes BAB, selected ability, bonus and size. Damage includes damage bonus, plus Strength for melee, thrown and composite weapons.</p>
           {editable && <Button variant="ghost" onClick={() => onChange({ ...value, weapons: value.weapons?.filter((_, i) => i !== index) })}>Remove weapon</Button>}
         </div>;
       })}

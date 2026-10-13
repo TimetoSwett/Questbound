@@ -93,6 +93,9 @@ export async function PUT(request: Request) {
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
+  if (Object.prototype.hasOwnProperty.call(body, 'equipped') && Buffer.byteLength(JSON.stringify(body.equipped)) > 64 * 1024) {
+    return NextResponse.json({ error: 'Equipped equipment exceeds the 64 KiB size limit' }, { status: 413 });
+  }
   const { id } = body;
   if (!id) return NextResponse.json({ error: 'Character id required' }, { status: 400 });
 

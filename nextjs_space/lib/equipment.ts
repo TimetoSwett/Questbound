@@ -28,6 +28,7 @@ export interface Weapon extends SlotItem {
   damageBonus: number;
   crit: string;             // e.g. "19-20/x2"
   range: number;            // ft, 0 = melee
+  category?: 'melee' | 'ranged' | 'thrown' | 'composite'; // missing = melee
   type: string;             // e.g. "S", "P", "B/P"
 }
 
@@ -59,9 +60,9 @@ export function equipmentSkillPenalty(ability: string, checkPenalty: number) {
   return ['STR', 'DEX'].includes(ability.toUpperCase()) ? checkPenalty : 0;
 }
 
-/** Damage uses Strength; choosing Dex changes only the attack ability. */
+/** Only melee, thrown and composite weapons add Strength to damage. */
 export function weaponTotals(weapon: Weapon, bab: number, strMod: number, dexMod: number, sizeMod = 0) {
-  const damageBonus = strMod + weapon.damageBonus;
+  const damageBonus = (weapon.category === 'ranged' ? 0 : strMod) + weapon.damageBonus;
   return {
     attack: bab + (weapon.ability === 'dex' ? dexMod : strMod) + weapon.attackBonus + sizeMod,
     damage: `${weapon.damage}${damageBonus === 0 ? '' : damageBonus > 0 ? `+${damageBonus}` : damageBonus}`,

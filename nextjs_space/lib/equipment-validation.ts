@@ -20,6 +20,7 @@ const weapon = slot.extend({
   damageBonus: number,
   crit: z.string().max(100),
   range: z.number().int().min(0).max(100000),
+  category: z.enum(['melee', 'ranged', 'thrown', 'composite']).optional(),
   type: z.string().max(100),
 });
 export const equippedSchema = z.object({
