@@ -1,7 +1,5 @@
 'use client';
-// Client access to library term endpoints. The real backend is in progress; until it ships,
-// a dev-only mock is used when NEXT_PUBLIC_LIBRARY_TERMS_MOCK=1, or (outside production) when
-// the real endpoint returns 404. Delete the mock block once the endpoints exist.
+// Client access to the library term endpoints (/api/library/terms, /lookup, /[id]).
 import type { TermRow } from '@/lib/library-term-match';
 
 export type TermMatch = { id: string; name: string; kind: string; summary: string; sourceUrl: string | null };
@@ -9,49 +7,6 @@ export type FullEntry = { id: string; name: string; kind: string; summary?: stri
 
 export const LOOKUP_MAX_TERMS = 50;
 export const LOOKUP_MAX_TERM_CHARS = 80;
-
-const FORCE_MOCK = process.env.NEXT_PUBLIC_LIBRARY_TERMS_MOCK === '1';
-const MOCK_ALLOWED = FORCE_MOCK || process.env.NODE_ENV !== 'production';
-
-// ---------------- dev mock ----------------
-type MockRule = TermMatch & { aliases: string[]; category: string; format: string; text: string };
-const MOCK_RULES: MockRule[] = [
-  { id: 'mock-grab', name: 'Grab', kind: 'rule', aliases: [], category: 'Universal Monster Rule', format: 'grab (attack)',
-    summary: 'If the creature hits with the listed attack, it can start a grapple as a free action without provoking.',
-    sourceUrl: 'https://aonprd.com/UMR.aspx?ItemName=Grab',
-    text: 'If a creature with this special attack hits with the indicated attack, it deals normal damage and attempts to start a grapple as a free action without provoking an attack of opportunity. It gains a +4 bonus on combat maneuver checks made to start and maintain a grapple.' },
-  { id: 'mock-greater-grab', name: 'Greater Grab', kind: 'rule', aliases: [], category: 'Universal Monster Rule', format: 'greater grab',
-    summary: 'Maintaining a grapple is a move action, and successful checks deal the grab attack\'s damage.',
-    sourceUrl: 'https://aonprd.com/UMR.aspx?ItemName=Greater%20Grab',
-    text: 'A creature with this ability can maintain a grapple as a move action. Each successful grapple check it makes during successive rounds automatically deals the damage indicated for the attack that established the hold.' },
-  { id: 'mock-rend', name: 'Rend', kind: 'rule', aliases: [], category: 'Universal Monster Rule', format: 'rend (2 claws, 1d8+9)',
-    summary: 'If it hits with both listed attacks in a round, it latches on and tears flesh for extra damage.',
-    sourceUrl: 'https://aonprd.com/UMR.aspx?ItemName=Rend',
-    text: 'If it hits with both of the listed attacks in 1 round, a creature with the rend special attack latches onto the opponent\'s body and tears the flesh. This attack deals an additional amount of damage, but no more than once per round.' },
-  { id: 'mock-pounce', name: 'Pounce', kind: 'rule', aliases: [], category: 'Universal Monster Rule', format: 'pounce',
-    summary: 'When it charges, the creature can make a full attack.',
-    sourceUrl: 'https://aonprd.com/UMR.aspx?ItemName=Pounce',
-    text: 'When a creature with this special attack makes a charge, it can make a full attack (including rake attacks if the creature also has the rake ability).' },
-  { id: 'mock-dr', name: 'Damage Reduction', kind: 'rule', aliases: ['DR'], category: 'Universal Monster Rule', format: 'DR 5/silver',
-    summary: 'Ignores a set amount of damage from most weapons and natural attacks.',
-    sourceUrl: 'https://aonprd.com/UMR.aspx?ItemName=Damage%20Reduction',
-    text: 'A creature with this special quality ignores damage from most weapons and natural attacks. Wounds heal immediately, or the weapon bounces off harmlessly.' },
-];
-const mockTerms = (): TermRow[] => MOCK_RULES
-  .flatMap(r => [r.name, ...r.aliases].map(term => ({ term, entryId: r.id, kind: r.kind })))
-  .sort((a, b) => b.term.length - a.term.length);
-const mockLookup = (terms: string[]) => terms.map(term => {
-  const t = term.toLowerCase();
-  const r = MOCK_RULES.find(x => [x.name, ...x.aliases].some(n => n.toLowerCase() === t));
-  return { term, match: r ? { id: r.id, name: r.name, kind: r.kind, summary: r.summary, sourceUrl: r.sourceUrl } : null };
-});
-const mockEntry = (id: string): FullEntry | null => {
-  const r = MOCK_RULES.find(x => x.id === id);
-  return r ? { id: r.id, name: r.name, kind: r.kind, summary: r.summary, sourceUrl: r.sourceUrl,
-    data: { category: r.category, format: r.format, text: r.text, aliases: r.aliases } } : null;
-};
-const isMockId = (id: string) => id.startsWith('mock-');
-// ------------------------------------------
 
 // Term list: in-memory cache plus sessionStorage, revalidated with If-None-Match.
 type TermCache = { etag: string | null; terms: TermRow[] };
@@ -76,13 +31,11 @@ export function fetchLibraryTerms(system = 'pf1e', kind = 'rule'): Promise<TermR
   const pending = termRequests.get(key);
   if (pending) return pending;
   const request = (async () => {
-    if (FORCE_MOCK) return mockTerms();
     const cached = termCache.get(key) ?? readStored(key);
     const headers: HeadersInit = cached?.etag ? { 'If-None-Match': cached.etag } : {};
     try {
       const res = await fetch(`/api/library/terms?${new URLSearchParams({ system, kind })}`, { headers, cache: 'no-cache' });
       if (res.status === 304 && cached) { termCache.set(key, cached); return cached.terms; }
-      if (res.status === 404 && MOCK_ALLOWED) return mockTerms();
       if (!res.ok) return cached?.terms ?? [];
       const body: unknown = await res.json();
       const terms = Array.isArray(body) ? body.filter(isTermRow) : [];
@@ -106,12 +59,10 @@ let queue: { term: string; resolve: (m: TermMatch | null) => void }[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function postLookup(terms: string[]): Promise<(TermMatch | null)[]> {
-  if (FORCE_MOCK) return mockLookup(terms).map(r => r.match);
   try {
     const res = await fetch('/api/library/lookup', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ terms }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ terms, kind: 'rule', system: 'pf1e' }),
     });
-    if (res.status === 404 && MOCK_ALLOWED) return mockLookup(terms).map(r => r.match);
     if (!res.ok) return terms.map(() => null);
     const body: unknown = await res.json();
     return terms.map((_, i) => {
@@ -153,7 +104,6 @@ export function fetchLibraryEntry(id: string): Promise<FullEntry | null> {
   const hit = entryCache.get(id);
   if (hit) return hit;
   const p = (async () => {
-    if (isMockId(id)) return MOCK_ALLOWED ? mockEntry(id) : null;
     try {
       const res = await fetch(`/api/library/${encodeURIComponent(id)}`);
       return res.ok ? await res.json() as FullEntry : null;
