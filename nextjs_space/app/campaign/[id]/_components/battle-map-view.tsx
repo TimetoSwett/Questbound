@@ -273,6 +273,10 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   const baseTokensRef = useRef<Token[]>([]);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingSavesRef = useRef(0);
+  // DM only: while a dialog/popover is open on the map, live refetches are
+  // deferred (flag only; on close we refetch, which yields the latest state).
+  const dmDialogOpenRef = useRef(false);
+  const deferredLiveRef = useRef(false);
 
   const fetchBattle = useCallback(async () => {
     const res = await fetch(`/api/maps/battle?campaignId=${campaignId}`);
@@ -322,8 +326,10 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   const liveLoad = useCallback(async (evt?: CampaignEvent) => {
     if (evt?.version !== undefined && evt.version <= versionRef.current) return;
     if (isDM && pendingSavesRef.current > 0) return;
+    if (isDM && dmDialogOpenRef.current) { deferredLiveRef.current = true; return; }
     const d = await fetchBattle();
     if (!d) return;
+    if (isDM && dmDialogOpenRef.current) { deferredLiveRef.current = true; return; }
     const v = Number.isInteger(d?.version) ? d.version : 0;
     if (v < versionRef.current) return;
     if (isDM && (v === versionRef.current || pendingSavesRef.current > 0)) return;
@@ -981,6 +987,20 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   const [handoutOpen, setHandoutOpen] = useState(false);
   const [pushingHandout, setPushingHandout] = useState(false);
   const [dismissedHandout, setDismissedHandout] = useState<number | null>(null);
+
+  // Any DM dialog / popover / inline editor open on the map defers live updates.
+  const dmDialogOpen = isDM && !!(
+    newTokenOpen || settingsOpen || handoutOpen || pinDialog || paletteOpen ||
+    encOpen || encNameOpen || snapOpen || snapNameOpen || confirmRestore ||
+    hpEditId || condOpenId || textDraft
+  );
+  useEffect(() => {
+    dmDialogOpenRef.current = dmDialogOpen;
+    if (!dmDialogOpen && deferredLiveRef.current) {
+      deferredLiveRef.current = false;
+      liveLoad();
+    }
+  }, [dmDialogOpen, liveLoad]);
 
   const pushHandoutKey = async (key: string) => {
     setPushingHandout(true);
