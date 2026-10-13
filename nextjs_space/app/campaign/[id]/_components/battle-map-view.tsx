@@ -277,6 +277,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   // deferred (flag only; on close we refetch, which yields the latest state).
   const dmDialogOpenRef = useRef(false);
   const deferredLiveRef = useRef(false);
+  const bypassHoldRef = useRef(false); // set by the 15s hold safety cap
   const liveLoadRef = useRef<() => void>(() => {});
 
   const fetchBattle = useCallback(async () => {
@@ -328,10 +329,10 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
     if (evt?.version !== undefined && evt.version <= versionRef.current) return;
     // Deferred (not dropped) while a DM save is in flight; replayed when saves settle.
     if (isDM && pendingSavesRef.current > 0) { deferredLiveRef.current = true; return; }
-    if (isDM && dmDialogOpenRef.current) { deferredLiveRef.current = true; return; }
+    if (isDM && dmDialogOpenRef.current && !bypassHoldRef.current) { deferredLiveRef.current = true; return; }
     const d = await fetchBattle();
     if (!d) return;
-    if (isDM && dmDialogOpenRef.current) { deferredLiveRef.current = true; return; }
+    if (isDM && dmDialogOpenRef.current && !bypassHoldRef.current) { deferredLiveRef.current = true; return; }
     const v = Number.isInteger(d?.version) ? d.version : 0;
     if (v < versionRef.current) return;
     if (isDM && pendingSavesRef.current > 0) { deferredLiveRef.current = true; return; }
@@ -1006,9 +1007,12 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   // Any DM dialog / popover / inline editor open on the map defers live updates.
   // The Bestiary, Encounters and Snapshots panels are side panels GMs leave expanded, not
   // editors; counting them held every player move until they were collapsed.
+  // A pin opened in view mode is read-only. Name inputs and the restore confirm
+  // render inside their panels, and collapsing doesn't clear them, so they only
+  // hold while that panel is expanded (otherwise an invisible hold lingers).
   const dmDialogOpen = isDM && !!(
-    newTokenOpen || settingsOpen || handoutOpen || pinDialog ||
-    encNameOpen || snapNameOpen || confirmRestore ||
+    newTokenOpen || settingsOpen || handoutOpen || pinDialog?.mode === 'edit' ||
+    (encOpen && encNameOpen) || (snapOpen && (snapNameOpen || confirmRestore)) ||
     hpEditId || condOpenId || textDraft
   );
   useEffect(() => {
@@ -1017,6 +1021,18 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
       deferredLiveRef.current = false;
       liveLoad();
     }
+  }, [dmDialogOpen, liveLoad]);
+  // Safety cap: a held reload still applies every 15s, so a forgotten editor
+  // can't freeze the GM map. Pending saves are still respected.
+  useEffect(() => {
+    if (!dmDialogOpen) return;
+    const id = setInterval(() => {
+      if (!deferredLiveRef.current || pendingSavesRef.current > 0) return;
+      deferredLiveRef.current = false;
+      bypassHoldRef.current = true;
+      void liveLoad().finally(() => { bypassHoldRef.current = false; });
+    }, 15000);
+    return () => clearInterval(id);
   }, [dmDialogOpen, liveLoad]);
 
   const pushHandoutKey = async (key: string) => {
