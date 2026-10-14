@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { signOut } from 'next-auth/react';
 import { Shield, Plus, LogOut, Scroll, Swords, Users, ArrowRight, ChevronRight, Trash2, FolderPlus } from 'lucide-react';
@@ -37,7 +37,7 @@ interface VaultChar {
   createdAt: string;
 }
 
-function Header({ userName }: { userName: string }) {
+function Header({ userName, current }: { userName: string; current: string }) {
   return (
     <header className="sticky top-0 z-50 bg-card/80 backdrop-blur-md border-b border-border">
       <div className="max-w-5xl mx-auto flex items-center justify-between px-4 py-3">
@@ -46,7 +46,7 @@ function Header({ userName }: { userName: string }) {
           <span className="font-display text-xl font-bold text-primary tracking-tight">Questbound</span>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <HallNav />
+          <HallNav current={current} />
           <span className="text-sm text-muted-foreground hidden sm:block">Welcome, <span className="text-foreground font-medium">{userName}</span></span>
           <Button variant="ghost" size="sm" onClick={async () => { await signOut({ redirect: false }); window.location.href = '/login'; }}>
             <LogOut className="w-4 h-4 mr-1" /> Sign Out
@@ -66,7 +66,7 @@ function classSummary(classes: any): string {
 
 export function DashboardClient({ userId, userName }: { userId: string; userName: string }) {
   const router = useRouter();
-  const [view, setView] = useState<'campaigns' | 'vault'>('campaigns');
+  const view = useSearchParams().get('view') === 'vault' ? 'vault' : 'campaigns';
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
@@ -78,6 +78,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
   const [vault, setVault] = useState<VaultChar[]>([]);
   const [vaultLoading, setVaultLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const navCurrent = editingId || view === 'vault' ? '/dashboard?view=vault' : '/dashboard';
   const [attachChar, setAttachChar] = useState<VaultChar | null>(null);
 
   const requestCampaigns = useCallback(async () => {
@@ -209,7 +210,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
   if (editingId) {
     return (
       <div className="min-h-screen bg-background">
-        <Header userName={userName} />
+        <Header userName={userName} current={navCurrent} />
         <main className="max-w-6xl mx-auto px-4 py-4">
           <Button variant="ghost" size="sm" onClick={() => { setEditingId(null); fetchVault(); }} className="mb-4">
             <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to vault
@@ -222,7 +223,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
 
   return (
     <div className="min-h-screen bg-background">
-      <Header userName={userName} />
+      <Header userName={userName} current={navCurrent} />
 
       <main className="max-w-5xl mx-auto px-4 py-8">
         <FadeIn>
@@ -263,16 +264,6 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
             </div>
           </div>
         </FadeIn>
-
-        {/* View toggle */}
-        <div className="flex gap-2 mb-6">
-          <Button variant={view === 'campaigns' ? 'default' : 'secondary'} size="sm" onClick={() => setView('campaigns')}>
-            <Swords className="w-4 h-4 mr-1" /> Campaigns
-          </Button>
-          <Button variant={view === 'vault' ? 'default' : 'secondary'} size="sm" onClick={() => setView('vault')}>
-            <Scroll className="w-4 h-4 mr-1" /> Character Vault
-          </Button>
-        </div>
 
         {view === 'campaigns' ? (
           loading ? (

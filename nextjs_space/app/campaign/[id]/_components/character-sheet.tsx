@@ -18,7 +18,7 @@ import { newSpellClientId } from '@/lib/spell-client-id';
 import { EquipmentEditor, BonusEditor } from './equipment-editor';
 import { SheetEffects } from './sheet-effects';
 import { sheetAdjustment } from '@/lib/conditions';
-import { bonusLabel, equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange, type ItemBonus } from '@/lib/equipment';
+import { bonusLabel, equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange, weaponTotals, type ItemBonus } from '@/lib/equipment';
 import { AddSpellToLibraryDialog } from './add-spell-dialog';
 import { AddSpellSearchDialog } from './add-spell-search-dialog';
 import { CatalogSearchDialog } from '@/components/library/catalog-search-dialog';
@@ -420,7 +420,6 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
       {/* CORE & COMBAT SECTION */}
       {isSection('core-combat') && (
         <div className="space-y-4">
-          <SheetEffects equipped={data.equipped ?? {}} editable={editable} onChange={next => { update('equipped', next); autoSave(); }} />
           {/* Name + Portrait */}
           <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4">
             <div className="space-y-3">
@@ -584,6 +583,45 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             </div>
           </div>
 
+          <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+            <h3 className="font-display font-semibold text-sm mb-3">Attack mods</h3>
+            {(data?.equipped?.weapons ?? []).filter((weapon: { name?: string }) => weapon?.name?.trim()).length === 0 ? (
+              <p className="text-xs text-muted-foreground">No weapons equipped. Add them on the Equipment tab.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-muted-foreground border-b border-border">
+                      <th className="text-left py-1 px-1">Weapon</th>
+                      <th className="text-center py-1 px-1">Ability</th>
+                      <th className="text-center py-1 px-1">BAB</th>
+                      <th className="text-center py-1 px-1">Misc</th>
+                      <th className="text-center py-1 px-1">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(data?.equipped?.weapons ?? []).filter((weapon: { name?: string }) => weapon?.name?.trim()).map((weapon: { name: string; ability?: 'str' | 'dex'; attackBonus?: number; damage?: string; damageBonus?: number; crit?: string; range?: number; type?: string; category?: 'melee' | 'ranged' | 'thrown' | 'composite' }, index: number) => {
+                      const ability = weapon.ability === 'dex' ? 'dex' : 'str';
+                      const stat = ability === 'dex' ? (stats?.dexMod ?? 0) : (stats?.strMod ?? 0);
+                      const bab = parseInt(data?.bab) || 0;
+                      const misc = (weapon.attackBonus || 0) + (parseInt(data?.sizeMod) || 0) + (stats?.itemBonuses.attack ?? 0);
+                      const piece = { name: weapon.name, attackBonus: weapon.attackBonus || 0, ability, damage: weapon.damage || '1d6', damageBonus: weapon.damageBonus || 0, crit: weapon.crit || '20/x2', range: weapon.range || 0, type: weapon.type || '', category: weapon.category };
+                      const total = weaponTotals(piece, bab, stats?.strMod ?? 0, stats?.dexMod ?? 0, parseInt(data?.sizeMod) || 0, stats?.itemBonuses.attack ?? 0, stats?.itemBonuses.damage ?? 0).attack;
+                      return <tr key={`${weapon.name}-${index}`} className="border-b border-border/50">
+                        <td className="py-1 px-1">{weapon.name}</td>
+                        <td className="text-center font-mono">{ability.toUpperCase()} {formatMod(stat)}</td>
+                        <td className="text-center font-mono">{formatMod(bab)}</td>
+                        <td className="text-center font-mono">{formatMod(misc)}</td>
+                        <td className="text-center font-mono font-bold">{formatMod(total)}</td>
+                      </tr>;
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground mt-2">Total = ability + BAB + misc. Misc is the weapon's attack bonus, size, and attack bonuses from gear, feats, and conditions.</p>
+          </div>
+
           {/* Saving Throws */}
           <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
             <h3 className="font-display font-semibold text-sm mb-3">Saving Throws</h3>
@@ -605,6 +643,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
               ))}
             </div>
           </div>
+          <SheetEffects equipped={data.equipped ?? {}} editable={editable} onChange={next => { update('equipped', next); autoSave(); }} />
         </div>
       )}
 

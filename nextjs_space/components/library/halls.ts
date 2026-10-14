@@ -30,6 +30,8 @@ export type HallId = keyof typeof HALLS;
 export type HallFilter = (typeof HALLS)[HallId]['filters'][number];
 
 export const HALL_LINKS = [
+  { href: '/dashboard', label: 'Campaigns' },
+  { href: '/dashboard?view=vault', label: 'Character Vault' },
   { href: '/library', label: 'Library' },
   { href: '/armory', label: 'Armory' },
   { href: '/shop', label: 'Shop' },
