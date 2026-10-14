@@ -205,7 +205,12 @@ export async function PUT(request: Request) {
       const existing = ids.length
         ? new Set((await prisma.libraryEntry.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((e) => e.id))
         : new Set<string>();
-      for (const s of known as Array<{ libraryEntryId?: unknown }>) {
+      for (const s of known as Array<{ libraryEntryId?: unknown; clientId?: unknown }>) {
+        if (s && typeof s === 'object' && 'clientId' in s) {
+          if (typeof s.clientId !== 'string' || s.clientId.length < 1 || s.clientId.length > 100) {
+            delete s.clientId;
+          }
+        }
         if (s && typeof s === 'object' && 'libraryEntryId' in s) {
           if (typeof s.libraryEntryId !== 'string' || !existing.has(s.libraryEntryId)) {
             delete s.libraryEntryId;

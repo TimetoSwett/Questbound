@@ -13,6 +13,7 @@ import Image from 'next/image';
 import { levelForCharacter } from '@/components/library/spell-picker';
 import { SpellCard, type SpellEntry } from './spell-card';
 import { castingAbilityFor, spellDc } from '@/lib/spell-dc';
+import { newSpellClientId } from '@/lib/spell-client-id';
 import { EquipmentEditor } from './equipment-editor';
 import { equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange } from '@/lib/equipment';
 import { AddSpellToLibraryDialog } from './add-spell-dialog';
@@ -139,8 +140,8 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
   const isSection = (key: string): boolean => sectionState === key;
   // Collapsible open/closed state persists across tab switches.
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ skills: true, feats: true, spells: true, notes: true });
-  // Index of the spell being saved to the library (null = dialog closed).
-  const [saveSpellIdx, setSaveSpellIdx] = useState<number | null>(null);
+  // Client id of the spell being saved to the library (null = dialog closed).
+  const [saveSpellClientId, setSaveSpellClientId] = useState<string | null>(null);
   const [addSpellOpen, setAddSpellOpen] = useState(false);
   const [portraitUrl, setPortraitUrl] = useState<string | null>(null);
   const saveTimer = useRef<any>(null);
@@ -172,6 +173,15 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             spells: parseJson(ch?.spells, { slots: {}, known: [] }),
             classes: parseJson(ch?.classes, []),
           };
+          const clientIds = new Set<string>();
+          parsed.spells.known = (parsed.spells.known ?? []).map((spell: SpellEntry) => {
+            let clientId = spell.clientId;
+            if (typeof clientId !== 'string' || !clientId.trim() || clientIds.has(clientId)) {
+              do { clientId = newSpellClientId(); } while (clientIds.has(clientId));
+            }
+            clientIds.add(clientId);
+            return { ...spell, clientId };
+          });
           setData(parsed);
           // Load portrait
           if (ch?.portraitPath) {
@@ -731,29 +741,43 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                       <div className="h-px flex-1 bg-border" />
                     </div>
                     <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,max(300px,calc((100%_-_2.25rem)/4))),1fr))]">
-                      {group.items.map(({ spell, index: i }) => (
-                        <SpellCard key={i} spell={spell} editable={editable} classes={spellClasses}
+                      {group.items.map(({ spell }) => (
+                        <SpellCard key={spell.clientId} spell={spell} editable={editable} classes={spellClasses}
                           dc={castingMod === null ? null : spellDc(spell.level ?? 0, castingMod)}
                           onPatch={(partial) => {
-                            const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-                            spells.known = [...(spells.known ?? [])];
-                            spells.known[i] = { ...(spells.known[i] ?? {}), ...partial };
-                            update('spells', spells); autoSave();
+                            setData((prev: any) => {
+                              const spells = { ...(prev?.spells ?? { slots: {}, known: [] }) };
+                              const i = (spells.known ?? []).findIndex((s: SpellEntry) => s.clientId === spell.clientId);
+                              if (i < 0) return prev;
+                              spells.known = [...spells.known];
+                              spells.known[i] = { ...spells.known[i], ...partial };
+                              return { ...prev, spells };
+                            });
+                            autoSave();
                           }}
                           onPickEntry={(entry) => {
-                            const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-                            spells.known = [...(spells.known ?? [])];
-                            if (!spells.known[i]) return;
-                            const level = levelForCharacter(entry.spellLevels ?? [], spellClasses);
-                            spells.known[i] = { ...spells.known[i], name: entry.name, level, school: entry.data.school, description: entry.data.description, summary: entry.summary, sourceUrl: entry.sourceUrl, libraryEntryId: entry.id };
-                            update('spells', spells); autoSave();
+                            setData((prev: any) => {
+                              const spells = { ...(prev?.spells ?? { slots: {}, known: [] }) };
+                              const i = (spells.known ?? []).findIndex((s: SpellEntry) => s.clientId === spell.clientId);
+                              if (i < 0) return prev;
+                              spells.known = [...spells.known];
+                              const level = levelForCharacter(entry.spellLevels ?? [], spellClasses);
+                              spells.known[i] = { ...spells.known[i], name: entry.name, level, school: entry.data.school, description: entry.data.description, summary: entry.summary, sourceUrl: entry.sourceUrl, libraryEntryId: entry.id };
+                              return { ...prev, spells };
+                            });
+                            autoSave();
                           }}
-                          onSaveToLibrary={() => setSaveSpellIdx(i)}
+                          onSaveToLibrary={() => setSaveSpellClientId(spell.clientId)}
                           onDelete={() => {
-                            const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-                            spells.known = [...(spells.known ?? [])];
-                            spells.known.splice(i, 1);
-                            update('spells', spells); autoSave();
+                            setData((prev: any) => {
+                              const spells = { ...(prev?.spells ?? { slots: {}, known: [] }) };
+                              const i = (spells.known ?? []).findIndex((s: SpellEntry) => s.clientId === spell.clientId);
+                              if (i < 0) return prev;
+                              spells.known = [...spells.known];
+                              spells.known.splice(i, 1);
+                              return { ...prev, spells };
+                            });
+                            autoSave();
                           }} />
                       ))}
                     </div>
@@ -770,22 +794,25 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           </CollapsibleSection>
         </div>
       )}
-      {saveSpellIdx !== null && (
+      {saveSpellClientId !== null && (
         <AddSpellToLibraryDialog
           open
-          onClose={() => setSaveSpellIdx(null)}
+          onClose={() => setSaveSpellClientId(null)}
           prefill={(() => {
-            const s = (data?.spells?.known ?? [])[saveSpellIdx] as SpellEntry | undefined;
+            const s = (data?.spells?.known ?? []).find((spell: SpellEntry) => spell.clientId === saveSpellClientId) as SpellEntry | undefined;
             return s ? { name: s.name, school: s.school, description: s.description, level: s.level } : undefined;
           })()}
           onCreated={(entry) => {
-            const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-            spells.known = [...(spells.known ?? [])];
-            if (spells.known[saveSpellIdx]) {
-              spells.known[saveSpellIdx] = { ...spells.known[saveSpellIdx], libraryEntryId: entry.id };
-              update('spells', spells);
-              autoSave();
-            }
+            setData((prev: any) => {
+              const spells = { ...(prev?.spells ?? { slots: {}, known: [] }) };
+              const i = (spells.known ?? []).findIndex((spell: SpellEntry) => spell.clientId === saveSpellClientId);
+              if (i < 0) return prev;
+              spells.known = [...spells.known];
+              spells.known[i] = { ...spells.known[i], libraryEntryId: entry.id };
+              return { ...prev, spells };
+            });
+            autoSave();
+            setSaveSpellClientId(null);
           }}
         />
       )}
@@ -796,7 +823,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           onClose={() => setAddSpellOpen(false)}
           onCustom={() => {
             const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-            spells.known = [...(spells.known ?? []), { name: '', level: 0, school: '', description: '', cast: 0, maxCast: 1 }];
+            spells.known = [...(spells.known ?? []), { clientId: newSpellClientId(), name: '', level: 0, school: '', description: '', cast: 0, maxCast: 1 }];
             update('spells', spells);
             autoSave();
             setAddSpellOpen(false);
@@ -807,6 +834,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
               const classNames = (prev?.classes ?? []).map((cls: ClassEntry) => cls.name);
               const level = levelForCharacter(entry.spellLevels ?? [], classNames);
               spells.known = [...(spells.known ?? []), {
+                clientId: newSpellClientId(),
                 name: entry.name,
                 level,
                 school: entry.data?.school ?? '',

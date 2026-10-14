@@ -8,7 +8,7 @@ import { LibraryTermPopover } from '@/components/library/library-term-popover';
 import { SpellPicker } from '@/components/library/spell-picker';
 import { rulesUrl, type LibrarySpell } from '@/components/library/types';
 
-export interface SpellEntry { name: string; level: number; school: string; description: string; cast: number; maxCast: number; libraryEntryId?: string; sourceUrl?: string | null; summary?: string; }
+export interface SpellEntry { clientId: string; name: string; level: number; school: string; description: string; cast: number; maxCast: number; libraryEntryId?: string; sourceUrl?: string | null; summary?: string; }
 
 type Props = {
   spell: SpellEntry; editable: boolean; classes: string[]; dc: number | null;
@@ -29,7 +29,7 @@ export function SpellCard({ spell, editable, classes, dc, onPatch, onPickEntry, 
       <span>Used {spell.cast ?? 0} / {spell.maxCast ?? 1} per day</span>
       {editable && <>
         <Button variant="ghost" size="icon-sm" className="h-5 w-5" aria-label={`Decrease uses of ${spell.name}`} onClick={() => onPatch({ cast: Math.max(0, (spell.cast ?? 0) - 1) })}>-</Button>
-        <Button variant="ghost" size="icon-sm" className="h-5 w-5" aria-label={`Increase uses of ${spell.name}`} onClick={() => onPatch({ cast: (spell.cast ?? 0) + 1 })}>+</Button>
+        <Button variant="ghost" size="icon-sm" className="h-5 w-5" aria-label={`Increase uses of ${spell.name}`} disabled={spell.maxCast > 0 && (spell.cast ?? 0) >= spell.maxCast} onClick={() => onPatch({ cast: spell.maxCast > 0 ? Math.min(spell.maxCast, (spell.cast ?? 0) + 1) : (spell.cast ?? 0) + 1 })}>+</Button>
       </>}
     </div>
     <p className="text-xs" title={dc === null ? 'Casting ability unknown' : undefined}>DC {dc ?? '—'}</p>
