@@ -81,7 +81,14 @@ export function SpellPicker({ value, classes, disabled, onChange, onPick }: {
   </div>;
 }
 
-/** "Wizard (Evoker)" -> "wizard": ignore parenthetical archetypes/variants when matching spell lists. */
+/** Lowest spell level this character can cast the spell at, or the spell's first listed level. */
+export function levelForCharacter(spellLevels: { cls: string; level: number }[], classNames: string[]): number {
+  const storedClasses = spellLevels.map((item) => item.cls.trim().toLowerCase());
+  const characterClasses = new Set(classNames.map((name) => resolveSpellClass(name, storedClasses)));
+  const matches = spellLevels.filter((item) => characterClasses.has(item.cls.trim().toLowerCase()));
+  if (!matches.length) return spellLevels[0]?.level ?? 0;
+  return Math.min(...matches.map((item) => item.level));
+}
 export function normalizeSpellClass(cls: string): string {
   return cls.replace(/\([^)]*\)/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
 }

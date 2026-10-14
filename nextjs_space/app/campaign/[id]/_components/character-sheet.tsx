@@ -10,11 +10,12 @@ import { PF1E_SKILLS, abilityMod, formatMod } from '@/lib/pf1e-skills';
 import type { SkillDef } from '@/lib/pf1e-skills';
 import { TipTapEditor } from '@/components/tiptap-editor';
 import Image from 'next/image';
-import { SpellPicker, resolveSpellClass } from '@/components/library/spell-picker';
+import { SpellPicker, levelForCharacter } from '@/components/library/spell-picker';
 import { rulesUrl } from '@/components/library/types';
 import { EquipmentEditor } from './equipment-editor';
 import { equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange } from '@/lib/equipment';
 import { AddSpellToLibraryDialog } from './add-spell-dialog';
+import { AddSpellSearchDialog } from './add-spell-search-dialog';
 
 const SIZES = ['Fine', 'Diminutive', 'Tiny', 'Small', 'Medium', 'Large', 'Huge', 'Gargantuan', 'Colossal'];
 const ALIGNMENTS = ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'];
@@ -24,6 +25,21 @@ interface EquipItem { name: string; weight: number; quantity: number; value: str
 interface FeatEntry { name: string; description: string; }
 interface SpellEntry { name: string; level: number; school: string; description: string; cast: number; maxCast: number; libraryEntryId?: string; sourceUrl?: string | null; }
 interface ClassEntry { name: string; level: number; }
+
+function groupSpells(known: SpellEntry[]) {
+  const levelOf = (spell: SpellEntry) => (Number.isFinite(spell?.level) ? spell.level : 0);
+  const ordered = known
+    .map((spell, index) => ({ spell, index }))
+    .sort((a, b) => levelOf(a.spell) - levelOf(b.spell) || (a.spell?.name ?? '').localeCompare(b.spell?.name ?? '', undefined, { sensitivity: 'base' }));
+  const groups: { level: number; items: { spell: SpellEntry; index: number }[] }[] = [];
+  for (const item of ordered) {
+    const level = levelOf(item.spell);
+    const last = groups[groups.length - 1];
+    if (!last || last.level !== level) groups.push({ level, items: [item] });
+    else last.items.push(item);
+  }
+  return groups;
+}
 
 function NumField({ label, value, onChange, disabled, className }: {
   label: string;
@@ -125,6 +141,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ skills: true, feats: true, spells: true, notes: true });
   // Index of the spell being saved to the library (null = dialog closed).
   const [saveSpellIdx, setSaveSpellIdx] = useState<number | null>(null);
+  const [addSpellOpen, setAddSpellOpen] = useState(false);
   const [portraitUrl, setPortraitUrl] = useState<string | null>(null);
   const saveTimer = useRef<any>(null);
 
@@ -696,19 +713,20 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-display font-semibold text-sm">Known / Prepared Spells</h3>
               {editable && (
-                <Button variant="ghost" size="sm" onClick={() => {
-                  const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-                  spells.known = [...(spells.known ?? []), { name: '', level: 0, school: '', description: '', cast: 0, maxCast: 1 }];
-                  update('spells', spells);
-                  autoSave();
-                }}>+ Add Spell</Button>
+                <Button variant="ghost" size="sm" onClick={() => setAddSpellOpen(true)}>+ Add Spell</Button>
               )}
             </div>
             {(data?.spells?.known ?? []).length === 0 ? (
               <p className="text-xs text-muted-foreground py-4 text-center">No spells</p>
             ) : (
-              <div className="space-y-2">
-                {(data?.spells?.known ?? []).map((spell: SpellEntry, i: number) => (
+              <div className="space-y-4">
+                {groupSpells(data?.spells?.known ?? []).map((group) => (
+                  <div key={group.level} className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <h4 className="shrink-0 text-xs font-semibold text-muted-foreground">level {group.level} spell(s)</h4>
+                      <div className="h-px flex-1 bg-border" />
+                    </div>
+                    {group.items.map(({ spell, index: i }) => (
                   <div key={i} className="p-3 bg-muted/50 rounded-lg">
                     <div className="grid grid-cols-[1fr_50px_80px_60px_56px] gap-2 items-center">
                       <SpellPicker value={spell?.name ?? ''} classes={(data?.classes ?? []).map((cls: ClassEntry) => cls.name)} disabled={!editable}
@@ -722,9 +740,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                           const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
                           spells.known = [...(spells.known ?? [])];
                           if (!spells.known[i]) return;
-                          const storedClasses = entry.spellLevels.map((item) => item.cls.trim().toLowerCase());
-                          const characterClasses = (data?.classes ?? []).map((cls: ClassEntry) => resolveSpellClass(cls.name, storedClasses));
-                          const level = entry.spellLevels.find((item) => characterClasses.includes(item.cls.trim().toLowerCase()))?.level ?? entry.spellLevels[0]?.level ?? 0;
+                          const level = levelForCharacter(entry.spellLevels ?? [], (data?.classes ?? []).map((cls: ClassEntry) => cls.name));
                           spells.known[i] = { ...spells.known[i], name: entry.name, level, school: entry.data.school, description: entry.data.description, sourceUrl: entry.sourceUrl, libraryEntryId: entry.id };
                           update('spells', spells); autoSave();
                         }} />
@@ -776,6 +792,8 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                     }} disabled={!editable}
                       className="w-full bg-transparent text-xs text-muted-foreground resize-none min-h-[30px] outline-none mt-1" placeholder="Description..." />
                   </div>
+                    ))}
+                  </div>
                 ))}
               </div>
             )}
@@ -804,6 +822,39 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
               update('spells', spells);
               autoSave();
             }
+          }}
+        />
+      )}
+      {addSpellOpen && (
+        <AddSpellSearchDialog
+          classes={(data?.classes ?? []).map((cls: ClassEntry) => cls.name)}
+          knownIds={(data?.spells?.known ?? []).map((spell: SpellEntry) => spell.libraryEntryId).filter((id: string | undefined): id is string => Boolean(id))}
+          onClose={() => setAddSpellOpen(false)}
+          onCustom={() => {
+            const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+            spells.known = [...(spells.known ?? []), { name: '', level: 0, school: '', description: '', cast: 0, maxCast: 1 }];
+            update('spells', spells);
+            autoSave();
+            setAddSpellOpen(false);
+          }}
+          onPick={(entry) => {
+            setData((prev: any) => {
+              const spells = { ...(prev?.spells ?? { slots: {}, known: [] }) };
+              const classNames = (prev?.classes ?? []).map((cls: ClassEntry) => cls.name);
+              const level = levelForCharacter(entry.spellLevels ?? [], classNames);
+              spells.known = [...(spells.known ?? []), {
+                name: entry.name,
+                level,
+                school: entry.data?.school ?? '',
+                description: entry.data?.description ?? '',
+                cast: 0,
+                maxCast: 1,
+                sourceUrl: entry.sourceUrl ?? null,
+                libraryEntryId: entry.id,
+              }];
+              return { ...(prev ?? {}), spells };
+            });
+            autoSave();
           }}
         />
       )}
