@@ -76,7 +76,7 @@ export type RuleData = z.infer<typeof ruleDataSchema>;
 
 export const WEAPON_CATEGORIES = ['melee', 'ranged', 'thrown', 'composite'] as const;
 const pounds = z.number().min(0).max(100_000).default(0);
-const cost = str(40);
+const cost = str(120);
 export const weaponDataSchema = z.object({
   category: z.enum(WEAPON_CATEGORIES).default('melee'),
   ability: z.enum(['str', 'dex']).default('str'),

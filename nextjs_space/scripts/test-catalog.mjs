@@ -58,6 +58,18 @@ assert.equal(gear.kind, 'gear');
 assert.equal(gear.data.cost, '2 gp');
 assert.equal(lib.parseCreateInput(gear).ok, true);
 
+const wondrous = parser.parseAonCatalogPage(page('<h1 class="title">Headband of Inspired Wisdom</h1><b>Source</b> Core Rulebook<br /><b>Aura</b> moderate transmutation; <b>CL</b> 8th<br /><b>Slot</b> headband; <b>Price</b> 4,000 gp (<img src="x.gif"> +2), 16,000 gp (+4), 36,000 gp (+6); <b>Weight</b> 1 lb.<h3 class="framing">Description</h3>This simple bronze headband is decorated with etchings. It grants Wisdom.<h3 class="framing">Construction</h3><b>Requirements</b> Craft Wondrous Item; <b>Cost</b> 2,000 gp'), 'https://aonprd.com/MagicWondrousDisplay.aspx?FinalName=Headband%20of%20Inspired%20Wisdom2');
+assert.equal(wondrous.kind, 'gear');
+assert.equal(wondrous.name, 'Headband of Inspired Wisdom');
+assert.equal(wondrous.data.weight, 1);
+assert.equal(wondrous.data.cost, '4,000 gp (+2), 16,000 gp (+4), 36,000 gp (+6)');
+assert.match(wondrous.data.description, /Slot headband/);
+assert.match(wondrous.data.description, /bronze headband/);
+assert.match(wondrous.data.description, /Construction/);
+assert.match(wondrous.summary, /bronze headband/);
+assert.doesNotMatch(wondrous.summary, /Source/);
+assert.equal(lib.parseCreateInput(wondrous).ok, true);
+
 const ability = parser.parseAonCatalogPage(page('<h1>Grab (Ex)</h1>If the creature hits, it grapples.'), 'https://www.aonprd.com/UMR.aspx?ItemName=Grab');
 assert.equal(ability.kind, 'ability');
 assert.equal(ability.name, 'Grab (Ex)');

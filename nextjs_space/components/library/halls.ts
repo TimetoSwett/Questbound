@@ -12,7 +12,7 @@ export const HALLS = {
   shop: {
     title: 'Shop',
     path: '/shop',
-    blurb: 'Adventuring gear and other equipment. Add an item from a link, or write your own.',
+    blurb: 'Adventuring gear and wondrous items. Add an item from a link, or write your own.',
     filters: [{ id: 'gear', label: 'Gear', kind: 'gear' }],
   },
   training: {

@@ -9,6 +9,7 @@ const PAGES: Record<string, LibraryKind> = {
   'equipmentweaponsdisplay.aspx': 'weapon',
   'equipmentarmordisplay.aspx': 'armor',
   'equipmentmiscdisplay.aspx': 'gear',
+  'magicwondrousdisplay.aspx': 'gear',
   'umr.aspx': 'ability',
 };
 
@@ -69,6 +70,15 @@ function clip(text: string, max: number): string {
   return text.trim().slice(0, max);
 }
 
+function money(text: string | undefined): string {
+  return clip((text ?? '').replace(/\s+/g, ' ').replace(/\(\s+/g, '(').trim(), 120);
+}
+
+function sectionText(html: string, heading: string): string {
+  const match = new RegExp(`<h\\d\\b[^>]*>\\s*${heading}\\s*</h\\d>([\\s\\S]*?)(?=<h\\d\\b|$)`, 'i').exec(html);
+  return match ? htmlToText(match[1]) : '';
+}
+
 export type CatalogDraft = {
   kind: LibraryKind;
   name: string;
@@ -100,7 +110,7 @@ export function parseAonCatalogPage(html: string, sourceUrl: string): CatalogDra
       data: {
         category, ability: category === 'ranged' ? 'dex' : 'str', damage: mediumDamage(fields.damage),
         crit: clip(fields.critical ?? '', 40), range, type: clip(fields.type ?? '', 40),
-        weight: pounds(fields.weight), cost: clip(fields.cost || fields.price || '', 40), description,
+        weight: pounds(fields.weight), cost: money(fields.cost || fields.price), description,
       },
     };
   }
@@ -114,14 +124,19 @@ export function parseAonCatalogPage(html: string, sourceUrl: string): CatalogDra
       data: {
         slot, acBonus: signed(fields['armor bonus']) ?? 0, maxDex, checkPenalty: Math.min(0, check ?? 0),
         spellFailure: Math.max(0, Math.min(100, failure ?? 0)), weight: pounds(fields.weight),
-        cost: clip(fields.cost || fields.price || '', 40), description,
+        cost: money(fields.cost || fields.price), description,
       },
     };
   }
   if (kind === 'gear') {
+    const prose = sectionText(block, 'Description');
+    const construction = sectionText(block, 'Construction');
+    const statLine = [fields.slot && `Slot ${fields.slot}`, fields.aura && `Aura ${fields.aura}`, fields.cl && `CL ${fields.cl}`].filter(Boolean).join('. ');
+    const description = clip([statLine, prose || body, construction && `Construction\n${construction}`].filter(Boolean).join('\n\n'), 20_000);
+    const gearSummary = summaryFromDescription(prose || description) || summary;
     return {
-      kind, name: clip(title, 120), summary, sourceUrl,
-      data: { weight: pounds(fields.weight), cost: clip(fields.cost || fields.price || '', 40), description },
+      kind, name: clip(title, 120), summary: gearSummary, sourceUrl,
+      data: { weight: pounds(fields.weight), cost: money(fields.price || fields.cost), description },
     };
   }
   if (kind === 'feat') {
