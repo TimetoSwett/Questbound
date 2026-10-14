@@ -3,8 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { signOut } from 'next-auth/react';
-import { Shield, Plus, LogOut, Scroll, Swords, Users, ArrowRight, ChevronRight, Trash2, FolderPlus } from 'lucide-react';
+import { Plus, Scroll, Swords, Users, ArrowRight, ChevronRight, Trash2, FolderPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from 'sonner';
 import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
 import { CharacterSheet } from '@/app/campaign/[id]/_components/character-sheet';
-import { HallNav } from '@/components/library/hall-nav';
+import { SiteHeader } from '@/components/site-header';
 
 interface Campaign {
   id: string;
@@ -35,26 +34,6 @@ interface VaultChar {
   hpMax: number;
   hpCurrent: number;
   createdAt: string;
-}
-
-function Header({ userName, current }: { userName: string; current: string }) {
-  return (
-    <header className="sticky top-0 z-50 bg-card/80 backdrop-blur-md border-b border-border">
-      <div className="max-w-5xl mx-auto flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2 cursor-pointer" onClick={ () => window.location.href = '/dashboard'}>
-          <Shield className="w-7 h-7 text-primary" />
-          <span className="font-display text-xl font-bold text-primary tracking-tight">Questbound</span>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <HallNav current={current} />
-          <span className="text-sm text-muted-foreground hidden sm:block">Welcome, <span className="text-foreground font-medium">{userName}</span></span>
-          <Button variant="ghost" size="sm" onClick={async () => { await signOut({ redirect: false }); window.location.href = '/login'; }}>
-            <LogOut className="w-4 h-4 mr-1" /> Sign Out
-          </Button>
-        </div>
-      </div>
-    </header>
-  );
 }
 
 function classSummary(classes: any): string {
@@ -210,7 +189,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
   if (editingId) {
     return (
       <div className="min-h-screen bg-background">
-        <Header userName={userName} current={navCurrent} />
+        <SiteHeader userName={userName} current={navCurrent} />
         <main className="max-w-6xl mx-auto px-4 py-4">
           <Button variant="ghost" size="sm" onClick={() => { setEditingId(null); fetchVault(); }} className="mb-4">
             <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to vault
@@ -223,7 +202,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
 
   return (
     <div className="min-h-screen bg-background">
-      <Header userName={userName} current={navCurrent} />
+      <SiteHeader userName={userName} current={navCurrent} />
 
       <main className="max-w-5xl mx-auto px-4 py-8">
         <FadeIn>

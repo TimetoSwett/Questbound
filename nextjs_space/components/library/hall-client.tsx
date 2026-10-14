@@ -1,13 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { rulesUrl } from '@/components/library/types';
-import { HallNav } from './hall-nav';
+import { SiteHeader } from '@/components/site-header';
 import { HALLS, type HallFilter, type HallId } from './halls';
 
 type Hit = { id: string; kind: string; name: string; summary: string; sourceUrl: string | null; data?: Record<string, string | number | null> };
@@ -28,7 +27,7 @@ function Pages({ page, pages, onPage }: { page: number; pages: number; onPage: (
   ))}</nav>;
 }
 
-export function HallClient({ hall }: { hall: HallId }) {
+export function HallClient({ hall, userName }: { hall: HallId; userName: string }) {
   const config = HALLS[hall];
   const [filterId, setFilterId] = useState(config.filters[0].id);
   const filter = config.filters.find((item) => item.id === filterId) ?? config.filters[0];
@@ -73,12 +72,7 @@ export function HallClient({ hall }: { hall: HallId }) {
   }, [selected]);
 
   return <div className="min-h-screen bg-background">
-    <header className="border-b bg-card/80">
-      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-3">
-        <Link href="/dashboard" className="font-display text-xl font-bold text-primary">Questbound</Link>
-        <HallNav current={config.path} />
-      </div>
-    </header>
+    <SiteHeader userName={userName} current={config.path} />
     <main className="mx-auto max-w-5xl space-y-6 px-4 py-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>

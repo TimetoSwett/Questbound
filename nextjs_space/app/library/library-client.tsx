@@ -1,14 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { classLabel, type LibrarySpell, rulesUrl, SPELL_CLASSES, SPELL_DESCRIPTORS, SPELL_SCHOOLS, SPELL_SUBSCHOOLS, spellLevelLabel } from '@/components/library/types';
-import { HallNav } from '@/components/library/hall-nav';
+import { SiteHeader } from '@/components/site-header';
 
 const fields = [
   ['school', 'School'], ['subschool', 'Subschool'], ['descriptors', 'Descriptors'],
@@ -28,7 +27,7 @@ function SpellPages({ page, pages, onPage }: { page: number; pages: number; onPa
   </nav>;
 }
 
-export function LibraryClient() {
+export function LibraryClient({ userName }: { userName: string }) {
   const [q, setQ] = useState('');
   const [cls, setCls] = useState('');
   const [level, setLevel] = useState('');
@@ -88,10 +87,7 @@ export function LibraryClient() {
   const advanced = school || subschool || descriptor || duration.trim() || range.trim();
   const options = (names: readonly string[], all: string) => <><option value="">{all}</option>{names.map((name) => <option key={name} value={name}>{classLabel(name)}</option>)}</>;
   return <div className="min-h-screen bg-background">
-    <header className="border-b bg-card/80"><nav aria-label="Main navigation" className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-3">
-      <div className="flex items-center gap-2"><Link href="/dashboard" className="font-display text-xl font-bold text-primary">Questbound</Link></div>
-      <HallNav current="/library" />
-    </nav></header>
+    <SiteHeader userName={userName} current="/library" />
     <main className="mx-auto max-w-5xl space-y-6 px-4 py-6">
       <h1 className="flex items-center gap-2 font-display text-3xl font-bold"><BookOpen className="h-7 w-7" /> Spell Library</h1>
       <div className="grid gap-3 sm:grid-cols-[2fr_1fr_1fr_1fr]">
