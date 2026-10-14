@@ -39,7 +39,21 @@ export function gearFromLibrary(name: string, data: GearData, link: Linked) {
   };
 }
 
+export const ABILITY_TAGS = {
+  ex: { label: 'Extraordinary (Ex)', text: 'Non-magical, though not something just anyone can do. Antimagic and dispel have no effect.' },
+  sp: { label: 'Spell-like (Sp)', text: 'Magical and like a spell. Spell resistance and dispel magic work, and it fails in antimagic. It can be dispelled, but not counterspelled.' },
+  su: { label: 'Supernatural (Su)', text: 'Magical, but not spell-like. Spell resistance and dispel do not work. It fails in antimagic, and it cannot be counterspelled.' },
+} as const;
+export type AbilityTag = keyof typeof ABILITY_TAGS;
+
+export function abilityTag(name: string, body = ''): AbilityTag | undefined {
+  const match = `${name}\n${body.slice(0, 240)}`.match(/\((Ex|Su|Sp)\)/i);
+  const tag = match?.[1].toLowerCase();
+  return tag === 'ex' || tag === 'su' || tag === 'sp' ? tag : undefined;
+}
+
 export function featFromLibrary(name: string, data: FeatData & { description?: string }, link: Linked) {
   const parts = [data.prerequisites ? `Prerequisites: ${data.prerequisites}` : '', data.benefit || data.description || ''].filter(Boolean);
-  return { name, description: parts.join('\n\n'), libraryEntryId: link.libraryEntryId, sourceUrl: link.sourceUrl ?? null };
+  const description = parts.join('\n\n');
+  return { name, description, tag: abilityTag(name, description), libraryEntryId: link.libraryEntryId, sourceUrl: link.sourceUrl ?? null };
 }

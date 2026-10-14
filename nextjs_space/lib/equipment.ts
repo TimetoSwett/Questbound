@@ -20,7 +20,10 @@ export type ItemBonus =
   | { kind: 'ac'; bonus: AcBonusName; amount: number }
   | { kind: 'skill'; skill: string; amount: number }
   | { kind: 'save'; save: SaveBonusName; amount: number }
-  | { kind: 'spell'; amount: number };
+  | { kind: 'spell'; amount: number }
+  | { kind: 'attack'; amount: number }
+  | { kind: 'damage'; amount: number }
+  | { kind: 'init'; amount: number };
 
 export interface SlotItem {
   name: string;
@@ -49,11 +52,55 @@ export interface Weapon extends SlotItem {
   type: string;             // e.g. "S", "P", "B/P"
 }
 
+export interface CharacterBuff {
+  name: string;
+  on: boolean;
+  bonuses?: ItemBonus[];
+  libraryEntryId?: string;
+  sourceUrl?: string | null;
+}
+
 export interface Equipped {
   armor?: ArmorPiece | null;
   shield?: ArmorPiece | null;
   weapons?: Weapon[];
   slots?: Partial<Record<BodySlot | UnslottedSlot, SlotItem | null>>;
+  conditions?: string[];
+  buffs?: CharacterBuff[];
+}
+
+export interface Adjustment {
+  ability: Record<AbilityName, number>;
+  ac: Record<AcBonusName, number>;
+  skills: Record<string, number>;
+  saves: Record<SaveBonusName, number>;
+  spellDc: number;
+  attack: number;
+  damage: number;
+  init: number;
+  skillAll: number;
+  acPenalty: number;
+  cmb: number;
+  loseDex: boolean;
+}
+
+export function adjustmentFromBonuses(bonuses: ItemBonus[]): Adjustment {
+  const ability: Record<AbilityName, number> = { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 };
+  const ac: Record<AcBonusName, number> = { armor: 0, shield: 0, natural: 0, deflection: 0, dodge: 0 };
+  const skills: Record<string, number> = {};
+  const saves: Record<SaveBonusName, number> = { fort: 0, ref: 0, will: 0 };
+  let spellDc = 0, attack = 0, damage = 0, init = 0;
+  for (const bonus of bonuses) {
+    if (bonus.kind === 'ability') ability[bonus.ability] += bonus.amount;
+    else if (bonus.kind === 'ac') ac[bonus.bonus] += bonus.amount;
+    else if (bonus.kind === 'skill') skills[bonus.skill] = (skills[bonus.skill] ?? 0) + bonus.amount;
+    else if (bonus.kind === 'save') saves[bonus.save] += bonus.amount;
+    else if (bonus.kind === 'spell') spellDc += bonus.amount;
+    else if (bonus.kind === 'attack') attack += bonus.amount;
+    else if (bonus.kind === 'damage') damage += bonus.amount;
+    else init += bonus.amount;
+  }
+  return { ability, ac, skills, saves, spellDc, attack, damage, init, skillAll: 0, acPenalty: 0, cmb: 0, loseDex: false };
 }
 
 /** Blank names are placeholders, rather than equipped items. */
@@ -64,19 +111,7 @@ export function namedGear(equipped: Equipped = {}): SlotItem[] {
 }
 
 export function equippedItemBonuses(equipped: Equipped = {}) {
-  const ability: Record<AbilityName, number> = { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 };
-  const ac: Record<AcBonusName, number> = { armor: 0, shield: 0, natural: 0, deflection: 0, dodge: 0 };
-  const skills: Record<string, number> = {};
-  const saves: Record<SaveBonusName, number> = { fort: 0, ref: 0, will: 0 };
-  let spellDc = 0;
-  for (const bonus of namedGear(equipped).flatMap(item => item.bonuses ?? [])) {
-    if (bonus.kind === 'ability') ability[bonus.ability] += bonus.amount;
-    else if (bonus.kind === 'ac') ac[bonus.bonus] += bonus.amount;
-    else if (bonus.kind === 'skill') skills[bonus.skill] = (skills[bonus.skill] ?? 0) + bonus.amount;
-    else if (bonus.kind === 'save') saves[bonus.save] += bonus.amount;
-    else spellDc += bonus.amount;
-  }
-  return { ability, ac, skills, saves, spellDc };
+  return adjustmentFromBonuses(namedGear(equipped).flatMap(item => item.bonuses ?? []));
 }
 
 const ABILITY_LABELS: Record<AbilityName, string> = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
@@ -89,6 +124,9 @@ export function bonusLabel(bonus: ItemBonus): string {
   if (bonus.kind === 'ac') return `${AC_LABELS[bonus.bonus]} ${amount}`;
   if (bonus.kind === 'skill') return `${bonus.skill} ${amount}`;
   if (bonus.kind === 'save') return `${SAVE_LABELS[bonus.save]} ${amount}`;
+  if (bonus.kind === 'attack') return `Attack ${amount}`;
+  if (bonus.kind === 'damage') return `Damage ${amount}`;
+  if (bonus.kind === 'init') return `Initiative ${amount}`;
   return `Spell DC ${amount}`;
 }
 
@@ -114,10 +152,10 @@ export function equipmentSkillPenalty(ability: string, checkPenalty: number) {
 }
 
 /** Only melee, thrown and composite weapons add Strength to damage. */
-export function weaponTotals(weapon: Weapon, bab: number, strMod: number, dexMod: number, sizeMod = 0) {
-  const damageBonus = (weapon.category === 'ranged' ? 0 : strMod) + weapon.damageBonus;
+export function weaponTotals(weapon: Weapon, bab: number, strMod: number, dexMod: number, sizeMod = 0, extraAttack = 0, extraDamage = 0) {
+  const damageBonus = (weapon.category === 'ranged' ? 0 : strMod) + weapon.damageBonus + extraDamage;
   return {
-    attack: bab + (weapon.ability === 'dex' ? dexMod : strMod) + weapon.attackBonus + sizeMod,
+    attack: bab + (weapon.ability === 'dex' ? dexMod : strMod) + weapon.attackBonus + sizeMod + extraAttack,
     damage: `${weapon.damage}${damageBonus === 0 ? '' : damageBonus > 0 ? `+${damageBonus}` : damageBonus}`,
   };
 }

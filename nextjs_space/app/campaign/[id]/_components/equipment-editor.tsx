@@ -28,13 +28,16 @@ function blankBonus(kind: ItemBonus['kind']): ItemBonus {
   if (kind === 'ac') return { kind, bonus: 'deflection', amount: 1 };
   if (kind === 'skill') return { kind, skill: 'Perception', amount: 2 };
   if (kind === 'save') return { kind, save: 'will', amount: 1 };
+  if (kind === 'attack') return { kind, amount: 1 };
+  if (kind === 'damage') return { kind, amount: 1 };
+  if (kind === 'init') return { kind, amount: 1 };
   return { kind: 'spell', amount: 1 };
 }
 
-function BonusEditor({ bonuses, onChange }: { bonuses: ItemBonus[]; onChange: (bonuses: ItemBonus[]) => void }) {
+export function BonusEditor({ bonuses, onChange, hint = 'This gives a bonus while it is on. These add, so do not also type the same number on the sheet.' }: { bonuses: ItemBonus[]; onChange: (bonuses: ItemBonus[]) => void; hint?: string }) {
   const update = (index: number, bonus: ItemBonus) => onChange(bonuses.map((current, i) => i === index ? bonus : current));
   return <div className="space-y-2">
-    <p className="text-xs text-muted-foreground">This item gives. It counts while worn, on top of the numbers you type. Don't enter the same bonus in both places.</p>
+    <p className="text-xs text-muted-foreground">{hint}</p>
     {bonuses.map((bonus, index) => <div key={index} className="space-y-1 rounded-md border p-2">
       <select aria-label="Bonus kind" className="w-full min-h-[44px] rounded-md border bg-card px-2 text-sm" value={bonus.kind} onChange={e => update(index, blankBonus(e.target.value as ItemBonus['kind']))}>
         <option value="ability">Ability score</option>
@@ -42,6 +45,9 @@ function BonusEditor({ bonuses, onChange }: { bonuses: ItemBonus[]; onChange: (b
         <option value="skill">Skill</option>
         <option value="save">Save</option>
         <option value="spell">Spell DC</option>
+        <option value="attack">Attack</option>
+        <option value="damage">Damage</option>
+        <option value="init">Initiative</option>
       </select>
       {bonus.kind === 'ability' && <select aria-label="Ability" className="w-full min-h-[44px] rounded-md border bg-card px-2 text-sm" value={bonus.ability} onChange={e => update(index, { ...bonus, ability: e.target.value as AbilityName })}>
         {([['str', 'Strength'], ['dex', 'Dexterity'], ['con', 'Constitution'], ['int', 'Intelligence'], ['wis', 'Wisdom'], ['cha', 'Charisma']] as const).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -63,8 +69,8 @@ function BonusEditor({ bonuses, onChange }: { bonuses: ItemBonus[]; onChange: (b
     <Button variant="ghost" onClick={() => onChange([...bonuses, blankBonus('ability')])}>Add bonus</Button>
   </div>;
 }
-export function EquipmentEditor({ value, onChange, characterId, campaignId, editable, bab, strMod, dexMod, sizeMod }: {
-  value: Equipped; onChange: (value: Equipped) => void; characterId: string; campaignId: string | null; editable: boolean; bab: number; strMod: number; dexMod: number; sizeMod: number;
+export function EquipmentEditor({ value, onChange, characterId, campaignId, editable, bab, strMod, dexMod, sizeMod, attackMod = 0, damageMod = 0 }: {
+  value: Equipped; onChange: (value: Equipped) => void; characterId: string; campaignId: string | null; editable: boolean; bab: number; strMod: number; dexMod: number; sizeMod: number; attackMod?: number; damageMod?: number;
 }) {
   const [items, setItems] = useState<Choice[]>([]);
   const [error, setError] = useState(false);
@@ -117,7 +123,7 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
       <div className="flex flex-wrap justify-between gap-2"><h3>Weapons</h3>{editable && <div className="flex gap-1"><Button variant="ghost" disabled={(value.weapons?.length ?? 0) >= 50} onClick={() => setPicker('weapon')}>+ From armory</Button><Button variant="ghost" disabled={(value.weapons?.length ?? 0) >= 50} onClick={() => onChange({ ...value, weapons: [...(value.weapons ?? []), { ...emptyWeapon }] })}>+ Custom weapon</Button></div>}</div>
       {(value.weapons ?? []).map((weapon, index) => {
         const change = (next: Weapon) => onChange({ ...value, weapons: value.weapons?.map((w, i) => i === index ? next : w) });
-        const totals = weaponTotals(weapon, bab, strMod, dexMod, sizeMod);
+        const totals = weaponTotals(weapon, bab, strMod, dexMod, sizeMod, attackMod, damageMod);
         return <div key={index} className="rounded-md border p-3 space-y-3">
           {identity(weapon, change, `Weapon ${index + 1}`)}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -149,7 +155,7 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
         )}
         {effect && <p className="max-h-40 overflow-y-auto whitespace-pre-line text-sm leading-snug text-muted-foreground">{effect}</p>}
         {editingSlot !== slot && !!item.bonuses?.length && <p className="text-xs font-medium">{item.bonuses.map(bonusLabel).join(' · ')}</p>}
-        {editable && editingSlot === slot && <BonusEditor bonuses={item.bonuses ?? []} onChange={bonuses => onChange({ ...value, slots: { ...value.slots, [slot]: { ...item, bonuses } } })} />}
+        {editable && editingSlot === slot && <BonusEditor bonuses={item.bonuses ?? []} hint="This item gives a bonus while it is worn. These add, so do not also type the same number on the sheet." onChange={bonuses => onChange({ ...value, slots: { ...value.slots, [slot]: { ...item, bonuses } } })} />}
         {href && <a href={href} target="_blank" rel="noopener noreferrer" className="inline-block text-xs text-primary hover:underline">See full rules</a>}
         {editable && <div className="flex flex-wrap gap-1">
           <Button variant="ghost" onClick={() => setShopSlot(slot)}>From shop</Button>

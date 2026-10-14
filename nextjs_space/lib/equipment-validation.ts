@@ -9,6 +9,9 @@ const itemBonus = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('skill'), skill: z.string().trim().min(1).max(80), amount: bonusAmount }).strict(),
   z.object({ kind: z.literal('save'), save: z.enum(SAVE_BONUSES), amount: bonusAmount }).strict(),
   z.object({ kind: z.literal('spell'), amount: bonusAmount }).strict(),
+  z.object({ kind: z.literal('attack'), amount: bonusAmount }).strict(),
+  z.object({ kind: z.literal('damage'), amount: bonusAmount }).strict(),
+  z.object({ kind: z.literal('init'), amount: bonusAmount }).strict(),
 ]);
 const slot = z.object({
   name: z.string().max(200),
@@ -34,9 +37,18 @@ const weapon = slot.extend({
   category: z.enum(['melee', 'ranged', 'thrown', 'composite']).optional(),
   type: z.string().max(100),
 });
+const buff = z.object({
+  name: z.string().max(200),
+  on: z.boolean(),
+  bonuses: z.array(itemBonus).max(8).optional(),
+  libraryEntryId: z.string().min(1).max(80).optional(),
+  sourceUrl: z.string().url().max(500).nullable().optional(),
+}).strict();
 export const equippedSchema = z.object({
   armor: armor.nullable().optional(),
   shield: armor.nullable().optional(),
   weapons: z.array(weapon).max(50).optional(),
   slots: z.object(Object.fromEntries([...BODY_SLOTS, ...UNSLOTTED_SLOTS].map(key => [key, slot.nullable().optional()]))).strict().optional(),
+  conditions: z.array(z.string().trim().min(1).max(40)).max(40).optional(),
+  buffs: z.array(buff).max(30).optional(),
 }).strict();

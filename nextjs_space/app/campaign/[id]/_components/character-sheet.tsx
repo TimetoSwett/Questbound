@@ -15,12 +15,15 @@ import { SpellCard, type SpellEntry } from './spell-card';
 import { EntryCard, sheetCardGridClass } from './entry-card';
 import { castingAbilityFor, spellDc } from '@/lib/spell-dc';
 import { newSpellClientId } from '@/lib/spell-client-id';
-import { EquipmentEditor } from './equipment-editor';
-import { equippedItemBonuses, equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange } from '@/lib/equipment';
+import { EquipmentEditor, BonusEditor } from './equipment-editor';
+import { SheetEffects } from './sheet-effects';
+import { sheetAdjustment } from '@/lib/conditions';
+import { bonusLabel, equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange, type ItemBonus } from '@/lib/equipment';
 import { AddSpellToLibraryDialog } from './add-spell-dialog';
 import { AddSpellSearchDialog } from './add-spell-search-dialog';
 import { CatalogSearchDialog } from '@/components/library/catalog-search-dialog';
-import { featFromLibrary, gearFromLibrary } from '@/lib/catalog';
+import { ABILITY_TAGS, abilityTag, featFromLibrary, gearFromLibrary } from '@/lib/catalog';
+import type { AbilityTag } from '@/lib/catalog';
 import type { FeatData, GearData } from '@/lib/library';
 
 const SIZES = ['Fine', 'Diminutive', 'Tiny', 'Small', 'Medium', 'Large', 'Huge', 'Gargantuan', 'Colossal'];
@@ -28,7 +31,7 @@ const ALIGNMENTS = ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'];
 
 interface SkillEntry { name: string; ranks: number; classSkill: boolean; misc: number; }
 interface EquipItem { name: string; weight: number; quantity: number; value: string; notes: string; summary?: string; libraryEntryId?: string; sourceUrl?: string | null; }
-interface FeatEntry { name: string; description: string; summary?: string; kind?: 'feat' | 'ability'; libraryEntryId?: string; sourceUrl?: string | null; }
+interface FeatEntry { name: string; description: string; summary?: string; kind?: 'feat' | 'ability'; tag?: AbilityTag; libraryEntryId?: string; sourceUrl?: string | null; bonuses?: ItemBonus[]; }
 interface ClassEntry { name: string; level: number; }
 
 function groupFeats(feats: FeatEntry[]) {
@@ -350,8 +353,8 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
   const stats = useMemo(() => {
     if (!data) return null;
     const s = (f: string) => parseInt(data?.[f]) || 0;
-    const itemBonuses = equippedItemBonuses(data.equipped);
-    const score = (ability: 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha') => (parseInt(data?.[ability]) || 0) + itemBonuses.ability[ability];
+    const adjust = sheetAdjustment({ equipped: data.equipped, feats: data.feats });
+    const score = (ability: 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha') => (parseInt(data?.[ability]) || 0) + adjust.ability[ability];
     const strMod = abilityMod(score('str'));
     const dexMod = abilityMod(score('dex'));
     const conMod = abilityMod(score('con'));
@@ -362,17 +365,18 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
     const sizeMod = s('sizeMod');
 
     const effects = equipmentEffects(data.equipped, s('armorBonus'), s('shieldBonus'), dexMod);
-    const ac = 10 + effects.armorBonus + itemBonuses.ac.armor + effects.shieldBonus + itemBonuses.ac.shield + effects.dexToAC + sizeMod + s('naturalArmor') + itemBonuses.ac.natural + s('deflection') + itemBonuses.ac.deflection + s('miscAC') + itemBonuses.ac.dodge;
-    const touchAC = 10 + effects.dexToAC + sizeMod + s('deflection') + itemBonuses.ac.deflection + s('miscTouchAC') + itemBonuses.ac.dodge;
-    const flatAC = 10 + effects.armorBonus + itemBonuses.ac.armor + effects.shieldBonus + itemBonuses.ac.shield + sizeMod + s('naturalArmor') + itemBonuses.ac.natural + s('deflection') + itemBonuses.ac.deflection + s('miscFlatAC');
+    const acDex = adjust.loseDex ? Math.min(effects.dexToAC, 0) : effects.dexToAC;
+    const ac = 10 + effects.armorBonus + adjust.ac.armor + effects.shieldBonus + adjust.ac.shield + acDex + sizeMod + s('naturalArmor') + adjust.ac.natural + s('deflection') + adjust.ac.deflection + s('miscAC') + adjust.ac.dodge + adjust.acPenalty;
+    const touchAC = 10 + acDex + sizeMod + s('deflection') + adjust.ac.deflection + s('miscTouchAC') + adjust.ac.dodge + adjust.acPenalty;
+    const flatAC = 10 + effects.armorBonus + adjust.ac.armor + effects.shieldBonus + adjust.ac.shield + sizeMod + s('naturalArmor') + adjust.ac.natural + s('deflection') + adjust.ac.deflection + s('miscFlatAC') + adjust.acPenalty;
     const cmd = 10 + bab + strMod + dexMod + sizeMod + s('miscCMD');
-    const cmb = bab + strMod + sizeMod + s('miscCMB');
-    const init = dexMod + s('miscInit');
-    const fort = s('baseFort') + conMod + s('miscFort') + itemBonuses.saves.fort;
-    const ref = s('baseRef') + dexMod + s('miscRef') + itemBonuses.saves.ref;
-    const will = s('baseWill') + wisMod + s('miscWill') + itemBonuses.saves.will;
+    const cmb = bab + strMod + sizeMod + s('miscCMB') + adjust.cmb;
+    const init = dexMod + s('miscInit') + adjust.init;
+    const fort = s('baseFort') + conMod + s('miscFort') + adjust.saves.fort;
+    const ref = s('baseRef') + dexMod + s('miscRef') + adjust.saves.ref;
+    const will = s('baseWill') + wisMod + s('miscWill') + adjust.saves.will;
 
-    return { effects, itemBonuses, strMod, dexMod, conMod, intMod, wisMod, chaMod, ac, touchAC, flatAC, cmd, cmb, init, fort, ref, will };
+    return { effects, itemBonuses: adjust, strMod, dexMod, conMod, intMod, wisMod, chaMod, ac, touchAC, flatAC, cmd, cmb, init, fort, ref, will };
   }, [data]);
 
   const spellClasses = (data?.classes ?? []).map((cls: ClassEntry) => cls.name);
@@ -416,6 +420,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
       {/* CORE & COMBAT SECTION */}
       {isSection('core-combat') && (
         <div className="space-y-4">
+          <SheetEffects equipped={data.equipped ?? {}} editable={editable} onChange={next => { update('equipped', next); autoSave(); }} />
           {/* Name + Portrait */}
           <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4">
             <div className="space-y-3">
@@ -506,7 +511,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                     <Label className="text-xs font-mono text-primary uppercase">{ab}</Label>
                     <Input type="number" value={data?.[ab] ?? 10} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { update(ab, e.target.value); autoSave(); }} disabled={!editable} className="mt-0.5 h-10 text-center font-mono text-lg" />
                     <div className={`text-sm font-mono mt-1 ${mod >= 0 ? 'text-green-700' : 'text-red-600'}`}>{formatMod(mod)}</div>
-                    {gear !== 0 && <div className="text-[10px] text-muted-foreground">{formatMod(gear)} from gear</div>}
+                    {gear !== 0 && <div className="text-[10px] text-muted-foreground">{formatMod(gear)} included</div>}
                   </div>
                 );
               })}
@@ -648,7 +653,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
       )}
 
       {isSection('equipped') && <EquipmentEditor value={data.equipped ?? {}} characterId={characterId} campaignId={data.campaignId} editable={editable}
-        bab={Number(data.bab) || 0} strMod={stats?.strMod ?? 0} dexMod={stats?.dexMod ?? 0} sizeMod={Number(data.sizeMod) || 0}
+        bab={Number(data.bab) || 0} strMod={stats?.strMod ?? 0} dexMod={stats?.dexMod ?? 0} sizeMod={Number(data.sizeMod) || 0} attackMod={stats?.itemBonuses.attack ?? 0} damageMod={stats?.itemBonuses.damage ?? 0}
         onChange={value => {
           for (const key of ['armor', 'shield'] as const) {
             const field = key === 'armor' ? 'armorBonus' : 'shieldBonus';
@@ -693,7 +698,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                   const abMod = abilityModForSkill(skill.ability);
                   const ranks = entry?.ranks ?? 0;
                   const csBonus = (entry?.classSkill && ranks >= 1) ? 3 : 0;
-                  const gearSkill = stats?.itemBonuses.skills[skill.name] ?? 0;
+                  const gearSkill = (stats?.itemBonuses.skills[skill.name] ?? 0) + (stats?.itemBonuses.skillAll ?? 0);
                   const total = ranks + csBonus + abMod + (entry?.misc ?? 0) + equipmentSkillPenalty(skill.ability, stats?.effects.checkPenalty ?? 0) + gearSkill;
 
                   const updateSkill = (field: string, value: any) => {
@@ -714,7 +719,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                         <span className="text-xs">{skill.name}</span>
                         <span className="text-[10px] text-muted-foreground ml-1">({skill.ability})</span>
                       </td>
-                      <td className="text-center font-mono font-bold" title={gearSkill ? `${formatMod(gearSkill)} from gear` : undefined}>{formatMod(total)}</td>
+                      <td className="text-center font-mono font-bold" title={gearSkill ? `${formatMod(gearSkill)} included` : undefined}>{formatMod(total)}</td>
                       <td className="text-center">
                         <input type="number" value={ranks} onChange={(e) => updateSkill('ranks', parseInt(e.target.value) || 0)} disabled={!editable}
                           className="w-10 h-6 text-center bg-transparent border border-border rounded text-xs font-mono" />
@@ -769,7 +774,9 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                         update('feats', arr);
                         autoSave();
                       };
-                      return <EntryCard key={index} name={feat?.name ?? ''} unnamed={group.kind === 'ability' ? 'Unnamed ability' : 'Unnamed feat'} meta={group.kind === 'ability' ? 'Special ability' : 'Feat'} body={feat?.summary || feat?.description} libraryEntryId={feat?.libraryEntryId} sourceUrl={feat?.sourceUrl} editable={editable}
+                      const tag = group.kind === 'ability' && feat?.tag && feat.tag in ABILITY_TAGS ? ABILITY_TAGS[feat.tag] : undefined;
+                      const meta = [tag?.label ?? (group.kind === 'ability' ? 'Special ability' : 'Feat'), ...(feat?.bonuses ?? []).map(bonusLabel)].filter(Boolean).join(' · ');
+                      return <EntryCard key={index} name={feat?.name ?? ''} unnamed={group.kind === 'ability' ? 'Unnamed ability' : 'Unnamed feat'} meta={meta} note={tag?.text} body={feat?.summary || feat?.description} libraryEntryId={feat?.libraryEntryId} sourceUrl={feat?.sourceUrl} editable={editable}
                         onDelete={() => { const arr = [...(data?.feats ?? [])]; arr.splice(index, 1); update('feats', arr); autoSave(); }}>
                         <Input value={feat?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ name: e.target.value, libraryEntryId: undefined, sourceUrl: null, summary: undefined })} className="h-7 text-sm font-semibold" placeholder="Name" />
                         <label className="text-xs text-muted-foreground">Type
@@ -778,6 +785,16 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                             <option value="ability">Special ability</option>
                           </select>
                         </label>
+                        {group.kind === 'ability' && <label className="text-xs text-muted-foreground">Tag
+                          <select value={feat?.tag ?? ''} onChange={(e) => patch({ tag: e.target.value === 'ex' || e.target.value === 'su' || e.target.value === 'sp' ? e.target.value : undefined })} className="mt-1 h-7 w-full rounded-md border border-input bg-background px-2 text-xs">
+                            <option value="">No tag</option>
+                            <option value="ex">Extraordinary (Ex)</option>
+                            <option value="su">Supernatural (Su)</option>
+                            <option value="sp">Spell-like (Sp)</option>
+                          </select>
+                          {tag && <span className="mt-1 block">{tag.text}</span>}
+                        </label>}
+                        <BonusEditor bonuses={feat?.bonuses ?? []} hint={group.kind === 'ability' ? 'This ability counts while it is on the sheet.' : 'This feat counts while it is on the sheet.'} onChange={bonuses => patch({ bonuses })} />
                         <label className="block text-xs text-muted-foreground">Description<textarea value={feat?.description ?? ''} onChange={(e) => patch({ description: e.target.value, summary: undefined })} className="w-full bg-transparent text-xs text-muted-foreground resize-y min-h-[60px] mt-1" placeholder="Description..." /></label>
                       </EntryCard>;
                     })}
@@ -970,7 +987,9 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           onClose={() => setCatalog(null)}
           onCustom={() => { update('feats', [...(data?.feats ?? []), { name: '', description: '' }]); autoSave(); setCatalog(null); }}
           onPick={(entry) => {
-            const feat = { ...featFromLibrary(entry.name, (entry.data ?? {}) as FeatData, { libraryEntryId: entry.id, sourceUrl: entry.sourceUrl }), summary: entry.summary ?? '', kind: entry.kind === 'ability' ? 'ability' as const : 'feat' as const };
+            const made = featFromLibrary(entry.name, (entry.data ?? {}) as FeatData, { libraryEntryId: entry.id, sourceUrl: entry.sourceUrl });
+            const kind = entry.kind === 'ability' ? 'ability' as const : 'feat' as const;
+            const feat = { ...made, summary: entry.summary ?? '', kind, tag: kind === 'ability' ? abilityTag(entry.name, `${entry.summary ?? ''}\n${made.description}`) : undefined };
             setData((prev: any) => ({ ...prev, feats: [...(prev?.feats ?? []), feat] }));
             autoSave();
           }}

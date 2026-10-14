@@ -65,6 +65,28 @@ assert.equal(equipment.bonusLabel({ kind: 'ability', ability: 'wis', amount: 2 }
 assert.equal(validation.equippedSchema.safeParse({ slots: { headband: { name: 'Headband', bonuses: [{ kind: 'ability', ability: 'wis', amount: 2 }] } } }).success, true);
 assert.equal(validation.equippedSchema.safeParse({ slots: { headband: { name: 'Headband', bonuses: [{ kind: 'ability', ability: 'luck', amount: 2 }] } } }).success, false);
 assert.equal(validation.equippedSchema.safeParse({ slots: { headband: { name: 'Headband', bonuses: [{ kind: 'spell', amount: 1 }, { kind: 'ac', bonus: 'deflection', amount: 1 }, { kind: 'save', save: 'will', amount: 2 }] } } }).success, true);
+assert.equal(validation.equippedSchema.safeParse({ conditions: ['fatigued', 'bless'], buffs: [{ name: 'Shield of faith', on: true, bonuses: [{ kind: 'ac', bonus: 'deflection', amount: 2 }] }] }).success, true);
+assert.equal(validation.equippedSchema.safeParse({ buffs: [{ name: 'Bad', on: true, bonuses: [{ kind: 'attack', amount: 99 }] }] }).success, false);
+const conditions = load('lib/conditions.ts', { './equipment': equipment });
+assert.equal(conditions.resolveToggles(['fatigued', 'exhausted']).ability.str, -6);
+assert.equal(conditions.resolveToggles(['bless', 'heroism']).attack, 2);
+assert.equal(conditions.resolveToggles(['bless', 'bane']).attack, 0);
+assert.equal(conditions.resolveToggles(['heroism', 'haste']).attack, 3);
+assert.equal(conditions.resolveToggles(['heroism', 'rage']).saves.will, 2);
+assert.equal(conditions.resolveToggles(['haste']).saves.ref, 1);
+assert.equal(conditions.resolveToggles(['haste']).saves.fort, 0);
+assert.equal(conditions.resolveToggles(['sickened', 'shaken']).skillAll, -4);
+assert.equal(conditions.resolveToggles(['grappled', 'pinned']).ability.dex, -4);
+assert.equal(conditions.resolveToggles(['flat-footed']).loseDex, true);
+assert.equal(conditions.resolveToggles(['rage', 'enlarge']).ability.str, 6);
+const adjusted = conditions.sheetAdjustment({
+  equipped: { slots: { headband: { name: 'Band', bonuses: [{ kind: 'ability', ability: 'wis', amount: 2 }] } }, conditions: ['sickened'], buffs: [{ name: 'Focus', on: true, bonuses: [{ kind: 'attack', amount: 1 }] }] },
+  feats: [{ name: 'Alertness', bonuses: [{ kind: 'skill', skill: 'Perception', amount: 2 }] }, { name: ' ', bonuses: [{ kind: 'skill', skill: 'Perception', amount: 9 }] }],
+});
+assert.equal(adjusted.ability.wis, 2);
+assert.equal(adjusted.skills.Perception, 2);
+assert.equal(adjusted.attack, -1);
+assert.equal(adjusted.damage, -2);
 for (const invalid of [null, 'bad', { armor: { ...armor, name: 'x'.repeat(201) } }, { shield: { ...shield, spellFailure: 101 } }, { armor: { ...armor, checkPenalty: 1 } }, { armor: { ...armor, maxDex: Infinity } }, { weapons: Array(51).fill(weapon) }, { weapons: [{ ...weapon, ability: 'wis' }] }, { slots: { extra: { name: 'Bad' } } }, { slots: { head: { name: 'Hat', inventoryItemId: '' } } }]) assert.equal(validation.equippedSchema.safeParse(invalid).success, false);
 let user = 'owner', role = 'player', writes = 0;
 let carried = [{ id: 'item', campaignId: 'campaign', characterId: 'character' }];
