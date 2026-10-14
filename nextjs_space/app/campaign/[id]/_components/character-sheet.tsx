@@ -18,13 +18,17 @@ import { EquipmentEditor } from './equipment-editor';
 import { equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange } from '@/lib/equipment';
 import { AddSpellToLibraryDialog } from './add-spell-dialog';
 import { AddSpellSearchDialog } from './add-spell-search-dialog';
+import { CatalogSearchDialog } from '@/components/library/catalog-search-dialog';
+import { rulesUrl } from '@/components/library/types';
+import { featFromLibrary, gearFromLibrary } from '@/lib/catalog';
+import type { FeatData, GearData } from '@/lib/library';
 
 const SIZES = ['Fine', 'Diminutive', 'Tiny', 'Small', 'Medium', 'Large', 'Huge', 'Gargantuan', 'Colossal'];
 const ALIGNMENTS = ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'];
 
 interface SkillEntry { name: string; ranks: number; classSkill: boolean; misc: number; }
-interface EquipItem { name: string; weight: number; quantity: number; value: string; notes: string; }
-interface FeatEntry { name: string; description: string; }
+interface EquipItem { name: string; weight: number; quantity: number; value: string; notes: string; libraryEntryId?: string; sourceUrl?: string | null; }
+interface FeatEntry { name: string; description: string; libraryEntryId?: string; sourceUrl?: string | null; }
 interface ClassEntry { name: string; level: number; }
 
 function groupSpells(known: SpellEntry[]) {
@@ -169,6 +173,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
   // Client id of the spell being saved to the library (null = dialog closed).
   const [saveSpellClientId, setSaveSpellClientId] = useState<string | null>(null);
   const [addSpellOpen, setAddSpellOpen] = useState(false);
+  const [catalog, setCatalog] = useState<null | 'gear' | 'training'>(null);
   const [portraitUrl, setPortraitUrl] = useState<string | null>(null);
   const saveTimer = useRef<any>(null);
 
@@ -587,7 +592,10 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                 Total Weight: {(data?.equipment ?? []).reduce((sum: number, i: EquipItem) => sum + ((i?.weight ?? 0) * (i?.quantity ?? 1)), 0)?.toFixed?.(1) ?? '0.0'} lbs
               </span>
               {editable && (
-                <Button variant="ghost" size="sm" onClick={() => { update('equipment', [...(data?.equipment ?? []), { name: '', weight: 0, quantity: 1, value: '', notes: '' }]); autoSave(); }}>+ Add Item</Button>
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="sm" onClick={() => setCatalog('gear')}>+ From shop</Button>
+                  <Button variant="ghost" size="sm" onClick={() => { update('equipment', [...(data?.equipment ?? []), { name: '', weight: 0, quantity: 1, value: '', notes: '' }]); autoSave(); }}>+ Custom item</Button>
+                </div>
               )}
             </div>
           </div>
@@ -600,7 +608,10 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
               </div>
               {(data?.equipment ?? []).map((item: EquipItem, i: number) => (
                 <div key={i} className="grid grid-cols-[1fr_60px_50px_70px_30px] gap-2 items-center">
-                  <Input value={item?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), name: e.target.value }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs" placeholder="Item name" />
+                  <div>
+                    <Input value={item?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), name: e.target.value, libraryEntryId: undefined, sourceUrl: null }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs" placeholder="Item name" />
+                    {rulesUrl(item?.sourceUrl) && <a href={rulesUrl(item.sourceUrl)} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary hover:underline">See full rules</a>}
+                  </div>
                   <Input type="number" value={item?.weight ?? 0} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), weight: parseFloat(e.target.value) || 0 }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs text-center font-mono" />
                   <Input type="number" value={item?.quantity ?? 1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), quantity: parseInt(e.target.value) || 1 }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs text-center font-mono" />
                   <Input value={item?.value ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), value: e.target.value }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs" placeholder="gp" />
@@ -713,7 +724,10 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             openSections={openSections}
             setOpenSections={setOpenSections}
             actions={editable ? (
-              <Button variant="ghost" size="sm" onClick={() => { update('feats', [...(data?.feats ?? []), { name: '', description: '' }]); autoSave(); }}>+ Add Feat</Button>
+              <div className="flex gap-1">
+                <Button variant="ghost" size="sm" onClick={() => setCatalog('training')}>+ From training</Button>
+                <Button variant="ghost" size="sm" onClick={() => { update('feats', [...(data?.feats ?? []), { name: '', description: '' }]); autoSave(); }}>+ Custom</Button>
+              </div>
             ) : undefined}
           >
           {(data?.feats ?? []).length === 0 ? (
@@ -723,7 +737,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
               {(data?.feats ?? []).map((feat: FeatEntry, i: number) => (
                 <div key={i} className="p-3 bg-muted/50 rounded-lg">
                   <div className="flex items-center gap-2 mb-2">
-                    <Input value={feat?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.feats ?? [])]; arr[i] = { ...(arr[i] ?? {}), name: e.target.value }; update('feats', arr); autoSave(); }} disabled={!editable} className="h-7 text-sm font-semibold" placeholder="Feat name" />
+                    <Input value={feat?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.feats ?? [])]; arr[i] = { ...(arr[i] ?? {}), name: e.target.value, libraryEntryId: undefined, sourceUrl: null }; update('feats', arr); autoSave(); }} disabled={!editable} className="h-7 text-sm font-semibold" placeholder="Feat name" />
                     {editable && (
                       <Button variant="ghost" size="icon-sm" onClick={() => { const arr = [...(data?.feats ?? [])]; arr.splice(i, 1); update('feats', arr); autoSave(); }}>
                         <Trash2 className="w-3 h-3 text-destructive" />
@@ -732,6 +746,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                   </div>
                   <textarea value={feat?.description ?? ''} onChange={(e) => { const arr = [...(data?.feats ?? [])]; arr[i] = { ...(arr[i] ?? {}), description: e.target.value }; update('feats', arr); autoSave(); }} disabled={!editable}
                     className="w-full bg-transparent text-xs text-muted-foreground resize-none min-h-[40px] outline-none" placeholder="Description..." />
+                  {rulesUrl(feat?.sourceUrl) && <a href={rulesUrl(feat.sourceUrl)} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-xs text-primary hover:underline">See full rules</a>}
                 </div>
               ))}
             </div>
@@ -892,6 +907,36 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
               }];
               return { ...(prev ?? {}), spells };
             });
+            autoSave();
+          }}
+        />
+      )}
+      {catalog === 'gear' && (
+        <CatalogSearchDialog
+          title="Add gear"
+          description="Search the shop, then click an item to put it in this inventory."
+          queries={[{ kind: 'gear', label: 'Gear' }]}
+          knownIds={(data?.equipment ?? []).map((item: EquipItem) => item.libraryEntryId).filter((id: string | undefined): id is string => Boolean(id))}
+          onClose={() => setCatalog(null)}
+          onCustom={() => { update('equipment', [...(data?.equipment ?? []), { name: '', weight: 0, quantity: 1, value: '', notes: '' }]); autoSave(); setCatalog(null); }}
+          onPick={(entry) => {
+            const item = gearFromLibrary(entry.name, (entry.data ?? {}) as GearData, { libraryEntryId: entry.id, sourceUrl: entry.sourceUrl });
+            setData((prev: any) => ({ ...prev, equipment: [...(prev?.equipment ?? []), item] }));
+            autoSave();
+          }}
+        />
+      )}
+      {catalog === 'training' && (
+        <CatalogSearchDialog
+          title="Add feat or ability"
+          description="Search the training grounds, then click to add it to this sheet."
+          queries={[{ kind: 'feat', label: 'Feats' }, { kind: 'ability', label: 'Special abilities' }]}
+          knownIds={(data?.feats ?? []).map((feat: FeatEntry) => feat.libraryEntryId).filter((id: string | undefined): id is string => Boolean(id))}
+          onClose={() => setCatalog(null)}
+          onCustom={() => { update('feats', [...(data?.feats ?? []), { name: '', description: '' }]); autoSave(); setCatalog(null); }}
+          onPick={(entry) => {
+            const feat = featFromLibrary(entry.name, (entry.data ?? {}) as FeatData, { libraryEntryId: entry.id, sourceUrl: entry.sourceUrl });
+            setData((prev: any) => ({ ...prev, feats: [...(prev?.feats ?? []), feat] }));
             autoSave();
           }}
         />

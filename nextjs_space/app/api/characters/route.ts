@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
 import { equippedSchema } from '@/lib/equipment-validation';
 import { equipmentEffects, manualBonusAfterChange, type Equipped } from '@/lib/equipment';
+import { libraryIdsIn, stripMissingLibraryIds } from '@/lib/library';
 import { removeCharacterTokens } from '@/lib/battle-map';
 
 export async function GET(request: Request) {
@@ -218,6 +219,18 @@ export async function PUT(request: Request) {
         }
       }
     }
+  }
+
+  for (const field of ['feats', 'equipment'] as const) {
+    if (typeof data[field] === 'string') {
+      try { data[field] = JSON.parse(data[field] as string); } catch { /* stored as text; no ids to check */ }
+    }
+  }
+  const linked = [data.feats, data.equipment, data.equipped].filter((value) => value && typeof value === 'object');
+  const linkedIds = libraryIdsIn(linked);
+  if (linkedIds.length) {
+    const existing = new Set((await prisma.libraryEntry.findMany({ where: { id: { in: linkedIds } }, select: { id: true } })).map((entry) => entry.id));
+    for (const value of linked) stripMissingLibraryIds(value, existing);
   }
 
   // Stringify JSON fields if they are objects

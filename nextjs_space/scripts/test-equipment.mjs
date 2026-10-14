@@ -55,6 +55,7 @@ for (const invalid of [null, 'bad', { armor: { ...armor, name: 'x'.repeat(201) }
 let user = 'owner', role = 'player', writes = 0;
 let carried = [{ id: 'item', campaignId: 'campaign', characterId: 'character' }];
 const character = { id: 'character', campaignId: 'campaign', userId: 'owner', armorBonus: 3, shieldBonus: 4 };
+const library = load('lib/library.ts', { zod: require('zod') });
 const route = load('app/api/characters/route.ts', {
   'next/server': { NextResponse: { json: (body, options) => Response.json(body, options) } },
   '@/auth': { auth: async () => user ? { user: { id: user } } : null },
@@ -62,9 +63,11 @@ const route = load('app/api/characters/route.ts', {
   '@/lib/battle-map': { removeCharacterTokens: () => null },
   '@/lib/equipment-validation': validation,
   '@/lib/equipment': equipment,
+  '@/lib/library': { libraryIdsIn: library.libraryIdsIn, stripMissingLibraryIds: library.stripMissingLibraryIds },
   '@/lib/prisma': { prisma: {
     character: { findUnique: async () => character, update: async args => { writes++; return { ...character, ...args.data }; } },
     inventoryItem: { findMany: async args => carried.filter(item => args.where.id.in.includes(item.id) && item.campaignId === args.where.campaignId && item.characterId === args.where.characterId) },
+    libraryEntry: { findMany: async () => [] },
   } },
 });
 const put = equipped => route.PUT(new Request('https://test/api', { method: 'PUT', body: JSON.stringify({ id: 'character', equipped }) }));
@@ -94,4 +97,10 @@ let res = await put(linked); assert.equal(res.status, 200);
 let body = await res.json(); assert.equal(body.armorBonus, 6); assert.equal(body.shieldBonus, 2); assert.equal(body.equipped.armor.inventoryItemId, 'item');
 res = await put({}); body = await res.json(); assert.equal(body.armorBonus, 3); assert.equal(body.shieldBonus, 4);
 character.campaignId = null; res = await put(linked); assert.equal(res.status, 200); assert.equal((await res.json()).equipped.armor.inventoryItemId, null); assert.equal((await put(valid)).status, 200);
+res = await put({ armor: { ...armor, libraryEntryId: 'missing', sourceUrl: 'https://www.aonprd.com/EquipmentArmorDisplay.aspx?ItemName=Mail' } });
+body = await res.json();
+assert.equal(res.status, 200);
+assert.equal('libraryEntryId' in body.equipped.armor, false);
+assert.equal(body.equipped.armor.name, armor.name);
+assert.equal(body.equipped.armor.sourceUrl, 'https://www.aonprd.com/EquipmentArmorDisplay.aspx?ItemName=Mail');
 console.log('Equipment math, validation, authorization, inventory scoping and save synchronization tests passed.');

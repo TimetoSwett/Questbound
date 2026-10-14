@@ -4,7 +4,7 @@ import { z } from 'zod';
 // Pure helpers + DB helpers that take a Prisma-like client (so tests can mock
 // it and the future AoN importer can pass a transaction).
 
-export const LIBRARY_KINDS = ['spell', 'rule'] as const;
+export const LIBRARY_KINDS = ['spell', 'rule', 'weapon', 'armor', 'gear', 'feat', 'ability'] as const;
 export type LibraryKind = (typeof LIBRARY_KINDS)[number];
 export const LIBRARY_SYSTEMS = ['pf1e', 'dnd35'] as const;
 export type LibrarySystem = (typeof LIBRARY_SYSTEMS)[number];
@@ -74,7 +74,58 @@ export const ruleDataSchema = z.object({
 }).strict();
 export type RuleData = z.infer<typeof ruleDataSchema>;
 
-export const dataSchemas: Record<LibraryKind, z.ZodTypeAny> = { spell: spellDataSchema, rule: ruleDataSchema };
+export const WEAPON_CATEGORIES = ['melee', 'ranged', 'thrown', 'composite'] as const;
+const pounds = z.number().min(0).max(100_000).default(0);
+const cost = str(40);
+export const weaponDataSchema = z.object({
+  category: z.enum(WEAPON_CATEGORIES).default('melee'),
+  ability: z.enum(['str', 'dex']).default('str'),
+  damage: str(40),
+  crit: str(40),
+  range: z.number().int().min(0).max(100_000).default(0),
+  type: str(40),
+  weight: pounds,
+  cost,
+  description: str(20_000),
+}).strict();
+export type WeaponData = z.infer<typeof weaponDataSchema>;
+
+export const armorDataSchema = z.object({
+  slot: z.enum(['armor', 'shield']).default('armor'),
+  acBonus: z.number().int().min(-100).max(100).default(0),
+  maxDex: z.number().int().min(-100).max(100).nullable().default(null),
+  checkPenalty: z.number().int().min(-100).max(0).default(0),
+  spellFailure: z.number().int().min(0).max(100).default(0),
+  weight: pounds,
+  cost,
+  description: str(20_000),
+}).strict();
+export type ArmorData = z.infer<typeof armorDataSchema>;
+
+export const gearDataSchema = z.object({
+  weight: pounds,
+  cost,
+  description: str(20_000),
+}).strict();
+export type GearData = z.infer<typeof gearDataSchema>;
+
+export const featDataSchema = z.object({
+  featType: str(80),
+  prerequisites: str(500),
+  benefit: str(4_000),
+  description: str(20_000),
+}).strict();
+export type FeatData = z.infer<typeof featDataSchema>;
+
+export const abilityDataSchema = z.object({
+  description: str(20_000),
+}).strict();
+export type AbilityData = z.infer<typeof abilityDataSchema>;
+
+export const dataSchemas: Record<LibraryKind, z.ZodTypeAny> = {
+  spell: spellDataSchema, rule: ruleDataSchema, weapon: weaponDataSchema, armor: armorDataSchema,
+  gear: gearDataSchema, feat: featDataSchema, ability: abilityDataSchema,
+};
 
 /** Long text of an entry's data (spell description / rule text), for default summaries. */
 export function dataLongText(d: unknown): unknown {
@@ -214,6 +265,7 @@ export const searchQuerySchema = z.object({
   q: z.string().max(NAME_MAX).optional().default(''),
   cls: z.string().trim().toLowerCase().max(40).optional(),
   level: z.coerce.number().int().min(0).max(9).optional(),
+  slot: z.enum(['armor', 'shield']).optional(),
   school: facet(40),
   subschool: facet(60),
   descriptor: facet(40),
@@ -267,13 +319,16 @@ export function searchWhere(query: SearchQuery) {
     : {};
   // Spell stats live in data JSON. School is exact; subschool/duration/range are substrings
   // (subschool can be "healing, creation"; range is "medium (100 ft. + 10 ft./level)").
-  const dataFilters = query.kind === 'spell' ? [
-    query.school ? { data: { path: ['school'], equals: query.school } } : null,
-    query.subschool ? { data: { path: ['subschool'], string_contains: query.subschool } } : null,
-    query.descriptor ? { data: { path: ['descriptors'], array_contains: [query.descriptor] } } : null,
-    query.duration ? { data: { path: ['duration'], string_contains: query.duration } } : null,
-    query.range ? { data: { path: ['range'], string_contains: query.range } } : null,
-  ].filter((filter): filter is NonNullable<typeof filter> => filter !== null) : [];
+  const dataFilters = [
+    ...(query.kind === 'spell' ? [
+      query.school ? { data: { path: ['school'], equals: query.school } } : null,
+      query.subschool ? { data: { path: ['subschool'], string_contains: query.subschool } } : null,
+      query.descriptor ? { data: { path: ['descriptors'], array_contains: [query.descriptor] } } : null,
+      query.duration ? { data: { path: ['duration'], string_contains: query.duration } } : null,
+      query.range ? { data: { path: ['range'], string_contains: query.range } } : null,
+    ] : []),
+    query.kind === 'armor' && query.slot ? { data: { path: ['slot'], equals: query.slot } } : null,
+  ].filter((filter): filter is NonNullable<typeof filter> => filter !== null);
   return { key, base: { kind: query.kind, system: query.system, ...levelFilter, ...(dataFilters.length ? { AND: dataFilters } : {}) } };
 }
 
@@ -443,4 +498,29 @@ export async function lookupTerms(db: Db, input: z.infer<typeof lookupInputSchem
     const b = best.get(keys[i]);
     return { term, match: b ? { id: b.r.id, name: b.r.name, kind: b.r.kind, summary: b.r.summary, sourceUrl: b.r.sourceUrl } : null };
   });
+}
+
+/** Ids referenced by sheet JSON. Used to drop links that don't point at a real library row. */
+export function libraryIdsIn(value: unknown): string[] {
+  const ids: string[] = [];
+  const walk = (v: unknown) => {
+    if (!v || typeof v !== 'object') return;
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    const rec = v as Record<string, unknown>;
+    if (typeof rec.libraryEntryId === 'string' && rec.libraryEntryId) ids.push(rec.libraryEntryId);
+    for (const child of Object.values(rec)) walk(child);
+  };
+  walk(value);
+  return [...new Set(ids)];
+}
+
+export function stripMissingLibraryIds(value: unknown, existing: Set<string>): void {
+  const walk = (v: unknown) => {
+    if (!v || typeof v !== 'object') return;
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    const rec = v as Record<string, unknown>;
+    if ('libraryEntryId' in rec && (typeof rec.libraryEntryId !== 'string' || !existing.has(rec.libraryEntryId))) delete rec.libraryEntryId;
+    for (const child of Object.values(rec)) walk(child);
+  };
+  walk(value);
 }

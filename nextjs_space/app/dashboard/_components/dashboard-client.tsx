@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from 'sonner';
 import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
 import { CharacterSheet } from '@/app/campaign/[id]/_components/character-sheet';
+import { HallNav } from '@/components/library/hall-nav';
 
 interface Campaign {
   id: string;
@@ -44,8 +45,8 @@ function Header({ userName }: { userName: string }) {
           <Shield className="w-7 h-7 text-primary" />
           <span className="font-display text-xl font-bold text-primary tracking-tight">Questbound</span>
         </div>
-        <div className="flex items-center gap-3">
-          <Button asChild variant="ghost" size="sm"><Link href="/library">Library</Link></Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <HallNav />
           <span className="text-sm text-muted-foreground hidden sm:block">Welcome, <span className="text-foreground font-medium">{userName}</span></span>
           <Button variant="ghost" size="sm" onClick={async () => { await signOut({ redirect: false }); window.location.href = '/login'; }}>
             <LogOut className="w-4 h-4 mr-1" /> Sign Out

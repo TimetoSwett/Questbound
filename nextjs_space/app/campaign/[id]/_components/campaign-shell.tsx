@@ -15,6 +15,7 @@ import { NpcsTab } from './npcs-tab';
 import { LootTab } from './loot-tab';
 import { RollLog } from './roll-log';
 import { CampaignEventsProvider } from '@/hooks/use-campaign-events';
+import { HallNav } from '@/components/library/hall-nav';
 
 const DESKTOP_QUERY = '(min-width: 1024px)';
 function subscribeDesktop(cb: () => void) {
@@ -118,7 +119,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
             </button>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => router.push('/library')}>Library</Button>
+            <HallNav />
             <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${role === 'dm' ? 'bg-primary/20 text-primary' : 'bg-secondary text-secondary-foreground'}`}>{role === 'dm' ? 'Dungeon Master' : 'Player'}</span>
             <Button variant="ghost" size="sm" onClick={() => setLogOpen((o) => !o)} title={logOpen ? 'Hide roll log' : 'Show roll log'} aria-label={logOpen ? 'Hide roll log' : 'Show roll log'} aria-expanded={logOpen} aria-controls="campaign-roll-log">
               <Dices className="w-4 h-4" />

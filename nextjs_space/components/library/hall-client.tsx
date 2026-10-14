@@ -1,0 +1,195 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { rulesUrl } from '@/components/library/types';
+import { HallNav } from './hall-nav';
+import { HALLS, type HallFilter, type HallId } from './halls';
+
+type Hit = { id: string; kind: string; name: string; summary: string; sourceUrl: string | null; data?: Record<string, string | number | null> };
+
+const DETAIL: Record<string, [string, string][]> = {
+  weapon: [['category', 'Category'], ['damage', 'Damage'], ['crit', 'Critical'], ['range', 'Range'], ['type', 'Type'], ['cost', 'Cost'], ['weight', 'Weight']],
+  armor: [['slot', 'Slot'], ['acBonus', 'AC bonus'], ['maxDex', 'Max Dex'], ['checkPenalty', 'Check penalty'], ['spellFailure', 'Spell failure'], ['cost', 'Cost'], ['weight', 'Weight']],
+  gear: [['cost', 'Cost'], ['weight', 'Weight']],
+  feat: [['featType', 'Type'], ['prerequisites', 'Prerequisites'], ['benefit', 'Benefit']],
+  ability: [],
+};
+
+function Pages({ page, pages, onPage }: { page: number; pages: number; onPage: (page: number) => void }) {
+  if (pages <= 1) return null;
+  return <nav aria-label="Pages" className="flex flex-wrap gap-1">{Array.from({ length: pages }, (_, index) => index + 1).map((number) => (
+    <button key={number} type="button" aria-current={number === page ? 'page' : undefined} onClick={() => onPage(number)}
+      className={`min-w-8 rounded px-2 py-1 text-sm ${number === page ? 'bg-primary font-semibold text-primary-foreground' : 'hover:bg-accent'}`}>{number}</button>
+  ))}</nav>;
+}
+
+export function HallClient({ hall }: { hall: HallId }) {
+  const config = HALLS[hall];
+  const [filterId, setFilterId] = useState(config.filters[0].id);
+  const filter = config.filters.find((item) => item.id === filterId) ?? config.filters[0];
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState('20');
+  const [search, setSearch] = useState<{ results: Hit[]; total: number; loading: boolean; error: string }>({ results: [], total: 0, loading: true, error: '' });
+  const [selected, setSelected] = useState<Hit | null>(null);
+  const [detail, setDetail] = useState<Hit | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const filterKey = `${filter.id}|${q}|${limit}`;
+  const [seen, setSeen] = useState(filterKey);
+  if (filterKey !== seen) { setSeen(filterKey); setPage(1); }
+  const pageSize = Number(limit) || 20;
+  const pages = Math.ceil(search.total / pageSize);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setSearch((current) => ({ ...current, loading: true, error: '' }));
+      const params = new URLSearchParams({ kind: filter.kind, system: 'pf1e', q, limit, page: String(page) });
+      if ('slot' in filter && filter.slot) params.set('slot', filter.slot);
+      try {
+        const response = await fetch(`/api/library?${params}`, { signal: controller.signal });
+        if (!response.ok) throw new Error();
+        const body = await response.json();
+        if (!controller.signal.aborted) setSearch({ results: body.results, total: body.total ?? body.results.length, loading: false, error: '' });
+      } catch { if (!controller.signal.aborted) setSearch({ results: [], total: 0, loading: false, error: 'Could not load the catalog.' }); }
+    }, 250);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [filter, q, limit, page, importOpen]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const controller = new AbortController();
+    fetch(`/api/library/${encodeURIComponent(selected.id)}`, { signal: controller.signal }).then(async (response) => {
+      if (!response.ok) throw new Error();
+      const entry = await response.json() as Hit;
+      if (!controller.signal.aborted) setDetail(entry);
+    }).catch(() => { if (!controller.signal.aborted) setDetail(null); });
+    return () => controller.abort();
+  }, [selected]);
+
+  return <div className="min-h-screen bg-background">
+    <header className="border-b bg-card/80">
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-3">
+        <Link href="/dashboard" className="font-display text-xl font-bold text-primary">Questbound</Link>
+        <HallNav current={config.path} />
+      </div>
+    </header>
+    <main className="mx-auto max-w-5xl space-y-6 px-4 py-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-display text-3xl font-bold">{config.title}</h1>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{config.blurb}</p>
+        </div>
+        <Button type="button" onClick={() => setImportOpen(true)}>Import or add</Button>
+      </div>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-48 flex-1"><Label htmlFor="hall-search">Search</Label><Input id="hall-search" value={q} maxLength={120} placeholder="Name…" onChange={(event) => setQ(event.target.value)} /></div>
+        {config.filters.length > 1 && <div className="flex flex-wrap gap-1">{config.filters.map((item) => (
+          <button key={item.id} type="button" onClick={() => setFilterId(item.id)} className={`rounded-md px-3 py-2 text-sm ${item.id === filter.id ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>{item.label}</button>
+        ))}</div>}
+        <div><Label htmlFor="hall-limit">Per page</Label><select id="hall-limit" value={limit} onChange={(event) => setLimit(event.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm"><option value="20">20</option><option value="50">50</option></select></div>
+      </div>
+      <Pages page={page} pages={pages} onPage={setPage} />
+      <div aria-live="polite">{search.loading ? <p className="text-muted-foreground">Searching…</p> : search.error ? <p role="alert">{search.error}</p> : <p className="text-sm text-muted-foreground">{search.total} {search.total === 1 ? 'entry' : 'entries'}{pages > 1 ? ` — page ${page} of ${pages}` : ''}</p>}</div>
+      {!search.loading && !search.error && search.results.length === 0 && <p>Nothing here yet. Import one from an Archives of Nethys link, or add it by hand.</p>}
+      <ul className="space-y-2">{search.results.map((entry) => <li key={entry.id}><button type="button" onClick={() => { setDetail(null); setSelected(entry); }} className="w-full rounded-lg border bg-card p-4 text-left hover:bg-accent">
+        <h2 className="font-display font-semibold">{entry.name}</h2>
+        {entry.summary && <p className="mt-1 text-sm text-muted-foreground">{entry.summary}</p>}
+      </button></li>)}</ul>
+      <Pages page={page} pages={pages} onPage={setPage} />
+    </main>
+    <Dialog open={Boolean(selected)} onOpenChange={(open) => { if (!open) setSelected(null); }}>
+      <DialogContent className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto">
+        <DialogHeader><DialogTitle>{selected?.name}</DialogTitle><DialogDescription>{selected?.summary}</DialogDescription></DialogHeader>
+        {!detail ? <p>Loading…</p> : <>
+          <dl className="grid gap-3 sm:grid-cols-2">{(DETAIL[detail.kind] ?? []).map(([key, label]) => <div key={key}><dt className="text-sm font-semibold">{label}</dt><dd className="text-sm text-muted-foreground">{detail.data?.[key] === null || detail.data?.[key] === undefined || detail.data?.[key] === '' ? '—' : String(detail.data[key])}</dd></div>)}</dl>
+          <p className="whitespace-pre-wrap text-sm">{String(detail.data?.description || '—')}</p>
+          {rulesUrl(detail.sourceUrl) && <a href={rulesUrl(detail.sourceUrl)} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline">See full rules</a>}
+        </>}
+      </DialogContent>
+    </Dialog>
+    {importOpen && <ImportDialog filter={filter} onClose={() => setImportOpen(false)} onSaved={() => setImportOpen(false)} />}
+  </div>;
+}
+
+function ImportDialog({ filter, onClose, onSaved }: { filter: HallFilter; onClose: () => void; onSaved: () => void }) {
+  const [mode, setMode] = useState<'link' | 'hand'>('link');
+  const [url, setUrl] = useState('');
+  const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function loadLink() {
+    setBusy(true); setError(''); setDraft(null);
+    try {
+      const response = await fetch('/api/library/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Import failed.');
+      setDraft(body.draft);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Import failed.'); }
+    finally { setBusy(false); }
+  }
+
+  async function save(body: unknown) {
+    setBusy(true); setError('');
+    try {
+      const response = await fetch('/api/library', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Could not save.');
+      onSaved();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not save.'); }
+    finally { setBusy(false); }
+  }
+
+  async function saveDraft() {
+    if (!draft) return;
+    const kind = String(draft.kind);
+    if (kind !== filter.kind) {
+      const where = kind === 'gear' ? 'the Shop' : kind === 'feat' || kind === 'ability' ? 'Training Grounds' : 'the Armory';
+      setError(`That page is a ${kind}. Open ${where} and import it there.`);
+      return;
+    }
+    const slot = (draft.data as { slot?: unknown } | undefined)?.slot;
+    if ('slot' in filter && filter.slot && typeof slot === 'string' && slot !== filter.slot) {
+      setError(slot === 'shield' ? 'That is a shield. Switch to Shields, then save it.' : 'That is armor. Switch to Armor, then save it.');
+      return;
+    }
+    await save(draft);
+  }
+
+  const handLabel = filter.kind === 'ability' ? 'ability' : filter.kind === 'armor' && 'slot' in filter && filter.slot === 'shield' ? 'shield' : filter.kind === 'gear' ? 'item' : filter.kind;
+
+  return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <DialogContent className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto">
+      <DialogHeader>
+        <DialogTitle>Add to the catalog</DialogTitle>
+        <DialogDescription>One Archives of Nethys display link, or a short entry of your own. This does not import a whole list.</DialogDescription>
+      </DialogHeader>
+      <div className="flex gap-1">
+        <button type="button" className={`rounded px-3 py-1 text-sm ${mode === 'link' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`} onClick={() => setMode('link')}>From a link</button>
+        <button type="button" className={`rounded px-3 py-1 text-sm ${mode === 'hand' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`} onClick={() => setMode('hand')}>By hand</button>
+      </div>
+      {mode === 'link' ? <div className="space-y-3">
+        <div><Label htmlFor="import-url">Archives of Nethys link</Label><Input id="import-url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://www.aonprd.com/FeatDisplay.aspx?ItemName=Power%20Attack" /></div>
+        <Button type="button" disabled={busy || !url.trim()} onClick={() => void loadLink()}>{busy ? 'Reading…' : 'Read link'}</Button>
+        {draft && <div className="rounded-md border p-3 text-sm">
+          <p className="font-semibold">{String(draft.name)}</p>
+          <p className="text-muted-foreground">{String(draft.kind)} — {String(draft.summary || '')}</p>
+          <Button type="button" className="mt-2" disabled={busy} onClick={() => void saveDraft()}>Save to catalog</Button>
+        </div>}
+      </div> : <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void save({ kind: filter.kind, name, data: { ...( 'slot' in filter && filter.slot ? { slot: filter.slot } : {}), description } }); }}>
+        <div><Label htmlFor="hand-name">Name</Label><Input id="hand-name" value={name} maxLength={120} onChange={(event) => setName(event.target.value)} required /></div>
+        <div><Label htmlFor="hand-body">Description</Label><textarea id="hand-body" value={description} maxLength={20000} onChange={(event) => setDescription(event.target.value)} className="min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" /></div>
+        <Button type="submit" disabled={busy || !name.trim()}>Save {handLabel}</Button>
+      </form>}
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    </DialogContent>
+  </Dialog>;
+}

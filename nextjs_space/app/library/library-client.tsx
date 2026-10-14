@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { classLabel, type LibrarySpell, rulesUrl, SPELL_CLASSES, SPELL_DESCRIPTORS, SPELL_SCHOOLS, SPELL_SUBSCHOOLS, spellLevelLabel } from '@/components/library/types';
+import { HallNav } from '@/components/library/hall-nav';
 
 const fields = [
   ['school', 'School'], ['subschool', 'Subschool'], ['descriptors', 'Descriptors'],
@@ -87,9 +88,9 @@ export function LibraryClient() {
   const advanced = school || subschool || descriptor || duration.trim() || range.trim();
   const options = (names: readonly string[], all: string) => <><option value="">{all}</option>{names.map((name) => <option key={name} value={name}>{classLabel(name)}</option>)}</>;
   return <div className="min-h-screen bg-background">
-    <header className="border-b bg-card/80"><nav aria-label="Main navigation" className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-      <div className="flex items-center gap-2"><Link href="/dashboard" className="font-display text-xl font-bold text-primary">Questbound</Link><span className="text-muted-foreground" aria-hidden="true">/</span><span aria-current="page" className="flex items-center gap-1 text-sm font-medium"><BookOpen className="h-4 w-4" /> Library</span></div>
-      <Button asChild variant="ghost"><Link href="/dashboard">Dashboard</Link></Button>
+    <header className="border-b bg-card/80"><nav aria-label="Main navigation" className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-3">
+      <div className="flex items-center gap-2"><Link href="/dashboard" className="font-display text-xl font-bold text-primary">Questbound</Link></div>
+      <HallNav current="/library" />
     </nav></header>
     <main className="mx-auto max-w-5xl space-y-6 px-4 py-6">
       <h1 className="flex items-center gap-2 font-display text-3xl font-bold"><BookOpen className="h-7 w-7" /> Spell Library</h1>

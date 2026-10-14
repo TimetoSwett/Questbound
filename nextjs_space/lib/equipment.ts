@@ -12,6 +12,8 @@ export interface SlotItem {
   name: string;
   inventoryItemId?: string | null;
   notes?: string;
+  libraryEntryId?: string;
+  sourceUrl?: string | null;
 }
 
 export interface ArmorPiece extends SlotItem {

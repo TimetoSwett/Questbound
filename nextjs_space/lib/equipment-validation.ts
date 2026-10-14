@@ -6,6 +6,8 @@ const slot = z.object({
   name: z.string().max(200),
   inventoryItemId: z.string().min(1).max(200).nullable().optional(),
   notes: z.string().max(5000).optional(),
+  libraryEntryId: z.string().min(1).max(80).optional(),
+  sourceUrl: z.string().url().max(500).nullable().optional(),
 }).strict();
 const armor = slot.extend({
   acBonus: number,
