@@ -13,7 +13,7 @@ function load(path, mocks = {}) {
   const source = readFileSync(new URL(path, root), 'utf8');
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
   const exports = {};
-  runInNewContext(js, { exports, console, URL, Request, Response, Date, TextDecoder, require: (n) => (n in mocks ? mocks[n] : require(n)) });
+  runInNewContext(js, { exports, console, URL, Request, Response, Date, TextDecoder, URLSearchParams, require: (n) => (n in mocks ? mocks[n] : require(n)) });
   return exports;
 }
 // vm-realm objects differ by prototype: compare as JSON.
@@ -144,6 +144,59 @@ console.log('ok   ordering');
   assert.equal(new Set(mixed.map((t) => t.term)).size, mixed.length, 'terms unique');
   assert.ok(lib.etagMatches('W/"x", "y"', '"y"')); assert.ok(lib.etagMatches('*', '"y"')); assert.ok(!lib.etagMatches(null, '"y"'));
   console.log('ok   rule schema & terms');
+}
+
+// term refresher: conditional GET, throttle, in-flight guard (pure, fake fetch + clock)
+{
+  const tc = load('lib/library-terms-client.ts');
+  const row = (term) => ({ term, entryId: `id-${term}`, kind: 'rule' });
+  let clock = 1_000_000;
+  const calls = [];
+  const replies = [];
+  const fetchImpl = async (url, init) => { calls.push({ url, inm: init.headers['If-None-Match'] ?? null }); return replies.shift(); };
+  const ok = (rows, etag) => new Response(JSON.stringify(rows), { status: 200, headers: { ETag: etag } });
+  const mk = () => tc.createTermRefresher({ fetchImpl, now: () => clock, load: () => null, save: () => {} });
+  const r = mk();
+  replies.push(ok([row('grab')], '"v1"'));
+  let res = await r.refresh();
+  assert.equal(calls.length, 1); assert.equal(calls[0].inm, null); assert.equal(res.changed, true); deq(res.terms, [row('grab')]);
+  const firstTerms = r.current();
+  // forced revalidate sends If-None-Match; 304 -> unchanged, same identity
+  replies.push(new Response(null, { status: 304 }));
+  res = await r.refresh({ force: true });
+  assert.equal(calls[1].inm, '"v1"'); assert.equal(res.changed, false); assert.equal(r.current(), firstTerms);
+  // throttle: focus within 30s makes no request; after 30s it does
+  clock += 10_000;
+  res = await r.refresh({ throttle: true });
+  assert.equal(calls.length, 2); assert.equal(res.changed, false);
+  // invalidation (force) bypasses the throttle
+  replies.push(new Response(null, { status: 304 }));
+  await r.refresh({ force: true });
+  assert.equal(calls.length, 3, 'force bypasses throttle');
+  clock += 31_000;
+  replies.push(ok([row('grab'), row('seize')], '"v2"'));
+  res = await r.refresh({ throttle: true });
+  assert.equal(calls.length, 4); assert.equal(calls[3].inm, '"v1"'); assert.equal(res.changed, true); deq(res.terms.map((t) => t.term), ['grab', 'seize']);
+  // 200 with the same etag is not a change
+  replies.push(ok([row('grab'), row('seize')], '"v2"'));
+  assert.equal((await r.refresh({ force: true })).changed, false);
+  // concurrent triggers share one request
+  const n = calls.length;
+  replies.push(new Response(null, { status: 304 }));
+  const [a, b, c] = [r.refresh(), r.refresh({ throttle: true }), r.refresh()];
+  await Promise.all([a, b, c]);
+  assert.equal(calls.length, n + 1, 'concurrent share one request');
+  // forced during in-flight: exactly one follow-up, shared by repeated forces
+  replies.push(new Response(null, { status: 304 }), new Response(null, { status: 304 }));
+  await Promise.all([r.refresh(), r.refresh({ force: true }), r.refresh({ force: true })]);
+  assert.equal(calls.length, n + 3);
+  // fetch failure keeps cached terms, unchanged
+  replies.push(Promise.reject(new Error('offline')));
+  res = await r.refresh({ force: true });
+  assert.equal(res.changed, false); assert.equal(res.terms.length, 2);
+  // invalidate is SSR-safe (no window)
+  tc.invalidateLibraryTerms();
+  console.log('ok   term refresher');
 }
 
 if (!process.env.DATABASE_URL) { console.log('skip DB tests (set DATABASE_URL to a TEST database)'); console.log('LIBRARY TESTS: PASS'); process.exit(0); }
