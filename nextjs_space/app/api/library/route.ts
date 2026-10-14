@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { parseCreateInput, presentEntry, searchLibrary, searchQuerySchema, canCreateEntry } from '@/lib/library';
 import { entryInclude, isUniqueViolation, readBoundedJson, requireActor } from '@/lib/library-api';
 
-// GET /api/library?kind=spell&system=pf1e&q=&cls=&level=&limit=20 (max 50).
+// GET /api/library?kind=spell&system=pf1e&q=&cls=&level=&school=&subschool=&descriptor=&duration=&range=&limit=20 (max 50).
 // Any logged-in user. Prefix matches first, then other matches; alphabetical.
 export async function GET(request: Request) {
   const a = await requireActor();

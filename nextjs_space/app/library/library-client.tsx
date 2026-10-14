@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { classLabel, type LibrarySpell, rulesUrl, SPELL_CLASSES, spellLevelLabel } from '@/components/library/types';
+import { classLabel, type LibrarySpell, rulesUrl, SPELL_CLASSES, SPELL_DESCRIPTORS, SPELL_SCHOOLS, SPELL_SUBSCHOOLS, spellLevelLabel } from '@/components/library/types';
 
 const fields = [
   ['school', 'School'], ['subschool', 'Subschool'], ['descriptors', 'Descriptors'],
@@ -20,6 +20,11 @@ export function LibraryClient() {
   const [q, setQ] = useState('');
   const [cls, setCls] = useState('');
   const [level, setLevel] = useState('');
+  const [school, setSchool] = useState('');
+  const [subschool, setSubschool] = useState('');
+  const [descriptor, setDescriptor] = useState('');
+  const [duration, setDuration] = useState('');
+  const [range, setRange] = useState('');
   const [limit, setLimit] = useState('20');
   const [search, setSearch] = useState<{ results: LibrarySpell[]; loading: boolean; error: string }>({ results: [], loading: true, error: '' });
   const [selected, setSelected] = useState<LibrarySpell | null>(null);
@@ -32,6 +37,11 @@ export function LibraryClient() {
       const query = new URLSearchParams({ kind: 'spell', system: 'pf1e', q, limit });
       if (cls) query.set('cls', cls);
       if (level !== '') query.set('level', level);
+      if (school) query.set('school', school);
+      if (subschool) query.set('subschool', subschool);
+      if (descriptor) query.set('descriptor', descriptor);
+      if (duration.trim()) query.set('duration', duration.trim());
+      if (range.trim()) query.set('range', range.trim());
       try {
         const response = await fetch(`/api/library?${query}`, { signal: controller.signal });
         if (!response.ok) throw new Error();
@@ -40,7 +50,7 @@ export function LibraryClient() {
       } catch { if (!controller.signal.aborted) setSearch({ results: [], loading: false, error: 'Could not load the library. Please try again.' }); }
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [q, cls, level, limit, retry]);
+  }, [q, cls, level, school, subschool, descriptor, duration, range, limit, retry]);
   useEffect(() => {
     if (!selected) return;
     const controller = new AbortController();
@@ -52,6 +62,8 @@ export function LibraryClient() {
     return () => controller.abort();
   }, [selected]);
   const selectStyle = 'h-10 w-full rounded-md border border-input bg-background px-3 text-sm';
+  const advanced = school || subschool || descriptor || duration.trim() || range.trim();
+  const options = (names: readonly string[], all: string) => <><option value="">{all}</option>{names.map((name) => <option key={name} value={name}>{classLabel(name)}</option>)}</>;
   return <div className="min-h-screen bg-background">
     <header className="border-b bg-card/80"><nav aria-label="Main navigation" className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
       <div className="flex items-center gap-2"><Link href="/dashboard" className="font-display text-xl font-bold text-primary">Questbound</Link><span className="text-muted-foreground" aria-hidden="true">/</span><span aria-current="page" className="flex items-center gap-1 text-sm font-medium"><BookOpen className="h-4 w-4" /> Library</span></div>
@@ -65,6 +77,17 @@ export function LibraryClient() {
         <div><Label htmlFor="library-level">Spell level</Label><select id="library-level" value={level} onChange={(event) => setLevel(event.target.value)} className={selectStyle}><option value="">All levels</option>{Array.from({ length: 10 }, (_, index) => <option key={index} value={index}>{index === 0 ? '0 (Cantrips)' : index}</option>)}</select></div>
         <div><Label htmlFor="library-limit">Result limit</Label><select id="library-limit" value={limit} onChange={(event) => setLimit(event.target.value)} className={selectStyle}><option value="20">20 results</option><option value="50">50 results</option></select></div>
       </div>
+      <fieldset className="space-y-3 rounded-lg border p-4">
+        <legend className="px-1 text-sm font-semibold">Advanced filters</legend>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div><Label htmlFor="library-school">School</Label><select id="library-school" value={school} onChange={(event) => setSchool(event.target.value)} className={selectStyle}>{options(SPELL_SCHOOLS, 'All schools')}</select></div>
+          <div><Label htmlFor="library-subschool">Subschool</Label><select id="library-subschool" value={subschool} onChange={(event) => setSubschool(event.target.value)} className={selectStyle}>{options(SPELL_SUBSCHOOLS, 'All subschools')}</select></div>
+          <div><Label htmlFor="library-descriptor">Descriptor</Label><select id="library-descriptor" value={descriptor} onChange={(event) => setDescriptor(event.target.value)} className={selectStyle}>{options(SPELL_DESCRIPTORS, 'All descriptors')}</select></div>
+          <div><Label htmlFor="library-duration">Duration</Label><Input id="library-duration" value={duration} maxLength={80} onChange={(event) => setDuration(event.target.value)} placeholder="round, instantaneous…" /></div>
+          <div><Label htmlFor="library-range">Range</Label><Input id="library-range" value={range} maxLength={80} onChange={(event) => setRange(event.target.value)} placeholder="touch, medium, long…" /></div>
+        </div>
+        {advanced && <Button type="button" variant="ghost" className="h-8 px-2 text-sm" onClick={() => { setSchool(''); setSubschool(''); setDescriptor(''); setDuration(''); setRange(''); }}>Clear advanced filters</Button>}
+      </fieldset>
       <div aria-live="polite">{search.loading ? <p className="text-muted-foreground">Searching spells…</p> : search.error ? <div><p role="alert">{search.error}</p><Button variant="outline" onClick={() => setRetry((value) => value + 1)}>Try again</Button></div> : <p className="text-sm text-muted-foreground">{search.results.length} {search.results.length === 1 ? 'result' : 'results'}{search.results.length === Number(limit) ? ' — limit reached; narrow your search to find more spells.' : ''}</p>}</div>
       {!search.loading && !search.error && search.results.length === 0 && <p>No spells match these filters.</p>}
       <ul className="space-y-2">{search.results.map((spell) => <li key={spell.id}><button type="button" onClick={() => { setDetail({}); setSelected(spell); }} className="w-full rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-primary">

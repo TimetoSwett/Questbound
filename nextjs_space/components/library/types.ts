@@ -9,6 +9,9 @@ export interface LibrarySpell {
   data: SpellData;
 }
 export const SPELL_CLASSES = ['adept', 'alchemist', 'antipaladin', 'arcanist', 'bard', 'bloodrager', 'cleric', 'druid', 'hunter', 'inquisitor', 'investigator', 'magus', 'medium', 'mesmerist', 'occultist', 'oracle', 'paladin', 'psychic', 'ranger', 'shaman', 'skald', 'sorcerer', 'spiritualist', 'summoner', 'summoner (unchained)', 'warpriest', 'witch', 'wizard'];
+export const SPELL_SCHOOLS = ['abjuration', 'conjuration', 'divination', 'enchantment', 'evocation', 'illusion', 'necromancy', 'transmutation', 'universal'];
+export const SPELL_SUBSCHOOLS = ['calling', 'charm', 'compulsion', 'creation', 'figment', 'glamer', 'healing', 'pattern', 'phantasm', 'polymorph', 'scrying', 'shadow', 'summoning', 'teleportation'];
+export const SPELL_DESCRIPTORS = ['acid', 'air', 'chaotic', 'cold', 'curse', 'darkness', 'death', 'disease', 'draconic', 'earth', 'ectoplasm', 'electricity', 'emotion', 'evil', 'fear', 'fire', 'force', 'good', 'language-dependent', 'lawful', 'light', 'meditative', 'mind-affecting', 'pain', 'poison', 'ruse', 'shadow', 'sonic', 'water'];
 export const classLabel = (cls: string) => cls.replace(/\b\w/g, (c) => c.toUpperCase());
 export const spellLevelLabel = (spell: Pick<LibrarySpell, 'spellLevels'>) => spell.spellLevels.map(({ cls, level }) => `${classLabel(cls)} ${level}`).join(' / ');
 export function rulesUrl(url: string | null | undefined) {

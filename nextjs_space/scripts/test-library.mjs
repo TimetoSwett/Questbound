@@ -58,6 +58,21 @@ const sq = searchQuerySchema.parse({ limit: '50', level: '3' });
 assert.equal(sq.limit, 50); assert.equal(sq.level, 3); assert.equal(sq.kind, 'spell');
 assert.equal(searchQuerySchema.safeParse({ limit: '51' }).success, false);
 assert.equal(searchQuerySchema.safeParse({ level: '10' }).success, false);
+const facets = searchQuerySchema.parse({ school: ' Evocation ', subschool: 'Healing', descriptor: 'Fire', duration: ' Round ', range: 'Medium' });
+assert.equal(facets.school, 'evocation'); assert.equal(facets.subschool, 'healing'); assert.equal(facets.descriptor, 'fire');
+assert.equal(facets.duration, 'round'); assert.equal(facets.range, 'medium');
+assert.equal(searchQuerySchema.parse({ school: '  ' }).school, undefined);
+assert.equal(searchQuerySchema.safeParse({ duration: 'x'.repeat(81) }).success, false);
+const filtered = lib.searchWhere(facets);
+deq(filtered.base.AND, [
+  { data: { path: ['school'], equals: 'evocation' } },
+  { data: { path: ['subschool'], string_contains: 'healing' } },
+  { data: { path: ['descriptors'], array_contains: ['fire'] } },
+  { data: { path: ['duration'], string_contains: 'round' } },
+  { data: { path: ['range'], string_contains: 'medium' } },
+]);
+assert.equal(lib.searchWhere(searchQuerySchema.parse({ q: 'fire' })).base.AND, undefined);
+assert.equal(lib.searchWhere(searchQuerySchema.parse({ kind: 'rule', school: 'evocation' })).base.AND, undefined);
 console.log('ok   validation');
 
 // permissions

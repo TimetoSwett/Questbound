@@ -205,12 +205,20 @@ export function presentEntry(row: LibraryEntryRow, actor: LibraryActor = null, o
 }
 
 // ---- search ----
+/** Blank query params become "no filter". Stored spell facets are lowercase. */
+const facet = (max: number) => z.string().trim().toLowerCase().max(max).optional().transform((value) => value || undefined);
+
 export const searchQuerySchema = z.object({
   kind: z.enum(LIBRARY_KINDS).default('spell'),
   system: z.enum(LIBRARY_SYSTEMS).default('pf1e'),
   q: z.string().max(NAME_MAX).optional().default(''),
   cls: z.string().trim().toLowerCase().max(40).optional(),
   level: z.coerce.number().int().min(0).max(9).optional(),
+  school: facet(40),
+  subschool: facet(60),
+  descriptor: facet(40),
+  duration: facet(80),
+  range: facet(80),
   limit: z.coerce.number().int().min(1).max(SEARCH_MAX_LIMIT).default(SEARCH_DEFAULT_LIMIT),
 }).strip();
 export type SearchQuery = z.infer<typeof searchQuerySchema>;
@@ -256,7 +264,16 @@ export function searchWhere(query: SearchQuery) {
   const levelFilter = query.cls || query.level !== undefined
     ? { spellLevels: { some: { ...(query.cls ? { cls: query.cls } : {}), ...(query.level !== undefined ? { level: query.level } : {}) } } }
     : {};
-  return { key, base: { kind: query.kind, system: query.system, ...levelFilter } };
+  // Spell stats live in data JSON. School is exact; subschool/duration/range are substrings
+  // (subschool can be "healing, creation"; range is "medium (100 ft. + 10 ft./level)").
+  const dataFilters = query.kind === 'spell' ? [
+    query.school ? { data: { path: ['school'], equals: query.school } } : null,
+    query.subschool ? { data: { path: ['subschool'], string_contains: query.subschool } } : null,
+    query.descriptor ? { data: { path: ['descriptors'], array_contains: [query.descriptor] } } : null,
+    query.duration ? { data: { path: ['duration'], string_contains: query.duration } } : null,
+    query.range ? { data: { path: ['range'], string_contains: query.range } } : null,
+  ].filter((filter): filter is NonNullable<typeof filter> => filter !== null) : [];
+  return { key, base: { kind: query.kind, system: query.system, ...levelFilter, ...(dataFilters.length ? { AND: dataFilters } : {}) } };
 }
 
 export async function searchLibrary(db: Db, query: SearchQuery) {
