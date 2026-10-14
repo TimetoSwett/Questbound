@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -23,7 +23,7 @@ export function AddSpellSearchDialog({ classes, knownIds, onClose, onPick, onCus
   onCustom: () => void;
 }) {
   const inputId = useId();
-  const mine = spellcastingClasses(classes);
+  const mine = useMemo(() => spellcastingClasses(classes), [classes]);
   const [query, setQuery] = useState('');
   const [onlyMine, setOnlyMine] = useState(mine.length > 0);
   const [results, setResults] = useState<LibrarySpell[]>([]);
@@ -33,7 +33,7 @@ export function AddSpellSearchDialog({ classes, knownIds, onClose, onPick, onCus
 
   useEffect(() => {
     const q = query.trim();
-    if (!q) { setResults([]); setStatus(''); return; }
+    if (!q) return;
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       setStatus('Searching…');
@@ -55,7 +55,7 @@ export function AddSpellSearchDialog({ classes, knownIds, onClose, onPick, onCus
       }
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, onlyMine, mine.join(',')]);
+  }, [query, onlyMine, mine]);
 
   async function choose(spell: LibrarySpell) {
     if (added.has(spell.id) || pendingId) return;
@@ -82,7 +82,11 @@ export function AddSpellSearchDialog({ classes, knownIds, onClose, onPick, onCus
         </DialogHeader>
         <div className="space-y-2">
           <Label htmlFor={inputId}>Search spells</Label>
-          <Input id={inputId} autoFocus value={query} maxLength={120} placeholder="Bless, fireball, cure light…" onChange={(event) => setQuery(event.target.value)} />
+          <Input id={inputId} autoFocus value={query} maxLength={120} placeholder="Bless, fireball, cure light…" onChange={(event) => {
+            const value = event.target.value;
+            setQuery(value);
+            if (!value.trim()) { setResults([]); setStatus(''); }
+          }} />
           {mine.length > 0 && (
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               <input type="checkbox" checked={onlyMine} onChange={(event) => setOnlyMine(event.target.checked)} />
