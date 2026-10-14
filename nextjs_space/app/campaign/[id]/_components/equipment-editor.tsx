@@ -30,6 +30,7 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
   const [error, setError] = useState(false);
   const [picker, setPicker] = useState<null | 'armor' | 'shield' | 'weapon'>(null);
   const [shopSlot, setShopSlot] = useState<null | (typeof BODY_SLOTS)[number] | (typeof UNSLOTTED_SLOTS)[number]>(null);
+  const [editingSlot, setEditingSlot] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
     if (!campaignId) return;
@@ -99,7 +100,9 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
       const href = rulesUrl(item.sourceUrl);
       return <div key={slot} className="rounded-lg border bg-card p-3 space-y-2">
         <Label>{labels[i]}</Label>
-        {item.libraryEntryId || !editable ? (
+        {item.libraryEntryId && editable && editingSlot === slot ? (
+          <Input aria-label={`${labels[i]} name`} maxLength={200} value={item.name} autoFocus onChange={e => onChange({ ...value, slots: { ...value.slots, [slot]: { ...item, name: e.target.value } } })} />
+        ) : item.libraryEntryId || !editable ? (
           item.name ? <h3 className="font-display font-semibold leading-tight">{item.name}</h3> : <p className="text-sm text-muted-foreground">Empty</p>
         ) : (
           <Input aria-label={`${labels[i]} name`} maxLength={200} value={item.name} placeholder="Empty" onChange={e => onChange({ ...value, slots: { ...value.slots, [slot]: { ...item, name: e.target.value, inventoryItemId: null, libraryEntryId: undefined, sourceUrl: null } } })} />
@@ -108,7 +111,8 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
         {href && <a href={href} target="_blank" rel="noopener noreferrer" className="inline-block text-xs text-primary hover:underline">See full rules</a>}
         {editable && <div className="flex flex-wrap gap-1">
           <Button variant="ghost" onClick={() => setShopSlot(slot)}>From shop</Button>
-          {item.name && <Button variant="ghost" onClick={() => onChange({ ...value, slots: { ...value.slots, [slot]: null } })}>Clear slot</Button>}
+          {item.libraryEntryId && <Button variant="ghost" onClick={() => setEditingSlot(editingSlot === slot ? null : slot)}>{editingSlot === slot ? 'Done' : 'Edit'}</Button>}
+          {item.name && <Button variant="ghost" onClick={() => { setEditingSlot(current => current === slot ? null : current); onChange({ ...value, slots: { ...value.slots, [slot]: null } }); }}>Clear slot</Button>}
         </div>}
       </div>;
     })}</div>
