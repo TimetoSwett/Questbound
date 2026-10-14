@@ -12,6 +12,7 @@ import { TipTapEditor } from '@/components/tiptap-editor';
 import Image from 'next/image';
 import { levelForCharacter } from '@/components/library/spell-picker';
 import { SpellCard, type SpellEntry } from './spell-card';
+import { EntryCard, sheetCardGridClass } from './entry-card';
 import { castingAbilityFor, spellDc } from '@/lib/spell-dc';
 import { newSpellClientId } from '@/lib/spell-client-id';
 import { EquipmentEditor } from './equipment-editor';
@@ -19,7 +20,6 @@ import { equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange } from 
 import { AddSpellToLibraryDialog } from './add-spell-dialog';
 import { AddSpellSearchDialog } from './add-spell-search-dialog';
 import { CatalogSearchDialog } from '@/components/library/catalog-search-dialog';
-import { rulesUrl } from '@/components/library/types';
 import { featFromLibrary, gearFromLibrary } from '@/lib/catalog';
 import type { FeatData, GearData } from '@/lib/library';
 
@@ -27,9 +27,26 @@ const SIZES = ['Fine', 'Diminutive', 'Tiny', 'Small', 'Medium', 'Large', 'Huge',
 const ALIGNMENTS = ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'];
 
 interface SkillEntry { name: string; ranks: number; classSkill: boolean; misc: number; }
-interface EquipItem { name: string; weight: number; quantity: number; value: string; notes: string; libraryEntryId?: string; sourceUrl?: string | null; }
-interface FeatEntry { name: string; description: string; libraryEntryId?: string; sourceUrl?: string | null; }
+interface EquipItem { name: string; weight: number; quantity: number; value: string; notes: string; summary?: string; libraryEntryId?: string; sourceUrl?: string | null; }
+interface FeatEntry { name: string; description: string; summary?: string; kind?: 'feat' | 'ability'; libraryEntryId?: string; sourceUrl?: string | null; }
 interface ClassEntry { name: string; level: number; }
+
+function groupFeats(feats: FeatEntry[]) {
+  const groups = [
+    { kind: 'feat' as const, label: 'Feats' },
+    { kind: 'ability' as const, label: 'Special abilities' },
+  ];
+  return groups.map((group) => ({
+    ...group,
+    items: feats.map((feat, index) => ({ feat, index })).filter(({ feat }) => (feat?.kind === 'ability' ? 'ability' : 'feat') === group.kind),
+  })).filter((group) => group.items.length > 0);
+}
+
+function itemMeta(item: EquipItem) {
+  const weight = Number(item?.weight) || 0;
+  const weightLabel = Number.isInteger(weight) ? String(weight) : String(Math.round(weight * 100) / 100);
+  return `${weightLabel} lb · qty ${item?.quantity ?? 1}${item?.value ? ` · ${item.value}` : ''}`;
+}
 
 function groupSpells(known: SpellEntry[]) {
   const levelOf = (spell: SpellEntry) => (Number.isFinite(spell?.level) ? spell.level : 0);
@@ -602,26 +619,25 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           {(data?.equipment ?? []).length === 0 ? (
             <p className="text-xs text-muted-foreground py-4 text-center">No items</p>
           ) : (
-            <div className="space-y-1">
-              <div className="grid grid-cols-[1fr_60px_50px_70px_30px] gap-2 text-xs text-muted-foreground px-1">
-                <span>Name</span><span>Weight</span><span>Qty</span><span>Value</span><span></span>
-              </div>
-              {(data?.equipment ?? []).map((item: EquipItem, i: number) => (
-                <div key={i} className="grid grid-cols-[1fr_60px_50px_70px_30px] gap-2 items-center">
-                  <div>
-                    <Input value={item?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), name: e.target.value, libraryEntryId: undefined, sourceUrl: null }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs" placeholder="Item name" />
-                    {rulesUrl(item?.sourceUrl) && <a href={rulesUrl(item.sourceUrl)} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary hover:underline">See full rules</a>}
+            <div className={sheetCardGridClass}>
+              {(data?.equipment ?? []).map((item: EquipItem, i: number) => {
+                const patch = (partial: Partial<EquipItem>) => {
+                  const arr = [...(data?.equipment ?? [])];
+                  arr[i] = { ...(arr[i] ?? {}), ...partial };
+                  update('equipment', arr);
+                  autoSave();
+                };
+                return <EntryCard key={i} name={item?.name ?? ''} unnamed="Unnamed item" meta={itemMeta(item)} body={item?.summary || item?.notes} libraryEntryId={item?.libraryEntryId} sourceUrl={item?.sourceUrl} editable={editable}
+                  onDelete={() => { const arr = [...(data?.equipment ?? [])]; arr.splice(i, 1); update('equipment', arr); autoSave(); }}>
+                  <Input value={item?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ name: e.target.value, libraryEntryId: undefined, sourceUrl: null, summary: undefined })} className="h-7 text-xs" placeholder="Item name" />
+                  <div className="grid grid-cols-3 gap-2">
+                    <label className="text-xs text-muted-foreground">Weight<Input type="number" value={item?.weight ?? 0} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ weight: parseFloat(e.target.value) || 0 })} className="h-7 text-xs text-center font-mono" /></label>
+                    <label className="text-xs text-muted-foreground">Qty<Input type="number" value={item?.quantity ?? 1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ quantity: parseInt(e.target.value) || 1 })} className="h-7 text-xs text-center font-mono" /></label>
+                    <label className="text-xs text-muted-foreground">Value<Input value={item?.value ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ value: e.target.value })} className="h-7 text-xs" placeholder="gp" /></label>
                   </div>
-                  <Input type="number" value={item?.weight ?? 0} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), weight: parseFloat(e.target.value) || 0 }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs text-center font-mono" />
-                  <Input type="number" value={item?.quantity ?? 1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), quantity: parseInt(e.target.value) || 1 }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs text-center font-mono" />
-                  <Input value={item?.value ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.equipment ?? [])]; arr[i] = { ...(arr[i] ?? {}), value: e.target.value }; update('equipment', arr); autoSave(); }} disabled={!editable} className="h-7 text-xs" placeholder="gp" />
-                  {editable && (
-                    <Button variant="ghost" size="icon-sm" onClick={() => { const arr = [...(data?.equipment ?? [])]; arr.splice(i, 1); update('equipment', arr); autoSave(); }}>
-                      <Trash2 className="w-3 h-3 text-destructive" />
-                    </Button>
-                  )}
-                </div>
-              ))}
+                  <label className="block text-xs text-muted-foreground">Notes<textarea value={item?.notes ?? ''} onChange={(e) => patch({ notes: e.target.value, summary: undefined })} className="w-full bg-transparent text-xs text-muted-foreground resize-y min-h-[60px] mt-1" placeholder="Description..." /></label>
+                </EntryCard>;
+              })}
             </div>
           )}
         </div>
@@ -733,20 +749,34 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           {(data?.feats ?? []).length === 0 ? (
             <p className="text-xs text-muted-foreground py-4 text-center">No feats</p>
           ) : (
-            <div className="space-y-3">
-              {(data?.feats ?? []).map((feat: FeatEntry, i: number) => (
-                <div key={i} className="p-3 bg-muted/50 rounded-lg">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Input value={feat?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const arr = [...(data?.feats ?? [])]; arr[i] = { ...(arr[i] ?? {}), name: e.target.value, libraryEntryId: undefined, sourceUrl: null }; update('feats', arr); autoSave(); }} disabled={!editable} className="h-7 text-sm font-semibold" placeholder="Feat name" />
-                    {editable && (
-                      <Button variant="ghost" size="icon-sm" onClick={() => { const arr = [...(data?.feats ?? [])]; arr.splice(i, 1); update('feats', arr); autoSave(); }}>
-                        <Trash2 className="w-3 h-3 text-destructive" />
-                      </Button>
-                    )}
+            <div className="space-y-4">
+              {groupFeats(data?.feats ?? []).map((group) => (
+                <div key={group.kind} className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <h4 className="shrink-0 text-xs font-semibold text-muted-foreground">{group.label}</h4>
+                    <div className="h-px flex-1 bg-border" />
                   </div>
-                  <textarea value={feat?.description ?? ''} onChange={(e) => { const arr = [...(data?.feats ?? [])]; arr[i] = { ...(arr[i] ?? {}), description: e.target.value }; update('feats', arr); autoSave(); }} disabled={!editable}
-                    className="w-full bg-transparent text-xs text-muted-foreground resize-none min-h-[40px] outline-none" placeholder="Description..." />
-                  {rulesUrl(feat?.sourceUrl) && <a href={rulesUrl(feat.sourceUrl)} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-xs text-primary hover:underline">See full rules</a>}
+                  <div className={sheetCardGridClass}>
+                    {group.items.map(({ feat, index }) => {
+                      const patch = (partial: Partial<FeatEntry>) => {
+                        const arr = [...(data?.feats ?? [])];
+                        arr[index] = { ...(arr[index] ?? {}), ...partial };
+                        update('feats', arr);
+                        autoSave();
+                      };
+                      return <EntryCard key={index} name={feat?.name ?? ''} unnamed={group.kind === 'ability' ? 'Unnamed ability' : 'Unnamed feat'} meta={group.kind === 'ability' ? 'Special ability' : 'Feat'} body={feat?.summary || feat?.description} libraryEntryId={feat?.libraryEntryId} sourceUrl={feat?.sourceUrl} editable={editable}
+                        onDelete={() => { const arr = [...(data?.feats ?? [])]; arr.splice(index, 1); update('feats', arr); autoSave(); }}>
+                        <Input value={feat?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ name: e.target.value, libraryEntryId: undefined, sourceUrl: null, summary: undefined })} className="h-7 text-sm font-semibold" placeholder="Name" />
+                        <label className="text-xs text-muted-foreground">Type
+                          <select value={feat?.kind === 'ability' ? 'ability' : 'feat'} onChange={(e) => patch({ kind: e.target.value === 'ability' ? 'ability' : 'feat' })} className="mt-1 h-7 w-full rounded-md border border-input bg-background px-2 text-xs">
+                            <option value="feat">Feat</option>
+                            <option value="ability">Special ability</option>
+                          </select>
+                        </label>
+                        <label className="block text-xs text-muted-foreground">Description<textarea value={feat?.description ?? ''} onChange={(e) => patch({ description: e.target.value, summary: undefined })} className="w-full bg-transparent text-xs text-muted-foreground resize-y min-h-[60px] mt-1" placeholder="Description..." /></label>
+                      </EntryCard>;
+                    })}
+                  </div>
                 </div>
               ))}
             </div>
@@ -797,7 +827,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                       <h4 className="shrink-0 text-xs font-semibold text-muted-foreground">level {group.level} spell(s)</h4>
                       <div className="h-px flex-1 bg-border" />
                     </div>
-                    <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,max(300px,calc((100%_-_2.25rem)/4))),1fr))]">
+                    <div className={sheetCardGridClass}>
                       {group.items.map(({ spell }) => (
                         <SpellCard key={spell.clientId} spell={spell} editable={editable} classes={spellClasses}
                           dc={castingMod === null ? null : spellDc(spell.level ?? 0, castingMod)}
@@ -920,7 +950,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           onClose={() => setCatalog(null)}
           onCustom={() => { update('equipment', [...(data?.equipment ?? []), { name: '', weight: 0, quantity: 1, value: '', notes: '' }]); autoSave(); setCatalog(null); }}
           onPick={(entry) => {
-            const item = gearFromLibrary(entry.name, (entry.data ?? {}) as GearData, { libraryEntryId: entry.id, sourceUrl: entry.sourceUrl });
+            const item = { ...gearFromLibrary(entry.name, (entry.data ?? {}) as GearData, { libraryEntryId: entry.id, sourceUrl: entry.sourceUrl }), summary: entry.summary ?? '' };
             setData((prev: any) => ({ ...prev, equipment: [...(prev?.equipment ?? []), item] }));
             autoSave();
           }}
@@ -935,7 +965,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           onClose={() => setCatalog(null)}
           onCustom={() => { update('feats', [...(data?.feats ?? []), { name: '', description: '' }]); autoSave(); setCatalog(null); }}
           onPick={(entry) => {
-            const feat = featFromLibrary(entry.name, (entry.data ?? {}) as FeatData, { libraryEntryId: entry.id, sourceUrl: entry.sourceUrl });
+            const feat = { ...featFromLibrary(entry.name, (entry.data ?? {}) as FeatData, { libraryEntryId: entry.id, sourceUrl: entry.sourceUrl }), summary: entry.summary ?? '', kind: entry.kind === 'ability' ? 'ability' as const : 'feat' as const };
             setData((prev: any) => ({ ...prev, feats: [...(prev?.feats ?? []), feat] }));
             autoSave();
           }}
