@@ -22,10 +22,10 @@ export async function PATCH(request: Request, context: Context) {
   const { id } = await context.params;
   const existing = await prisma.libraryEntry.findUnique({ where: { id }, select: { id: true, kind: true, createdById: true, source: true } });
   if (!existing) return notFound();
-  if (!canEditEntry(a.actor, existing)) return NextResponse.json({ error: 'You cannot edit this entry' }, { status: 403 });
+  if (!canEditEntry(a.actor, existing)) return NextResponse.json({ error: existing.kind === 'rule' ? 'Only admins can edit rules' : 'You cannot edit this entry' }, { status: 403 });
   const b = await readBoundedJson(request);
   if ('res' in b) return b.res;
-  if (!a.actor.isAdmin && patchRequestsRuleKind(b.body)) return NextResponse.json({ error: 'Only admins can create rules' }, { status: 403 });
+  if (!a.actor.isAdmin && patchRequestsRuleKind(b.body)) return NextResponse.json({ error: 'Only admins can change an entry into a rule' }, { status: 403 });
   const p = parsePatchInput(existing.kind, b.body);
   if (!p.ok) return NextResponse.json({ error: p.error, issues: p.issues }, { status: 400 });
   const { spellLevels, data, ...fields } = p.value;
@@ -51,7 +51,7 @@ export async function DELETE(_request: Request, context: Context) {
   const { id } = await context.params;
   const existing = await prisma.libraryEntry.findUnique({ where: { id }, select: { kind: true, createdById: true, source: true } });
   if (!existing) return notFound();
-  if (!canDeleteEntry(a.actor, existing)) return NextResponse.json({ error: 'You cannot delete this entry' }, { status: 403 });
+  if (!canDeleteEntry(a.actor, existing)) return NextResponse.json({ error: existing.kind === 'rule' ? 'Only admins can delete rules' : 'You cannot delete this entry' }, { status: 403 });
   await prisma.libraryEntry.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

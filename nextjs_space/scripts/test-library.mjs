@@ -287,12 +287,16 @@ try {
     assert.equal(res.status, 201); deq((await res.json()).spellLevels, [], 'rules never store spell levels');
     // non-admin cannot patch/delete/convert
     sessionUser = uA.id;
-    assert.equal((await one.PATCH(J('PATCH', { summary: 'x' }), ctx(long1.id))).status, 403, 'non-admin PATCH rule');
-    assert.equal((await one.DELETE(new Request('http://t'), ctx(long1.id))).status, 403, 'non-admin DELETE rule');
+    res = await one.PATCH(J('PATCH', { summary: 'x' }), ctx(long1.id));
+    assert.equal(res.status, 403, 'non-admin PATCH rule'); assert.equal((await res.json()).error, 'Only admins can edit rules');
+    res = await one.DELETE(new Request('http://t'), ctx(long1.id));
+    assert.equal(res.status, 403, 'non-admin DELETE rule'); assert.equal((await res.json()).error, 'Only admins can delete rules');
     const mine = await mk(rn('Mine Spell'), []);
-    assert.equal((await one.PATCH(J('PATCH', { kind: 'rule' }), ctx(mine.id))).status, 403, 'non-admin PATCH kind->rule');
+    res = await one.PATCH(J('PATCH', { kind: 'rule' }), ctx(mine.id));
+    assert.equal(res.status, 403, 'non-admin PATCH kind->rule'); assert.equal((await res.json()).error, 'Only admins can change an entry into a rule');
     assert.equal((await prisma.libraryEntry.findUnique({ where: { id: mine.id } })).kind, 'spell');
-    assert.equal((await one.PATCH(J('PATCH', { kind: 'rule', data: { text: 'x' } }), ctx(mine.id))).status, 403);
+    res = await one.PATCH(J('PATCH', { kind: 'rule', data: { text: 'x' } }), ctx(mine.id));
+    assert.equal(res.status, 403); assert.equal((await res.json()).error, 'Only admins can change an entry into a rule');
     assert.equal((await prisma.libraryEntry.findUnique({ where: { id: long1.id } })).summary, long1.summary, 'rule untouched');
     sessionUser = uAdmin.id;
     assert.equal((await one.PATCH(J('PATCH', { kind: 'rule' }), ctx(mine.id))).status, 400, 'kind never patchable, even for admin');
