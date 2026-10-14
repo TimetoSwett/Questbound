@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Save, Upload, Heart, Shield, BookOpen, Package, User, ChevronDown, Trash2, Bookmark } from 'lucide-react';
+import { Save, Upload, Heart, Shield, BookOpen, Package, User, ChevronDown, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,8 +10,9 @@ import { PF1E_SKILLS, abilityMod, formatMod } from '@/lib/pf1e-skills';
 import type { SkillDef } from '@/lib/pf1e-skills';
 import { TipTapEditor } from '@/components/tiptap-editor';
 import Image from 'next/image';
-import { SpellPicker, levelForCharacter } from '@/components/library/spell-picker';
-import { rulesUrl } from '@/components/library/types';
+import { levelForCharacter } from '@/components/library/spell-picker';
+import { SpellCard, type SpellEntry } from './spell-card';
+import { castingAbilityFor, spellDc } from '@/lib/spell-dc';
 import { EquipmentEditor } from './equipment-editor';
 import { equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange } from '@/lib/equipment';
 import { AddSpellToLibraryDialog } from './add-spell-dialog';
@@ -23,7 +24,6 @@ const ALIGNMENTS = ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'];
 interface SkillEntry { name: string; ranks: number; classSkill: boolean; misc: number; }
 interface EquipItem { name: string; weight: number; quantity: number; value: string; notes: string; }
 interface FeatEntry { name: string; description: string; }
-interface SpellEntry { name: string; level: number; school: string; description: string; cast: number; maxCast: number; libraryEntryId?: string; sourceUrl?: string | null; }
 interface ClassEntry { name: string; level: number; }
 
 function groupSpells(known: SpellEntry[]) {
@@ -314,6 +314,10 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
 
     return { effects, strMod, dexMod, conMod, intMod, wisMod, chaMod, ac, touchAC, flatAC, cmd, cmb, init, fort, ref, will };
   }, [data]);
+
+  const spellClasses = (data?.classes ?? []).map((cls: ClassEntry) => cls.name);
+  const castingAbility = castingAbilityFor(spellClasses);
+  const castingMod = stats && castingAbility ? stats[`${castingAbility}Mod`] : null;
 
   const abilityModForSkill = useCallback((ability: string) => {
     if (!stats) return 0;
@@ -726,73 +730,33 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                       <h4 className="shrink-0 text-xs font-semibold text-muted-foreground">level {group.level} spell(s)</h4>
                       <div className="h-px flex-1 bg-border" />
                     </div>
-                    {group.items.map(({ spell, index: i }) => (
-                  <div key={i} className="p-3 bg-muted/50 rounded-lg">
-                    <div className="grid grid-cols-[1fr_50px_80px_60px_56px] gap-2 items-center">
-                      <SpellPicker value={spell?.name ?? ''} classes={(data?.classes ?? []).map((cls: ClassEntry) => cls.name)} disabled={!editable}
-                        onChange={(name) => {
-                          const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-                          spells.known = [...(spells.known ?? [])];
-                          // Typing over a picked spell's name breaks its link to the library entry.
-                          spells.known[i] = { ...(spells.known[i] ?? {}), name, libraryEntryId: undefined, sourceUrl: null };
-                          update('spells', spells); autoSave();
-                        }} onPick={(entry) => {
-                          const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-                          spells.known = [...(spells.known ?? [])];
-                          if (!spells.known[i]) return;
-                          const level = levelForCharacter(entry.spellLevels ?? [], (data?.classes ?? []).map((cls: ClassEntry) => cls.name));
-                          spells.known[i] = { ...spells.known[i], name: entry.name, level, school: entry.data.school, description: entry.data.description, sourceUrl: entry.sourceUrl, libraryEntryId: entry.id };
-                          update('spells', spells); autoSave();
-                        }} />
-                      <Input type="number" value={spell?.level ?? 0} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                        const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-                        spells.known = [...(spells.known ?? [])];
-                        spells.known[i] = { ...(spells.known[i] ?? {}), level: parseInt(e.target.value) || 0 };
-                        update('spells', spells); autoSave();
-                      }} disabled={!editable} className="h-7 text-xs text-center font-mono" />
-                      <Input value={spell?.school ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                        const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-                        spells.known = [...(spells.known ?? [])];
-                        spells.known[i] = { ...(spells.known[i] ?? {}), school: e.target.value };
-                        update('spells', spells); autoSave();
-                      }} disabled={!editable} className="h-7 text-xs" placeholder="School" />
-                      <div className="flex items-center gap-1 text-xs font-mono">
-                        <span>{spell?.cast ?? 0}/{spell?.maxCast ?? 1}</span>
-                        {editable && (
-                          <Button variant="ghost" size="icon-sm" className="h-5 w-5" onClick={() => {
+                    <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,max(300px,calc((100%_-_2.25rem)/4))),1fr))]">
+                      {group.items.map(({ spell, index: i }) => (
+                        <SpellCard key={i} spell={spell} editable={editable} classes={spellClasses}
+                          dc={castingMod === null ? null : spellDc(spell.level ?? 0, castingMod)}
+                          onPatch={(partial) => {
                             const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
                             spells.known = [...(spells.known ?? [])];
-                            spells.known[i] = { ...(spells.known[i] ?? {}), cast: (spell?.cast ?? 0) + 1 };
+                            spells.known[i] = { ...(spells.known[i] ?? {}), ...partial };
                             update('spells', spells); autoSave();
-                          }}>+</Button>
-                        )}
-                      </div>
-                      {editable && (
-                        <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="icon-sm" title="Save to library" onClick={() => setSaveSpellIdx(i)}>
-                            <Bookmark className="w-3 h-3" />
-                          </Button>
-                          <Button variant="ghost" size="icon-sm" onClick={() => {
+                          }}
+                          onPickEntry={(entry) => {
+                            const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                            spells.known = [...(spells.known ?? [])];
+                            if (!spells.known[i]) return;
+                            const level = levelForCharacter(entry.spellLevels ?? [], spellClasses);
+                            spells.known[i] = { ...spells.known[i], name: entry.name, level, school: entry.data.school, description: entry.data.description, summary: entry.summary, sourceUrl: entry.sourceUrl, libraryEntryId: entry.id };
+                            update('spells', spells); autoSave();
+                          }}
+                          onSaveToLibrary={() => setSaveSpellIdx(i)}
+                          onDelete={() => {
                             const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
                             spells.known = [...(spells.known ?? [])];
                             spells.known.splice(i, 1);
                             update('spells', spells); autoSave();
-                          }}>
-                            <Trash2 className="w-3 h-3 text-destructive" />
-                          </Button>
-                        </div>
-                      )}
+                          }} />
+                      ))}
                     </div>
-                    {rulesUrl(spell.sourceUrl) && <a href={rulesUrl(spell.sourceUrl)} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-primary hover:underline">See full rules</a>}
-                    <textarea value={spell?.description ?? ''} onChange={(e) => {
-                      const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-                      spells.known = [...(spells.known ?? [])];
-                      spells.known[i] = { ...(spells.known[i] ?? {}), description: e.target.value };
-                      update('spells', spells); autoSave();
-                    }} disabled={!editable}
-                      className="w-full bg-transparent text-xs text-muted-foreground resize-none min-h-[30px] outline-none mt-1" placeholder="Description..." />
-                  </div>
-                    ))}
                   </div>
                 ))}
               </div>
@@ -847,6 +811,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                 level,
                 school: entry.data?.school ?? '',
                 description: entry.data?.description ?? '',
+                summary: entry.summary ?? '',
                 cast: 0,
                 maxCast: 1,
                 sourceUrl: entry.sourceUrl ?? null,
