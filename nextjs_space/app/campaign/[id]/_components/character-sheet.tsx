@@ -95,18 +95,39 @@ const SECTION_ALIASES: Record<string, string> = {
   notes: 'details',
 };
 
+const DETAIL_TABS = [
+  { key: 'feats', label: 'Feats' },
+  { key: 'skills', label: 'Skills' },
+  { key: 'spells', label: 'Spells' },
+  { key: 'notes', label: 'Notes' },
+] as const;
+type DetailTab = (typeof DETAIL_TABS)[number]['key'];
+
 function resolveSection(key: string): string {
   return SECTION_ALIASES[key] ?? key;
 }
 
-function CollapsibleSection({ sectionKey, title, actions, children, openSections, setOpenSections }: {
+function initialDetailTab(section?: string): DetailTab {
+  return DETAIL_TABS.some((tab) => tab.key === section) ? section as DetailTab : 'feats';
+}
+
+function CollapsibleSection({ sectionKey, title, actions, children, openSections, setOpenSections, bare }: {
   sectionKey: string;
   title: string;
   actions?: React.ReactNode;
   children: React.ReactNode;
   openSections: Record<string, boolean>;
   setOpenSections: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  bare?: boolean;
 }) {
+  if (bare) {
+    return (
+      <div className="bg-card rounded-lg border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+        {actions && <div className="flex justify-end px-4 pt-4">{actions}</div>}
+        <div className="p-4">{children}</div>
+      </div>
+    );
+  }
   const open = openSections[sectionKey] ?? true;
   const setOpen = (v: boolean | ((o: boolean) => boolean)) => {
     setOpenSections((prev) => ({ ...prev, [sectionKey]: typeof v === 'function' ? v(prev[sectionKey] ?? true) : v }));
@@ -136,7 +157,12 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
   // Old tab ids (core, combat, feats, skills, spells, notes) map to the merged tabs.
   // Keep the state type as string so old tab ids can be resolved at runtime.
   const [sectionState, setSectionState] = useState(() => resolveSection(initialSection ?? 'core-combat') as string);
-  const setSection = (s: string) => setSectionState(resolveSection(s));
+  const [detailTab, setDetailTab] = useState<DetailTab>(() => initialDetailTab(initialSection));
+  const setSection = (s: string) => {
+    const next = resolveSection(s);
+    if (next === 'details' && sectionState !== 'details') setDetailTab('feats');
+    setSectionState(next);
+  };
   const isSection = (key: string): boolean => sectionState === key;
   // Collapsible open/closed state persists across tab switches.
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ skills: true, feats: true, spells: true, notes: true });
@@ -349,7 +375,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
       {/* Section tabs */}
       <div className="flex flex-wrap gap-1 bg-card/50 p-1 rounded-lg">
         {sections.map((s) => (
-          <button key={s.key} onClick={() => setSection(resolveSection(s.key))}
+          <button key={s.key} onClick={() => setSection(s.key)}
             className={`flex items-center gap-1 px-3 py-1.5 min-h-[44px] sm:min-h-0 text-sm rounded-md transition-colors ${
               isSection(s.key) ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             }`}>
@@ -605,7 +631,18 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
       {/* DETAILS TAB: Feats, Skills, Spells & Notes */}
       {isSection('details') && (
         <div className="space-y-4">
-          <CollapsibleSection sectionKey="skills" title="Skills" openSections={openSections} setOpenSections={setOpenSections}>
+          <div className="flex flex-wrap gap-1 bg-card/50 p-1 rounded-lg" role="tablist" aria-label="Feats, skills, spells, and notes">
+            {DETAIL_TABS.map((tab) => (
+              <button key={tab.key} type="button" role="tab" aria-selected={detailTab === tab.key} onClick={() => setDetailTab(tab.key)}
+                className={`px-3 py-1.5 min-h-[44px] sm:min-h-0 text-sm rounded-md transition-colors ${
+                  detailTab === tab.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                }`}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          {detailTab === 'skills' && (
+          <CollapsibleSection sectionKey="skills" title="Skills" bare openSections={openSections} setOpenSections={setOpenSections}>
           <p className="text-xs text-muted-foreground mb-2">Armor check penalty to Strength/Dexterity skills: {formatMod(stats?.effects.checkPenalty ?? 0)}</p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -666,10 +703,13 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             </table>
           </div>
           </CollapsibleSection>
+          )}
 
+          {detailTab === 'feats' && (
           <CollapsibleSection
             sectionKey="feats"
             title="Feats & Special Abilities"
+            bare
             openSections={openSections}
             setOpenSections={setOpenSections}
             actions={editable ? (
@@ -697,8 +737,10 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             </div>
           )}
           </CollapsibleSection>
+          )}
 
-          <CollapsibleSection sectionKey="spells" title="Spells" openSections={openSections} setOpenSections={setOpenSections}>
+          {detailTab === 'spells' && (
+          <CollapsibleSection sectionKey="spells" title="Spells" bare openSections={openSections} setOpenSections={setOpenSections}>
           <p className="text-xs text-muted-foreground mb-2">Arcane spell failure: {stats?.effects.spellFailure ?? 0}%</p>
           <div className="space-y-4">
           {/* Spell Slots */}
@@ -788,10 +830,13 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           </div>
           </div>
           </CollapsibleSection>
+          )}
 
-          <CollapsibleSection sectionKey="notes" title="Notes & Backstory" openSections={openSections} setOpenSections={setOpenSections}>
+          {detailTab === 'notes' && (
+          <CollapsibleSection sectionKey="notes" title="Notes & Backstory" bare openSections={openSections} setOpenSections={setOpenSections}>
           <TipTapEditor content={data?.notes ?? ''} onChange={(html: string) => { update('notes', html); autoSave(); }} editable={editable} placeholder="Write your character's backstory, notes, and other details..." />
           </CollapsibleSection>
+          )}
         </div>
       )}
       {saveSpellClientId !== null && (
