@@ -667,7 +667,7 @@ function PlayerCard({ data, onBack }: { data: any; onBack: () => void }) {
               {special.map((a: any, i: number) => (
                 <div key={i} className="mb-2">
                   <p className="text-sm font-semibold">{a?.name}</p>
-                  {a?.description ? <p className="text-sm text-muted-foreground">{isSaSqLine(a?.name) ? <AutoLinkText text={String(a.description)} /> : a.description}</p> : null}
+                  {a?.description ? <p className="text-sm text-muted-foreground">{a.description}</p> : null}
                 </div>
               ))}
             </PlayerSection>

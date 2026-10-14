@@ -18,6 +18,7 @@ export function LibraryTermPopover({ term, entryId, children }: Props) {
   const [expanded, setExpanded] = React.useState(false);
   const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const viaKeyboard = React.useRef(false);
+  const termRef = React.useRef<HTMLSpanElement>(null);
   const contentId = React.useId();
   const fullId = React.useId();
 
@@ -57,6 +58,7 @@ export function LibraryTermPopover({ term, entryId, children }: Props) {
     <PopoverPrimitive.Root open={open} onOpenChange={o => (o ? show(viaKeyboard.current) : setOpen(false))}>
       <PopoverPrimitive.Anchor asChild>
         <span
+          ref={termRef}
           role="button"
           tabIndex={0}
           aria-haspopup="dialog"
@@ -70,7 +72,7 @@ export function LibraryTermPopover({ term, entryId, children }: Props) {
           onPointerLeave={() => { clearHoveredTerm(openFromKey); if (open && !viaKeyboard.current) scheduleClose(); }}
           onKeyDown={e => {
             if (e.key === 'Enter' && !open) { e.preventDefault(); show(true); }
-            else if (e.key === 'Escape' && open) { e.preventDefault(); setOpen(false); }
+            else if (e.key === 'Escape' && open) { e.preventDefault(); viaKeyboard.current = true; setOpen(false); }
           }}
         >
           {children}
@@ -86,6 +88,8 @@ export function LibraryTermPopover({ term, entryId, children }: Props) {
           sideOffset={4}
           collisionPadding={8}
           onOpenAutoFocus={e => { if (!viaKeyboard.current) e.preventDefault(); }}
+          onCloseAutoFocus={e => { e.preventDefault(); if (viaKeyboard.current) termRef.current?.focus(); }}
+          onEscapeKeyDown={() => { viaKeyboard.current = true; }}
           onPointerEnter={cancelClose}
           onPointerLeave={scheduleClose}
           className="z-50 w-80 max-w-[calc(100vw-1rem)] rounded-md border bg-popover p-3 text-sm text-popover-foreground shadow-md outline-none"
