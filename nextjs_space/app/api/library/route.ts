@@ -1,18 +1,18 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { parseCreateInput, presentEntry, searchLibrary, searchQuerySchema, canCreateEntry } from '@/lib/library';
+import { parseCreateInput, presentEntry, searchLibraryPage, searchQuerySchema, canCreateEntry } from '@/lib/library';
 import { entryInclude, isUniqueViolation, readBoundedJson, requireActor } from '@/lib/library-api';
 
-// GET /api/library?kind=spell&system=pf1e&q=&cls=&level=&school=&subschool=&descriptor=&duration=&range=&limit=20 (max 50).
-// Any logged-in user. Prefix matches first, then other matches; alphabetical.
+// GET /api/library?kind=spell&system=pf1e&q=&cls=&level=&school=&subschool=&descriptor=&duration=&range=&limit=20&page=1
+// limit is the page size (max 50). Any logged-in user. Prefix matches first, then other matches; alphabetical.
 export async function GET(request: Request) {
   const a = await requireActor();
   if ('res' in a) return a.res;
   const parsed = searchQuerySchema.safeParse(Object.fromEntries(new URL(request.url).searchParams));
   if (!parsed.success) return NextResponse.json({ error: 'Invalid query', issues: parsed.error.issues }, { status: 400 });
-  const rows = await searchLibrary(prisma, parsed.data);
-  return NextResponse.json({ results: rows.map((r) => presentEntry(r, a.actor, { includeData: false })) });
+  const { results, total } = await searchLibraryPage(prisma, parsed.data);
+  return NextResponse.json({ results: results.map((r) => presentEntry(r, a.actor, { includeData: false })), total, page: parsed.data.page, limit: parsed.data.limit });
 }
 
 // POST /api/library — any logged-in user creates a source="user" spell; rules are admin-only.

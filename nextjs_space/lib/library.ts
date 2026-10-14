@@ -220,6 +220,7 @@ export const searchQuerySchema = z.object({
   duration: facet(80),
   range: facet(80),
   limit: z.coerce.number().int().min(1).max(SEARCH_MAX_LIMIT).default(SEARCH_DEFAULT_LIMIT),
+  page: z.coerce.number().int().min(1).max(500).default(1),
 }).strip();
 export type SearchQuery = z.infer<typeof searchQuerySchema>;
 
@@ -277,25 +278,40 @@ export function searchWhere(query: SearchQuery) {
 }
 
 export async function searchLibrary(db: Db, query: SearchQuery) {
+  return (await searchLibraryPage(db, query)).results;
+}
+
+/** One page of matches, in the same order as searchLibrary, plus the total match count. */
+export async function searchLibraryPage(db: Db, query: SearchQuery): Promise<{ results: LibraryEntryRow[]; total: number }> {
   const { key, base } = searchWhere(query);
   const keys = [key, numeralAltKey(key)].filter((k): k is string => k !== null);
   const likes = keys.map(escapeLike);
   const anyOf = (op: 'startsWith' | 'contains') => (likes.length === 1 ? { nameKey: { [op]: likes[0] } } : { OR: likes.map((l) => ({ nameKey: { [op]: l } })) });
   const include = { spellLevels: { select: { cls: true, level: true } } };
   const select = { id: true, kind: true, name: true, nameKey: true, system: true, source: true, sourceUrl: true, matchedAon: true, summary: true, createdById: true, createdAt: true, updatedAt: true, ...include };
-  // Exact matches (equals: no LIKE, so the raw keys are used) are fetched first so the limit can't cut them off.
-  const exact: LibraryEntryRow[] = key ? await db.libraryEntry.findMany({ where: { ...base, nameKey: { in: keys } }, orderBy: { nameKey: 'asc' }, take: query.limit, select }) : [];
-  const exactIds = exact.map((r) => r.id);
-  const notExact = exactIds.length ? { id: { notIn: exactIds } } : {};
-  const prefix: LibraryEntryRow[] = exact.length >= query.limit ? [] : await db.libraryEntry.findMany({ where: { AND: [base, anyOf('startsWith'), notExact] }, orderBy: { nameKey: 'asc' }, take: query.limit - exact.length, select });
-  let rest: LibraryEntryRow[] = [];
-  if (key && exact.length + prefix.length < query.limit) {
-    rest = await db.libraryEntry.findMany({
-      where: { AND: [base, anyOf('contains'), { NOT: anyOf('startsWith') }, notExact] },
-      orderBy: { nameKey: 'asc' }, take: query.limit - exact.length - prefix.length, select,
-    });
+  // Exact name matches, then prefix matches, then other contains-matches. Each block is alphabetical.
+  const exactWhere = key ? { ...base, nameKey: { in: keys } } : null;
+  const prefixWhere = { AND: [base, anyOf('startsWith'), ...(key ? [{ nameKey: { notIn: keys } }] : [])] };
+  const containsWhere = key ? { AND: [base, anyOf('contains'), { NOT: anyOf('startsWith') }] } : null;
+  const buckets = [
+    exactWhere ? { where: exactWhere } : null,
+    { where: prefixWhere },
+    containsWhere ? { where: containsWhere } : null,
+  ].filter((bucket): bucket is { where: object } => bucket !== null);
+  const counts = await Promise.all(buckets.map((bucket) => db.libraryEntry.count({ where: bucket.where })));
+  const total = counts.reduce((sum: number, count: number) => sum + count, 0);
+  let skip = (query.page - 1) * query.limit;
+  let take = query.limit;
+  const parts: LibraryEntryRow[] = [];
+  for (let i = 0; i < buckets.length && take > 0; i++) {
+    const count = counts[i];
+    if (skip >= count) { skip -= count; continue; }
+    const n = Math.min(take, count - skip);
+    parts.push(...await db.libraryEntry.findMany({ where: buckets[i].where, orderBy: { nameKey: 'asc' }, skip, take: n, select }));
+    take -= n;
+    skip = 0;
   }
-  return orderSearchResults([...exact, ...prefix, ...rest] as LibraryEntryRow[], key, query.limit);
+  return { results: orderSearchResults(parts, key, query.limit), total };
 }
 
 // ---- importer upsert ----

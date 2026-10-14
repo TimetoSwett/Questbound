@@ -55,8 +55,11 @@ assert.equal(parsePatchInput('spell', { kind: 'spell' }).ok, false);
 assert.equal(parsePatchInput('spell', { data: { school: 'x'.repeat(41) } }).ok, false);
 assert.equal(parsePatchInput('spell', { name: 'New  Name' }).value.nameKey, 'new name');
 const sq = searchQuerySchema.parse({ limit: '50', level: '3' });
-assert.equal(sq.limit, 50); assert.equal(sq.level, 3); assert.equal(sq.kind, 'spell');
+assert.equal(sq.limit, 50); assert.equal(sq.level, 3); assert.equal(sq.kind, 'spell'); assert.equal(sq.page, 1);
+assert.equal(searchQuerySchema.parse({ page: '3' }).page, 3);
 assert.equal(searchQuerySchema.safeParse({ limit: '51' }).success, false);
+assert.equal(searchQuerySchema.safeParse({ page: '0' }).success, false);
+assert.equal(searchQuerySchema.safeParse({ page: '501' }).success, false);
 assert.equal(searchQuerySchema.safeParse({ level: '10' }).success, false);
 const facets = searchQuerySchema.parse({ school: ' Evocation ', subschool: 'Healing', descriptor: 'Fire', duration: ' Round ', range: 'Medium' });
 assert.equal(facets.school, 'evocation'); assert.equal(facets.subschool, 'healing'); assert.equal(facets.descriptor, 'fire');
@@ -175,6 +178,11 @@ try {
   assert.equal(r.length, 1);
   r = await s({ q: tag, limit: '2' });
   assert.equal(r.length, 2);
+  deq((await s({ q: tag, limit: '2', page: '1' })).map((x) => x.name), [`${tag} Cure Wounds`, `${tag} Fire Shield`]);
+  deq((await s({ q: tag, limit: '2', page: '2' })).map((x) => x.name), [`${tag} Fireball`, `Wall of ${tag} Fire`], 'page 2 continues the same order');
+  const paged = await lib.searchLibraryPage(prisma, searchQuerySchema.parse({ q: tag, limit: '2', page: '2' }));
+  assert.equal(paged.total, 4);
+  assert.equal((await s({ q: tag, limit: '2', page: '9' })).length, 0);
   // roman <-> digit numeral matching against the real AoN import (read-only)
   const aon = (q) => s({ q, system: 'pf1e' });
   r = await aon('summon monster i');
