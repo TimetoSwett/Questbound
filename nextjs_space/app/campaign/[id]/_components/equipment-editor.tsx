@@ -8,8 +8,8 @@ import type { Equipped, SlotItem, ArmorPiece, Weapon } from '@/lib/equipment';
 import { formatMod } from '@/lib/pf1e-skills';
 import { CatalogSearchDialog } from '@/components/library/catalog-search-dialog';
 import { rulesUrl } from '@/components/library/types';
-import { armorFromLibrary, weaponFromLibrary } from '@/lib/catalog';
-import type { ArmorData, WeaponData } from '@/lib/library';
+import { armorFromLibrary, slotFromLibrary, weaponFromLibrary } from '@/lib/catalog';
+import type { ArmorData, GearData, WeaponData } from '@/lib/library';
 interface Choice { id: string; name: string; characterId: string | null }
 const labels = ['Head', 'Headband', 'Eyes', 'Shoulders', 'Neck', 'Chest', 'Body', 'Armor', 'Belt', 'Wrists', 'Hands', 'Ring 1', 'Ring 2', 'Feet', 'Unslotted 1', 'Unslotted 2'];
 const emptyArmor: ArmorPiece = { name: '', acBonus: 0, maxDex: null, checkPenalty: 0, spellFailure: 0 };
@@ -20,6 +20,7 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
   const [items, setItems] = useState<Choice[]>([]);
   const [error, setError] = useState(false);
   const [picker, setPicker] = useState<null | 'armor' | 'shield' | 'weapon'>(null);
+  const [shopSlot, setShopSlot] = useState<null | (typeof BODY_SLOTS)[number] | (typeof UNSLOTTED_SLOTS)[number]>(null);
   useEffect(() => {
     let active = true;
     if (!campaignId) return;
@@ -85,7 +86,7 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
     </div>
     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">{[...BODY_SLOTS, ...UNSLOTTED_SLOTS].map((slot, i) => <div key={slot} className="rounded-lg border bg-card p-3 space-y-2">
       {identity(value.slots?.[slot] ?? { name: '' }, item => onChange({ ...value, slots: { ...value.slots, [slot]: item } }), labels[i])}
-      {editable && <Button variant="ghost" onClick={() => onChange({ ...value, slots: { ...value.slots, [slot]: null } })}>Clear slot</Button>}
+      {editable && <div className="flex flex-wrap gap-1"><Button variant="ghost" onClick={() => setShopSlot(slot)}>From shop</Button><Button variant="ghost" onClick={() => onChange({ ...value, slots: { ...value.slots, [slot]: null } })}>Clear slot</Button></div>}
     </div>)}</div>
     {picker && <CatalogSearchDialog
       title={picker === 'weapon' ? 'Add weapon' : picker === 'shield' ? 'Add shield' : 'Add armor'}
@@ -101,6 +102,18 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
           const piece = armorFromLibrary(entry.name, { ...((entry.data ?? {}) as ArmorData), slot: picker }, { libraryEntryId: entry.id, sourceUrl: entry.sourceUrl });
           onChange({ ...value, [picker]: piece });
         }
+      }}
+    />}
+    {shopSlot && <CatalogSearchDialog
+      title={`Add to ${labels[[...BODY_SLOTS, ...UNSLOTTED_SLOTS].indexOf(shopSlot)]}`}
+      description="Search the shop, then click an item to wear it in this slot."
+      queries={[{ kind: 'gear', label: 'Gear' }]}
+      knownIds={[...BODY_SLOTS, ...UNSLOTTED_SLOTS].map((key) => value.slots?.[key]?.libraryEntryId).filter((id): id is string => Boolean(id))}
+      onClose={() => setShopSlot(null)}
+      onPick={(entry) => {
+        const worn = slotFromLibrary(entry.name, (entry.data ?? {}) as GearData, { libraryEntryId: entry.id, sourceUrl: entry.sourceUrl });
+        onChange({ ...value, slots: { ...value.slots, [shopSlot]: worn } });
+        setShopSlot(null);
       }}
     />}
   </div>;
