@@ -16,7 +16,7 @@ import { EntryCard, sheetCardGridClass } from './entry-card';
 import { castingAbilityFor, spellDc } from '@/lib/spell-dc';
 import { newSpellClientId } from '@/lib/spell-client-id';
 import { EquipmentEditor } from './equipment-editor';
-import { equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange } from '@/lib/equipment';
+import { equippedItemBonuses, equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange } from '@/lib/equipment';
 import { AddSpellToLibraryDialog } from './add-spell-dialog';
 import { AddSpellSearchDialog } from './add-spell-search-dialog';
 import { CatalogSearchDialog } from '@/components/library/catalog-search-dialog';
@@ -350,27 +350,29 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
   const stats = useMemo(() => {
     if (!data) return null;
     const s = (f: string) => parseInt(data?.[f]) || 0;
-    const strMod = abilityMod(s('str'));
-    const dexMod = abilityMod(s('dex'));
-    const conMod = abilityMod(s('con'));
-    const intMod = abilityMod(s('int'));
-    const wisMod = abilityMod(s('wis'));
-    const chaMod = abilityMod(s('cha'));
+    const itemBonuses = equippedItemBonuses(data.equipped);
+    const score = (ability: 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha') => (parseInt(data?.[ability]) || 0) + itemBonuses.ability[ability];
+    const strMod = abilityMod(score('str'));
+    const dexMod = abilityMod(score('dex'));
+    const conMod = abilityMod(score('con'));
+    const intMod = abilityMod(score('int'));
+    const wisMod = abilityMod(score('wis'));
+    const chaMod = abilityMod(score('cha'));
     const bab = s('bab');
     const sizeMod = s('sizeMod');
 
     const effects = equipmentEffects(data.equipped, s('armorBonus'), s('shieldBonus'), dexMod);
-    const ac = 10 + effects.armorBonus + effects.shieldBonus + effects.dexToAC + sizeMod + s('naturalArmor') + s('deflection') + s('miscAC');
-    const touchAC = 10 + effects.dexToAC + sizeMod + s('deflection') + s('miscTouchAC');
-    const flatAC = 10 + effects.armorBonus + effects.shieldBonus + sizeMod + s('naturalArmor') + s('deflection') + s('miscFlatAC');
+    const ac = 10 + effects.armorBonus + itemBonuses.ac.armor + effects.shieldBonus + itemBonuses.ac.shield + effects.dexToAC + sizeMod + s('naturalArmor') + itemBonuses.ac.natural + s('deflection') + itemBonuses.ac.deflection + s('miscAC') + itemBonuses.ac.dodge;
+    const touchAC = 10 + effects.dexToAC + sizeMod + s('deflection') + itemBonuses.ac.deflection + s('miscTouchAC') + itemBonuses.ac.dodge;
+    const flatAC = 10 + effects.armorBonus + itemBonuses.ac.armor + effects.shieldBonus + itemBonuses.ac.shield + sizeMod + s('naturalArmor') + itemBonuses.ac.natural + s('deflection') + itemBonuses.ac.deflection + s('miscFlatAC');
     const cmd = 10 + bab + strMod + dexMod + sizeMod + s('miscCMD');
     const cmb = bab + strMod + sizeMod + s('miscCMB');
     const init = dexMod + s('miscInit');
-    const fort = s('baseFort') + conMod + s('miscFort');
-    const ref = s('baseRef') + dexMod + s('miscRef');
-    const will = s('baseWill') + wisMod + s('miscWill');
+    const fort = s('baseFort') + conMod + s('miscFort') + itemBonuses.saves.fort;
+    const ref = s('baseRef') + dexMod + s('miscRef') + itemBonuses.saves.ref;
+    const will = s('baseWill') + wisMod + s('miscWill') + itemBonuses.saves.will;
 
-    return { effects, strMod, dexMod, conMod, intMod, wisMod, chaMod, ac, touchAC, flatAC, cmd, cmb, init, fort, ref, will };
+    return { effects, itemBonuses, strMod, dexMod, conMod, intMod, wisMod, chaMod, ac, touchAC, flatAC, cmd, cmb, init, fort, ref, will };
   }, [data]);
 
   const spellClasses = (data?.classes ?? []).map((cls: ClassEntry) => cls.name);
@@ -497,12 +499,14 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             <h3 className="font-display font-semibold text-sm mb-3">Ability Scores</h3>
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
               {(['str', 'dex', 'con', 'int', 'wis', 'cha'] as const).map((ab) => {
-                const mod = abilityMod(parseInt(data?.[ab]) || 10);
+                const gear = stats?.itemBonuses.ability[ab] ?? 0;
+                const mod = { str: stats?.strMod, dex: stats?.dexMod, con: stats?.conMod, int: stats?.intMod, wis: stats?.wisMod, cha: stats?.chaMod }[ab] ?? 0;
                 return (
                   <div key={ab} className="text-center">
                     <Label className="text-xs font-mono text-primary uppercase">{ab}</Label>
                     <Input type="number" value={data?.[ab] ?? 10} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { update(ab, e.target.value); autoSave(); }} disabled={!editable} className="mt-0.5 h-10 text-center font-mono text-lg" />
                     <div className={`text-sm font-mono mt-1 ${mod >= 0 ? 'text-green-700' : 'text-red-600'}`}>{formatMod(mod)}</div>
+                    {gear !== 0 && <div className="text-[10px] text-muted-foreground">{formatMod(gear)} from gear</div>}
                   </div>
                 );
               })}
@@ -689,7 +693,8 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                   const abMod = abilityModForSkill(skill.ability);
                   const ranks = entry?.ranks ?? 0;
                   const csBonus = (entry?.classSkill && ranks >= 1) ? 3 : 0;
-                  const total = ranks + csBonus + abMod + (entry?.misc ?? 0) + equipmentSkillPenalty(skill.ability, stats?.effects.checkPenalty ?? 0);
+                  const gearSkill = stats?.itemBonuses.skills[skill.name] ?? 0;
+                  const total = ranks + csBonus + abMod + (entry?.misc ?? 0) + equipmentSkillPenalty(skill.ability, stats?.effects.checkPenalty ?? 0) + gearSkill;
 
                   const updateSkill = (field: string, value: any) => {
                     const skills = [...(data?.skills ?? [])];
@@ -709,7 +714,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                         <span className="text-xs">{skill.name}</span>
                         <span className="text-[10px] text-muted-foreground ml-1">({skill.ability})</span>
                       </td>
-                      <td className="text-center font-mono font-bold">{formatMod(total)}</td>
+                      <td className="text-center font-mono font-bold" title={gearSkill ? `${formatMod(gearSkill)} from gear` : undefined}>{formatMod(total)}</td>
                       <td className="text-center">
                         <input type="number" value={ranks} onChange={(e) => updateSkill('ranks', parseInt(e.target.value) || 0)} disabled={!editable}
                           className="w-10 h-6 text-center bg-transparent border border-border rounded text-xs font-mono" />
@@ -830,7 +835,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                     <div className={sheetCardGridClass}>
                       {group.items.map(({ spell }) => (
                         <SpellCard key={spell.clientId} spell={spell} editable={editable} classes={spellClasses}
-                          dc={castingMod === null ? null : spellDc(spell.level ?? 0, castingMod)}
+                          dc={castingMod === null ? null : spellDc(spell.level ?? 0, castingMod + (stats?.itemBonuses.spellDc ?? 0))}
                           onPatch={(partial) => {
                             setData((prev: any) => {
                               const spells = { ...(prev?.spells ?? { slots: {}, known: [] }) };

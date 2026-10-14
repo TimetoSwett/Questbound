@@ -8,12 +8,27 @@ export type BodySlot = (typeof BODY_SLOTS)[number];
 export const UNSLOTTED_SLOTS = ['unslotted1', 'unslotted2'] as const;
 export type UnslottedSlot = (typeof UNSLOTTED_SLOTS)[number];
 
+export const ABILITIES = ['str', 'dex', 'con', 'int', 'wis', 'cha'] as const;
+export type AbilityName = (typeof ABILITIES)[number];
+export const AC_BONUSES = ['armor', 'shield', 'natural', 'deflection', 'dodge'] as const;
+export type AcBonusName = (typeof AC_BONUSES)[number];
+export const SAVE_BONUSES = ['fort', 'ref', 'will'] as const;
+export type SaveBonusName = (typeof SAVE_BONUSES)[number];
+
+export type ItemBonus =
+  | { kind: 'ability'; ability: AbilityName; amount: number }
+  | { kind: 'ac'; bonus: AcBonusName; amount: number }
+  | { kind: 'skill'; skill: string; amount: number }
+  | { kind: 'save'; save: SaveBonusName; amount: number }
+  | { kind: 'spell'; amount: number };
+
 export interface SlotItem {
   name: string;
   inventoryItemId?: string | null;
   notes?: string;
   libraryEntryId?: string;
   sourceUrl?: string | null;
+  bonuses?: ItemBonus[];
 }
 
 export interface ArmorPiece extends SlotItem {
@@ -39,6 +54,42 @@ export interface Equipped {
   shield?: ArmorPiece | null;
   weapons?: Weapon[];
   slots?: Partial<Record<BodySlot | UnslottedSlot, SlotItem | null>>;
+}
+
+/** Blank names are placeholders, rather than equipped items. */
+export function namedGear(equipped: Equipped = {}): SlotItem[] {
+  return [
+    equipped.armor, equipped.shield, ...(equipped.weapons ?? []), ...Object.values(equipped.slots ?? {}),
+  ].filter((item): item is SlotItem => !!item?.name?.trim());
+}
+
+export function equippedItemBonuses(equipped: Equipped = {}) {
+  const ability: Record<AbilityName, number> = { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 };
+  const ac: Record<AcBonusName, number> = { armor: 0, shield: 0, natural: 0, deflection: 0, dodge: 0 };
+  const skills: Record<string, number> = {};
+  const saves: Record<SaveBonusName, number> = { fort: 0, ref: 0, will: 0 };
+  let spellDc = 0;
+  for (const bonus of namedGear(equipped).flatMap(item => item.bonuses ?? [])) {
+    if (bonus.kind === 'ability') ability[bonus.ability] += bonus.amount;
+    else if (bonus.kind === 'ac') ac[bonus.bonus] += bonus.amount;
+    else if (bonus.kind === 'skill') skills[bonus.skill] = (skills[bonus.skill] ?? 0) + bonus.amount;
+    else if (bonus.kind === 'save') saves[bonus.save] += bonus.amount;
+    else spellDc += bonus.amount;
+  }
+  return { ability, ac, skills, saves, spellDc };
+}
+
+const ABILITY_LABELS: Record<AbilityName, string> = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
+const AC_LABELS: Record<AcBonusName, string> = { armor: 'Armor', shield: 'Shield', natural: 'Natural armor', deflection: 'Deflection', dodge: 'Dodge' };
+const SAVE_LABELS: Record<SaveBonusName, string> = { fort: 'Fortitude', ref: 'Reflex', will: 'Will' };
+
+export function bonusLabel(bonus: ItemBonus): string {
+  const amount = bonus.amount >= 0 ? `+${bonus.amount}` : `${bonus.amount}`;
+  if (bonus.kind === 'ability') return `${ABILITY_LABELS[bonus.ability]} ${amount}`;
+  if (bonus.kind === 'ac') return `${AC_LABELS[bonus.bonus]} ${amount}`;
+  if (bonus.kind === 'skill') return `${bonus.skill} ${amount}`;
+  if (bonus.kind === 'save') return `${SAVE_LABELS[bonus.save]} ${amount}`;
+  return `Spell DC ${amount}`;
 }
 
 /** Blank names are placeholders, rather than equipped items. */

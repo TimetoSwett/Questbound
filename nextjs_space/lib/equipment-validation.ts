@@ -1,13 +1,22 @@
 import { z } from 'zod';
-import { BODY_SLOTS, UNSLOTTED_SLOTS } from './equipment';
+import { ABILITIES, AC_BONUSES, BODY_SLOTS, SAVE_BONUSES, UNSLOTTED_SLOTS } from './equipment';
 
 const number = z.number().int().min(-1000).max(1000);
+const bonusAmount = z.number().int().min(-30).max(30);
+const itemBonus = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('ability'), ability: z.enum(ABILITIES), amount: bonusAmount }).strict(),
+  z.object({ kind: z.literal('ac'), bonus: z.enum(AC_BONUSES), amount: bonusAmount }).strict(),
+  z.object({ kind: z.literal('skill'), skill: z.string().trim().min(1).max(80), amount: bonusAmount }).strict(),
+  z.object({ kind: z.literal('save'), save: z.enum(SAVE_BONUSES), amount: bonusAmount }).strict(),
+  z.object({ kind: z.literal('spell'), amount: bonusAmount }).strict(),
+]);
 const slot = z.object({
   name: z.string().max(200),
   inventoryItemId: z.string().min(1).max(200).nullable().optional(),
   notes: z.string().max(5000).optional(),
   libraryEntryId: z.string().min(1).max(80).optional(),
   sourceUrl: z.string().url().max(500).nullable().optional(),
+  bonuses: z.array(itemBonus).max(8).optional(),
 }).strict();
 const armor = slot.extend({
   acBonus: number,

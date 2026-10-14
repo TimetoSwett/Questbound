@@ -3,9 +3,9 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { BODY_SLOTS, UNSLOTTED_SLOTS, equipmentEffects, weaponTotals } from '@/lib/equipment';
-import type { Equipped, SlotItem, ArmorPiece, Weapon } from '@/lib/equipment';
-import { formatMod } from '@/lib/pf1e-skills';
+import { BODY_SLOTS, UNSLOTTED_SLOTS, bonusLabel, equipmentEffects, weaponTotals } from '@/lib/equipment';
+import type { AcBonusName, AbilityName, Equipped, ItemBonus, SaveBonusName, SlotItem, ArmorPiece, Weapon } from '@/lib/equipment';
+import { PF1E_SKILLS, formatMod } from '@/lib/pf1e-skills';
 import { CatalogSearchDialog } from '@/components/library/catalog-search-dialog';
 import { rulesUrl } from '@/components/library/types';
 import { armorFromLibrary, slotFromLibrary, weaponFromLibrary } from '@/lib/catalog';
@@ -23,6 +23,46 @@ function wornEffect(notes: string | undefined): string {
 }
 const emptyArmor: ArmorPiece = { name: '', acBonus: 0, maxDex: null, checkPenalty: 0, spellFailure: 0 };
 const emptyWeapon: Weapon = { name: '', attackBonus: 0, ability: 'str', damage: '1d6', damageBonus: 0, crit: '20/x2', range: 0, type: '' };
+function blankBonus(kind: ItemBonus['kind']): ItemBonus {
+  if (kind === 'ability') return { kind, ability: 'wis', amount: 2 };
+  if (kind === 'ac') return { kind, bonus: 'deflection', amount: 1 };
+  if (kind === 'skill') return { kind, skill: 'Perception', amount: 2 };
+  if (kind === 'save') return { kind, save: 'will', amount: 1 };
+  return { kind: 'spell', amount: 1 };
+}
+
+function BonusEditor({ bonuses, onChange }: { bonuses: ItemBonus[]; onChange: (bonuses: ItemBonus[]) => void }) {
+  const update = (index: number, bonus: ItemBonus) => onChange(bonuses.map((current, i) => i === index ? bonus : current));
+  return <div className="space-y-2">
+    <p className="text-xs text-muted-foreground">This item gives. It counts while worn, on top of the numbers you type. Don't enter the same bonus in both places.</p>
+    {bonuses.map((bonus, index) => <div key={index} className="space-y-1 rounded-md border p-2">
+      <select aria-label="Bonus kind" className="w-full min-h-[44px] rounded-md border bg-card px-2 text-sm" value={bonus.kind} onChange={e => update(index, blankBonus(e.target.value as ItemBonus['kind']))}>
+        <option value="ability">Ability score</option>
+        <option value="ac">Armor class</option>
+        <option value="skill">Skill</option>
+        <option value="save">Save</option>
+        <option value="spell">Spell DC</option>
+      </select>
+      {bonus.kind === 'ability' && <select aria-label="Ability" className="w-full min-h-[44px] rounded-md border bg-card px-2 text-sm" value={bonus.ability} onChange={e => update(index, { ...bonus, ability: e.target.value as AbilityName })}>
+        {([['str', 'Strength'], ['dex', 'Dexterity'], ['con', 'Constitution'], ['int', 'Intelligence'], ['wis', 'Wisdom'], ['cha', 'Charisma']] as const).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      </select>}
+      {bonus.kind === 'ac' && <select aria-label="Armor class bonus" className="w-full min-h-[44px] rounded-md border bg-card px-2 text-sm" value={bonus.bonus} onChange={e => update(index, { ...bonus, bonus: e.target.value as AcBonusName })}>
+        {([['armor', 'Armor'], ['shield', 'Shield'], ['natural', 'Natural armor'], ['deflection', 'Deflection'], ['dodge', 'Dodge']] as const).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      </select>}
+      {bonus.kind === 'skill' && <select aria-label="Skill" className="w-full min-h-[44px] rounded-md border bg-card px-2 text-sm" value={bonus.skill} onChange={e => update(index, { ...bonus, skill: e.target.value })}>
+        {PF1E_SKILLS.map(skill => <option key={skill.name} value={skill.name}>{skill.name}</option>)}
+      </select>}
+      {bonus.kind === 'save' && <select aria-label="Save" className="w-full min-h-[44px] rounded-md border bg-card px-2 text-sm" value={bonus.save} onChange={e => update(index, { ...bonus, save: e.target.value as SaveBonusName })}>
+        <option value="fort">Fortitude</option><option value="ref">Reflex</option><option value="will">Will</option>
+      </select>}
+      <div className="flex gap-1">
+        <Input aria-label="Bonus amount" type="number" min={-30} max={30} value={bonus.amount} onChange={e => update(index, { ...bonus, amount: Math.max(-30, Math.min(30, parseInt(e.target.value) || 0)) } as ItemBonus)} />
+        <Button variant="ghost" onClick={() => onChange(bonuses.filter((_, i) => i !== index))}>Remove</Button>
+      </div>
+    </div>)}
+    <Button variant="ghost" onClick={() => onChange([...bonuses, blankBonus('ability')])}>Add bonus</Button>
+  </div>;
+}
 export function EquipmentEditor({ value, onChange, characterId, campaignId, editable, bab, strMod, dexMod, sizeMod }: {
   value: Equipped; onChange: (value: Equipped) => void; characterId: string; campaignId: string | null; editable: boolean; bab: number; strMod: number; dexMod: number; sizeMod: number;
 }) {
@@ -108,10 +148,12 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
           <Input aria-label={`${labels[i]} name`} maxLength={200} value={item.name} placeholder="Empty" onChange={e => onChange({ ...value, slots: { ...value.slots, [slot]: { ...item, name: e.target.value, inventoryItemId: null, libraryEntryId: undefined, sourceUrl: null } } })} />
         )}
         {effect && <p className="max-h-40 overflow-y-auto whitespace-pre-line text-sm leading-snug text-muted-foreground">{effect}</p>}
+        {editingSlot !== slot && !!item.bonuses?.length && <p className="text-xs font-medium">{item.bonuses.map(bonusLabel).join(' · ')}</p>}
+        {editable && editingSlot === slot && <BonusEditor bonuses={item.bonuses ?? []} onChange={bonuses => onChange({ ...value, slots: { ...value.slots, [slot]: { ...item, bonuses } } })} />}
         {href && <a href={href} target="_blank" rel="noopener noreferrer" className="inline-block text-xs text-primary hover:underline">See full rules</a>}
         {editable && <div className="flex flex-wrap gap-1">
           <Button variant="ghost" onClick={() => setShopSlot(slot)}>From shop</Button>
-          {item.libraryEntryId && <Button variant="ghost" onClick={() => setEditingSlot(editingSlot === slot ? null : slot)}>{editingSlot === slot ? 'Done' : 'Edit'}</Button>}
+          {item.name && <Button variant="ghost" onClick={() => setEditingSlot(editingSlot === slot ? null : slot)}>{editingSlot === slot ? 'Done' : 'Edit'}</Button>}
           {item.name && <Button variant="ghost" onClick={() => { setEditingSlot(current => current === slot ? null : current); onChange({ ...value, slots: { ...value.slots, [slot]: null } }); }}>Clear slot</Button>}
         </div>}
       </div>;
@@ -141,6 +183,7 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
       onPick={(entry) => {
         const worn = slotFromLibrary(entry.name, (entry.data ?? {}) as GearData, { libraryEntryId: entry.id, sourceUrl: entry.sourceUrl });
         onChange({ ...value, slots: { ...value.slots, [shopSlot]: worn } });
+        setEditingSlot(shopSlot);
         setShopSlot(null);
       }}
     />}

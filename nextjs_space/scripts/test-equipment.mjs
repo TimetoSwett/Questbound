@@ -51,6 +51,20 @@ for (const range of [undefined, 'ranged', -1, 1.5, 100001]) assert.equal(validat
 assert.equal(validation.equippedSchema.safeParse({ weapons: [{ ...weapon, rangeFeet: 60 }] }).success, false);
 const valid = { armor, shield, weapons: [weapon], slots: { head: { name: 'Hat' }, unslotted2: null } };
 assert.equal(validation.equippedSchema.safeParse(valid).success, true);
+const worn = equipment.equippedItemBonuses({
+  slots: {
+    headband: { name: 'Headband of Inspired Wisdom', bonuses: [{ kind: 'ability', ability: 'wis', amount: 2 }, { kind: 'skill', skill: 'Perception', amount: 2 }] },
+    belt: { name: 'Belt', bonuses: [{ kind: 'ability', ability: 'wis', amount: 4 }] },
+  },
+  armor: { ...armor, name: '  ', bonuses: [{ kind: 'ability', ability: 'str', amount: 9 }] },
+});
+assert.equal(worn.ability.wis, 6);
+assert.equal(worn.ability.str, 0);
+assert.equal(worn.skills.Perception, 2);
+assert.equal(equipment.bonusLabel({ kind: 'ability', ability: 'wis', amount: 2 }), 'Wisdom +2');
+assert.equal(validation.equippedSchema.safeParse({ slots: { headband: { name: 'Headband', bonuses: [{ kind: 'ability', ability: 'wis', amount: 2 }] } } }).success, true);
+assert.equal(validation.equippedSchema.safeParse({ slots: { headband: { name: 'Headband', bonuses: [{ kind: 'ability', ability: 'luck', amount: 2 }] } } }).success, false);
+assert.equal(validation.equippedSchema.safeParse({ slots: { headband: { name: 'Headband', bonuses: [{ kind: 'spell', amount: 1 }, { kind: 'ac', bonus: 'deflection', amount: 1 }, { kind: 'save', save: 'will', amount: 2 }] } } }).success, true);
 for (const invalid of [null, 'bad', { armor: { ...armor, name: 'x'.repeat(201) } }, { shield: { ...shield, spellFailure: 101 } }, { armor: { ...armor, checkPenalty: 1 } }, { armor: { ...armor, maxDex: Infinity } }, { weapons: Array(51).fill(weapon) }, { weapons: [{ ...weapon, ability: 'wis' }] }, { slots: { extra: { name: 'Bad' } } }, { slots: { head: { name: 'Hat', inventoryItemId: '' } } }]) assert.equal(validation.equippedSchema.safeParse(invalid).success, false);
 let user = 'owner', role = 'player', writes = 0;
 let carried = [{ id: 'item', campaignId: 'campaign', characterId: 'character' }];
