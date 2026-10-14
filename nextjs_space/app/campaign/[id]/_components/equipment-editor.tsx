@@ -12,6 +12,15 @@ import { armorFromLibrary, slotFromLibrary, weaponFromLibrary } from '@/lib/cata
 import type { ArmorData, GearData, WeaponData } from '@/lib/library';
 interface Choice { id: string; name: string; characterId: string | null }
 const labels = ['Head', 'Headband', 'Eyes', 'Shoulders', 'Neck', 'Chest', 'Body', 'Armor', 'Belt', 'Wrists', 'Hands', 'Ring 1', 'Ring 2', 'Feet', 'Unslotted 1', 'Unslotted 2'];
+
+function wornEffect(notes: string | undefined): string {
+  const text = (notes ?? '').replace(/\r/g, '').trim();
+  if (!text) return '';
+  const body = text.split(/\n\s*Construction\b/i)[0].trim();
+  const parts = body.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
+  const prose = parts.filter((part) => !/^slot\s/i.test(part));
+  return (prose.length ? prose : parts).join('\n\n');
+}
 const emptyArmor: ArmorPiece = { name: '', acBonus: 0, maxDex: null, checkPenalty: 0, spellFailure: 0 };
 const emptyWeapon: Weapon = { name: '', attackBonus: 0, ability: 'str', damage: '1d6', damageBonus: 0, crit: '20/x2', range: 0, type: '' };
 export function EquipmentEditor({ value, onChange, characterId, campaignId, editable, bab, strMod, dexMod, sizeMod }: {
@@ -84,10 +93,25 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
         </div>;
       })}
     </div>
-    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">{[...BODY_SLOTS, ...UNSLOTTED_SLOTS].map((slot, i) => <div key={slot} className="rounded-lg border bg-card p-3 space-y-2">
-      {identity(value.slots?.[slot] ?? { name: '' }, item => onChange({ ...value, slots: { ...value.slots, [slot]: item } }), labels[i])}
-      {editable && <div className="flex flex-wrap gap-1"><Button variant="ghost" onClick={() => setShopSlot(slot)}>From shop</Button><Button variant="ghost" onClick={() => onChange({ ...value, slots: { ...value.slots, [slot]: null } })}>Clear slot</Button></div>}
-    </div>)}</div>
+    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">{[...BODY_SLOTS, ...UNSLOTTED_SLOTS].map((slot, i) => {
+      const item = value.slots?.[slot] ?? { name: '' };
+      const effect = wornEffect(item.notes);
+      const href = rulesUrl(item.sourceUrl);
+      return <div key={slot} className="rounded-lg border bg-card p-3 space-y-2">
+        <Label>{labels[i]}</Label>
+        {item.libraryEntryId || !editable ? (
+          item.name ? <h3 className="font-display font-semibold leading-tight">{item.name}</h3> : <p className="text-sm text-muted-foreground">Empty</p>
+        ) : (
+          <Input aria-label={`${labels[i]} name`} maxLength={200} value={item.name} placeholder="Empty" onChange={e => onChange({ ...value, slots: { ...value.slots, [slot]: { ...item, name: e.target.value, inventoryItemId: null, libraryEntryId: undefined, sourceUrl: null } } })} />
+        )}
+        {effect && <p className="max-h-40 overflow-y-auto whitespace-pre-line text-sm leading-snug text-muted-foreground">{effect}</p>}
+        {href && <a href={href} target="_blank" rel="noopener noreferrer" className="inline-block text-xs text-primary hover:underline">See full rules</a>}
+        {editable && <div className="flex flex-wrap gap-1">
+          <Button variant="ghost" onClick={() => setShopSlot(slot)}>From shop</Button>
+          {item.name && <Button variant="ghost" onClick={() => onChange({ ...value, slots: { ...value.slots, [slot]: null } })}>Clear slot</Button>}
+        </div>}
+      </div>;
+    })}</div>
     {picker && <CatalogSearchDialog
       title={picker === 'weapon' ? 'Add weapon' : picker === 'shield' ? 'Add shield' : 'Add armor'}
       description="Search the armory, then click a piece to equip it."
