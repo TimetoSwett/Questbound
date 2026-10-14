@@ -17,8 +17,9 @@ import { castingAbilityFor, spellDc } from '@/lib/spell-dc';
 import { newSpellClientId } from '@/lib/spell-client-id';
 import { EquipmentEditor, BonusEditor } from './equipment-editor';
 import { SheetEffects } from './sheet-effects';
-import { sheetAdjustment } from '@/lib/conditions';
-import { bonusLabel, equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange, weaponTotals, type ItemBonus } from '@/lib/equipment';
+import { sheetAdjustment, maneuverSize } from '@/lib/conditions';
+import { STACK_LABELS, bonusLabel, equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange, weaponTotals, type AbilityName, type ItemBonus, type SheetOptions } from '@/lib/equipment';
+import { carryLimits, loadBracket } from '@/lib/carry';
 import { AddSpellToLibraryDialog } from './add-spell-dialog';
 import { AddSpellSearchDialog } from './add-spell-search-dialog';
 import { CatalogSearchDialog } from '@/components/library/catalog-search-dialog';
@@ -29,7 +30,7 @@ import type { FeatData, GearData } from '@/lib/library';
 const SIZES = ['Fine', 'Diminutive', 'Tiny', 'Small', 'Medium', 'Large', 'Huge', 'Gargantuan', 'Colossal'];
 const ALIGNMENTS = ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'];
 
-interface SkillEntry { name: string; ranks: number; classSkill: boolean; misc: number; }
+interface SkillEntry { name: string; ranks: number; classSkill: boolean; misc: number; ability?: string; extraAbility?: string; }
 interface EquipItem { name: string; weight: number; quantity: number; value: string; notes: string; summary?: string; libraryEntryId?: string; sourceUrl?: string | null; }
 interface FeatEntry { name: string; description: string; summary?: string; kind?: 'feat' | 'ability'; tag?: AbilityTag; libraryEntryId?: string; sourceUrl?: string | null; bonuses?: ItemBonus[]; }
 interface ClassEntry { name: string; level: number; }
@@ -182,6 +183,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
   // Keep the state type as string so old tab ids can be resolved at runtime.
   const [sectionState, setSectionState] = useState(() => resolveSection(initialSection ?? 'core-combat') as string);
   const [detailTab, setDetailTab] = useState<DetailTab>(() => initialDetailTab(initialSection));
+  const [openAbility, setOpenAbility] = useState<AbilityName | null>(null);
   const setSection = (s: string) => {
     const next = resolveSection(s);
     if (next === 'details' && sectionState !== 'details') setDetailTab('feats');
@@ -354,6 +356,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
     if (!data) return null;
     const s = (f: string) => parseInt(data?.[f]) || 0;
     const adjust = sheetAdjustment({ equipped: data.equipped, feats: data.feats });
+    const sheet = data.equipped?.sheet ?? {};
     const score = (ability: 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha') => (parseInt(data?.[ability]) || 0) + adjust.ability[ability];
     const strMod = abilityMod(score('str'));
     const dexMod = abilityMod(score('dex'));
@@ -361,22 +364,28 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
     const intMod = abilityMod(score('int'));
     const wisMod = abilityMod(score('wis'));
     const chaMod = abilityMod(score('cha'));
+    const mods = { str: strMod, dex: dexMod, con: conMod, int: intMod, wis: wisMod, cha: chaMod };
     const bab = s('bab');
     const sizeMod = s('sizeMod');
+    const combatSize = maneuverSize(sizeMod, adjust.sizeCmb || 0);
+    const dodge = (sheet.dodge || 0) + adjust.ac.dodge;
+    const naturalEnh = Math.max(sheet.naturalEnhancement || 0, adjust.naturalEnhancement || 0);
 
     const effects = equipmentEffects(data.equipped, s('armorBonus'), s('shieldBonus'), dexMod);
     const acDex = adjust.loseDex ? Math.min(effects.dexToAC, 0) : effects.dexToAC;
-    const ac = 10 + effects.armorBonus + adjust.ac.armor + effects.shieldBonus + adjust.ac.shield + acDex + sizeMod + s('naturalArmor') + adjust.ac.natural + s('deflection') + adjust.ac.deflection + s('miscAC') + adjust.ac.dodge + adjust.acPenalty;
-    const touchAC = 10 + acDex + sizeMod + s('deflection') + adjust.ac.deflection + s('miscTouchAC') + adjust.ac.dodge + adjust.acPenalty;
-    const flatAC = 10 + effects.armorBonus + adjust.ac.armor + effects.shieldBonus + adjust.ac.shield + sizeMod + s('naturalArmor') + adjust.ac.natural + s('deflection') + adjust.ac.deflection + s('miscFlatAC') + adjust.acPenalty;
-    const cmd = 10 + bab + strMod + dexMod + sizeMod + s('miscCMD');
-    const cmb = bab + strMod + sizeMod + s('miscCMB') + adjust.cmb;
-    const init = dexMod + s('miscInit') + adjust.init;
+    const ac = 10 + effects.armorBonus + adjust.ac.armor + effects.shieldBonus + adjust.ac.shield + acDex + sizeMod + adjust.acSize + s('naturalArmor') + adjust.ac.natural + naturalEnh + s('deflection') + adjust.ac.deflection + s('miscAC') + dodge + adjust.acPenalty;
+    const touchAC = 10 + acDex + sizeMod + adjust.acSize + s('deflection') + adjust.ac.deflection + s('miscTouchAC') + dodge + adjust.acPenalty;
+    const flatAC = 10 + effects.armorBonus + adjust.ac.armor + effects.shieldBonus + adjust.ac.shield + sizeMod + adjust.acSize + s('naturalArmor') + adjust.ac.natural + naturalEnh + s('deflection') + adjust.ac.deflection + s('miscFlatAC') + adjust.acPenalty;
+    const cmdDex = adjust.loseDex ? Math.min(dexMod, 0) : dexMod;
+    const cmd = 10 + bab + strMod + cmdDex + combatSize + s('miscCMD') + adjust.cmb + dodge + s('deflection') + adjust.ac.deflection + adjust.acPenalty + adjust.cmdAc;
+    const cmb = bab + strMod + combatSize + s('miscCMB') + adjust.cmb;
+    const initAbilities = sheet.initAbilities ?? ['dex'];
+    const init = initAbilities.reduce((sum, ability) => sum + mods[ability], 0) + s('miscInit') + adjust.init;
     const fort = s('baseFort') + conMod + s('miscFort') + adjust.saves.fort;
     const ref = s('baseRef') + dexMod + s('miscRef') + adjust.saves.ref;
     const will = s('baseWill') + wisMod + s('miscWill') + adjust.saves.will;
 
-    return { effects, itemBonuses: adjust, strMod, dexMod, conMod, intMod, wisMod, chaMod, ac, touchAC, flatAC, cmd, cmb, init, fort, ref, will };
+    return { effects, itemBonuses: adjust, mods, strMod, dexMod, conMod, intMod, wisMod, chaMod, ac, touchAC, flatAC, cmd, cmb, combatSize, init, fort, ref, will, dodge, naturalEnh };
   }, [data]);
 
   const spellClasses = (data?.classes ?? []).map((cls: ClassEntry) => cls.name);
@@ -390,6 +399,11 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
   }, [stats]);
 
   if (!data) return <div className="text-center py-20 text-muted-foreground">Loading character...</div>;
+
+  const patchSheet = (partial: Partial<SheetOptions>) => {
+    update('equipped', { ...(data.equipped ?? {}), sheet: { ...(data.equipped?.sheet ?? {}), ...partial } });
+    autoSave();
+  };
 
   const sections = [
     { key: 'core-combat', label: 'Core & Combat', icon: User },
@@ -498,6 +512,17 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             )}
           </div>
 
+          <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
+            <h3 className="font-display font-semibold text-sm mb-2">Favored class</h3>
+            <p className="text-xs text-muted-foreground mb-2">Bonus HP is added on top of the max you type. Spend bonus ranks on the skill rows.</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <TextField label="Class" value={data?.equipped?.sheet?.favoredClass ?? ''} onChange={(v: string) => patchSheet({ favoredClass: v })} disabled={!editable} />
+              <NumField label="Bonus HP" value={data?.equipped?.sheet?.favoredHp ?? 0} onChange={(v: string) => patchSheet({ favoredHp: parseInt(v) || 0 })} disabled={!editable} />
+              <NumField label="Bonus ranks" value={data?.equipped?.sheet?.favoredRanks ?? 0} onChange={(v: string) => patchSheet({ favoredRanks: parseInt(v) || 0 })} disabled={!editable} />
+              <TextField label="Other" value={data?.equipped?.sheet?.favoredNotes ?? ''} onChange={(v: string) => patchSheet({ favoredNotes: v })} disabled={!editable} placeholder="Alternate bonus" />
+            </div>
+          </div>
+
           {/* Ability Scores */}
           <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
             <h3 className="font-display font-semibold text-sm mb-3">Ability Scores</h3>
@@ -511,10 +536,19 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                     <Input type="number" value={data?.[ab] ?? 10} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { update(ab, e.target.value); autoSave(); }} disabled={!editable} className="mt-0.5 h-10 text-center font-mono text-lg" />
                     <div className={`text-sm font-mono mt-1 ${mod >= 0 ? 'text-green-700' : 'text-red-600'}`}>{formatMod(mod)}</div>
                     {gear !== 0 && <div className="text-[10px] text-muted-foreground">{formatMod(gear)} included</div>}
+                    <button type="button" className="text-[10px] text-primary underline" onClick={() => setOpenAbility(openAbility === ab ? null : ab)}>{openAbility === ab ? 'Hide' : 'Breakdown'}</button>
                   </div>
                 );
               })}
             </div>
+            {openAbility && (
+              <div className="mt-3 rounded-md border p-3 text-sm">
+                <p className="font-medium uppercase">{openAbility}</p>
+                <p>Base {parseInt(data?.[openAbility]) || 0}</p>
+                {(stats?.itemBonuses.abilityParts[openAbility] ?? []).map(part => <p key={part.stack}>{STACK_LABELS[part.stack]} {formatMod(part.amount)}</p>)}
+                <p className="font-medium">Score {(parseInt(data?.[openAbility]) || 0) + (stats?.itemBonuses.ability[openAbility] ?? 0)} · modifier {formatMod(stats?.mods?.[openAbility] ?? 0)}</p>
+              </div>
+            )}
           </div>
 
           {/* HP */}
@@ -522,6 +556,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             <h3 className="font-display font-semibold text-sm mb-3 flex items-center gap-1"><Heart className="w-4 h-4 text-red-400" /> Hit Points</h3>
             <div className="grid grid-cols-3 gap-3">
               <NumField label="Max HP" value={data?.hpMax ?? 0} onChange={(v: string) => { update('hpMax', v); autoSave(); }} disabled={!editable} />
+              {(data?.equipped?.sheet?.favoredHp ?? 0) > 0 && <p className="text-[10px] text-muted-foreground text-center">Total max {(parseInt(data?.hpMax) || 0) + (data.equipped.sheet.favoredHp ?? 0)} with favored class</p>}
               <NumField label="Current HP" value={data?.hpCurrent ?? 0} onChange={(v: string) => { update('hpCurrent', v); autoSave(); }} disabled={!editable} />
               <NumField label="Temp HP" value={data?.hpTemp ?? 0} onChange={(v: string) => { update('hpTemp', v); autoSave(); }} disabled={!editable} />
             </div>
@@ -553,7 +588,9 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
               <NumField label="Armor Bonus" value={stats?.effects.armorBonus ?? 0} onChange={(v: string) => { update('armorBonus', v); autoSave(); }} disabled={!editable || !!data.equipped?.armor?.name?.trim()} />
               <NumField label="Shield Bonus" value={stats?.effects.shieldBonus ?? 0} onChange={(v: string) => { update('shieldBonus', v); autoSave(); }} disabled={!editable || !!data.equipped?.shield?.name?.trim()} />
               <NumField label="Natural Armor" value={data?.naturalArmor ?? 0} onChange={(v: string) => { update('naturalArmor', v); autoSave(); }} disabled={!editable} />
+              <NumField label="Natural enhancement" value={data?.equipped?.sheet?.naturalEnhancement ?? 0} onChange={(v: string) => patchSheet({ naturalEnhancement: parseInt(v) || 0 })} disabled={!editable} />
               <NumField label="Deflection" value={data?.deflection ?? 0} onChange={(v: string) => { update('deflection', v); autoSave(); }} disabled={!editable} />
+              <NumField label="Dodge" value={data?.equipped?.sheet?.dodge ?? 0} onChange={(v: string) => patchSheet({ dodge: parseInt(v) || 0 })} disabled={!editable} />
               <NumField label="Size Mod" value={data?.sizeMod ?? 0} onChange={(v: string) => { update('sizeMod', v); autoSave(); }} disabled={!editable} />
               <NumField label="Misc AC" value={data?.miscAC ?? 0} onChange={(v: string) => { update('miscAC', v); autoSave(); }} disabled={!editable} />
               <NumField label="Misc Touch" value={data?.miscTouchAC ?? 0} onChange={(v: string) => { update('miscTouchAC', v); autoSave(); }} disabled={!editable} />
@@ -565,16 +602,27 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             <div className="bg-card rounded-lg p-4 border border-border text-center" style={{ boxShadow: 'var(--shadow-sm)' }}>
               <div className="text-2xl font-mono font-bold">{formatMod(stats?.init ?? 0)}</div>
               <div className="text-xs text-muted-foreground">Initiative</div>
+              <div className="mt-1 flex flex-wrap justify-center gap-1">
+                {(['str', 'dex', 'con', 'int', 'wis', 'cha'] as const).map(ability => {
+                  const selected = (data?.equipped?.sheet?.initAbilities ?? ['dex']).includes(ability);
+                  return <button key={ability} type="button" aria-pressed={selected} disabled={!editable} onClick={() => {
+                    const current = data?.equipped?.sheet?.initAbilities ?? ['dex' as AbilityName];
+                    patchSheet({ initAbilities: selected ? current.filter(item => item !== ability) : [...current, ability] });
+                  }} className={`rounded border px-1.5 py-0.5 text-[10px] uppercase ${selected ? 'bg-primary text-primary-foreground border-primary' : 'text-muted-foreground'}`}>{ability}</button>;
+                })}
+              </div>
               <NumField label="Misc Init" value={data?.miscInit ?? 0} onChange={(v: string) => { update('miscInit', v); autoSave(); }} disabled={!editable} className="mt-2" />
             </div>
             <div className="bg-card rounded-lg p-4 border border-border text-center" style={{ boxShadow: 'var(--shadow-sm)' }}>
               <div className="text-2xl font-mono font-bold">{formatMod(stats?.cmb ?? 0)}</div>
               <div className="text-xs text-muted-foreground">CMB</div>
+              <div className="text-[10px] text-muted-foreground">Size {formatMod(stats?.combatSize ?? 0)}</div>
               <NumField label="Misc CMB" value={data?.miscCMB ?? 0} onChange={(v: string) => { update('miscCMB', v); autoSave(); }} disabled={!editable} className="mt-2" />
             </div>
             <div className="bg-card rounded-lg p-4 border border-border text-center" style={{ boxShadow: 'var(--shadow-sm)' }}>
               <div className="text-2xl font-mono font-bold">{stats?.cmd ?? 10}</div>
               <div className="text-xs text-muted-foreground">CMD</div>
+              <div className="text-[10px] text-muted-foreground">Includes size, dodge, deflection, and AC penalties</div>
               <NumField label="Misc CMD" value={data?.miscCMD ?? 0} onChange={(v: string) => { update('miscCMD', v); autoSave(); }} disabled={!editable} className="mt-2" />
             </div>
             <div className="bg-card rounded-lg p-4 border border-border text-center" style={{ boxShadow: 'var(--shadow-sm)' }}>
@@ -600,16 +648,18 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                     </tr>
                   </thead>
                   <tbody>
-                    {(data?.equipped?.weapons ?? []).filter((weapon: { name?: string }) => weapon?.name?.trim()).map((weapon: { name: string; ability?: 'str' | 'dex'; attackBonus?: number; damage?: string; damageBonus?: number; crit?: string; range?: number; type?: string; category?: 'melee' | 'ranged' | 'thrown' | 'composite' }, index: number) => {
+                    {(data?.equipped?.weapons ?? []).filter((weapon: { name?: string }) => weapon?.name?.trim()).map((weapon: { name: string; ability?: 'str' | 'dex'; extraAbilities?: AbilityName[]; attackBonus?: number; damage?: string; damageBonus?: number; crit?: string; range?: number; type?: string; category?: 'melee' | 'ranged' | 'thrown' | 'composite' }, index: number) => {
                       const ability = weapon.ability === 'dex' ? 'dex' : 'str';
-                      const stat = ability === 'dex' ? (stats?.dexMod ?? 0) : (stats?.strMod ?? 0);
+                      const extraAbilities = weapon.extraAbilities ?? [];
+                      const stat = (stats?.mods?.[ability] ?? 0) + extraAbilities.reduce((sum, extra) => sum + (stats?.mods?.[extra] ?? 0), 0);
                       const bab = parseInt(data?.bab) || 0;
                       const misc = (weapon.attackBonus || 0) + (parseInt(data?.sizeMod) || 0) + (stats?.itemBonuses.attack ?? 0);
                       const piece = { name: weapon.name, attackBonus: weapon.attackBonus || 0, ability, damage: weapon.damage || '1d6', damageBonus: weapon.damageBonus || 0, crit: weapon.crit || '20/x2', range: weapon.range || 0, type: weapon.type || '', category: weapon.category };
-                      const total = weaponTotals(piece, bab, stats?.strMod ?? 0, stats?.dexMod ?? 0, parseInt(data?.sizeMod) || 0, stats?.itemBonuses.attack ?? 0, stats?.itemBonuses.damage ?? 0).attack;
+                      const total = weaponTotals(piece, bab, stats?.strMod ?? 0, stats?.dexMod ?? 0, parseInt(data?.sizeMod) || 0, (stats?.itemBonuses.attack ?? 0) + extraAbilities.reduce((sum, extra) => sum + (stats?.mods?.[extra] ?? 0), 0), stats?.itemBonuses.damage ?? 0).attack;
+                      const abilityLabel = [ability, ...extraAbilities].map(item => `${item.toUpperCase()} ${formatMod(stats?.mods?.[item] ?? 0)}`).join(' + ');
                       return <tr key={`${weapon.name}-${index}`} className="border-b border-border/50">
                         <td className="py-1 px-1">{weapon.name}</td>
-                        <td className="text-center font-mono">{ability.toUpperCase()} {formatMod(stat)}</td>
+                        <td className="text-center font-mono">{abilityLabel || formatMod(stat)}</td>
                         <td className="text-center font-mono">{formatMod(bab)}</td>
                         <td className="text-center font-mono">{formatMod(misc)}</td>
                         <td className="text-center font-mono font-bold">{formatMod(total)}</td>
@@ -644,6 +694,25 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             </div>
           </div>
           <SheetEffects equipped={data.equipped ?? {}} editable={editable} onChange={next => { update('equipped', next); autoSave(); }} />
+          <div className="bg-card rounded-lg p-4 border border-border space-y-3" style={{ boxShadow: 'var(--shadow-sm)' }}>
+            <h3 className="font-display font-semibold text-sm">DR and resistances</h3>
+            <div className="space-y-2">
+              {(data?.equipped?.sheet?.dr ?? []).map((row, index) => <div key={index} className="flex gap-2">
+                <Input aria-label="DR amount" type="number" value={row.amount} disabled={!editable} className="h-8 w-20" onChange={e => patchSheet({ dr: (data.equipped?.sheet?.dr ?? []).map((item, i) => i === index ? { ...item, amount: parseInt(e.target.value) || 0 } : item) })} />
+                <Input aria-label="DR bypass" value={row.bypass} disabled={!editable} placeholder="magic, adamantine…" className="h-8 flex-1" onChange={e => patchSheet({ dr: (data.equipped?.sheet?.dr ?? []).map((item, i) => i === index ? { ...item, bypass: e.target.value } : item) })} />
+                {editable && <Button variant="ghost" size="sm" onClick={() => patchSheet({ dr: (data.equipped?.sheet?.dr ?? []).filter((_, i) => i !== index) })}>Remove</Button>}
+              </div>)}
+              {editable && <Button variant="ghost" size="sm" onClick={() => patchSheet({ dr: [...(data.equipped?.sheet?.dr ?? []), { amount: 5, bypass: '' }] })}>+ DR</Button>}
+            </div>
+            <div className="space-y-2">
+              {(data?.equipped?.sheet?.resist ?? []).map((row, index) => <div key={index} className="flex gap-2">
+                <Input aria-label="Energy" value={row.energy} disabled={!editable} placeholder="Fire" className="h-8 flex-1" onChange={e => patchSheet({ resist: (data.equipped?.sheet?.resist ?? []).map((item, i) => i === index ? { ...item, energy: e.target.value } : item) })} />
+                <Input aria-label="Resistance amount" type="number" value={row.amount} disabled={!editable} className="h-8 w-20" onChange={e => patchSheet({ resist: (data.equipped?.sheet?.resist ?? []).map((item, i) => i === index ? { ...item, amount: parseInt(e.target.value) || 0 } : item) })} />
+                {editable && <Button variant="ghost" size="sm" onClick={() => patchSheet({ resist: (data.equipped?.sheet?.resist ?? []).filter((_, i) => i !== index) })}>Remove</Button>}
+              </div>)}
+              {editable && <Button variant="ghost" size="sm" onClick={() => patchSheet({ resist: [...(data.equipped?.sheet?.resist ?? []), { energy: '', amount: 10 }] })}>+ Resistance</Button>}
+            </div>
+          </div>
         </div>
       )}
 
@@ -655,6 +724,11 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             <div className="flex items-center gap-3">
               <span className="text-xs text-muted-foreground font-mono">
                 Total Weight: {(data?.equipment ?? []).reduce((sum: number, i: EquipItem) => sum + ((i?.weight ?? 0) * (i?.quantity ?? 1)), 0)?.toFixed?.(1) ?? '0.0'} lbs
+                {(() => {
+                  const weight = (data?.equipment ?? []).reduce((sum: number, i: EquipItem) => sum + ((i?.weight ?? 0) * (i?.quantity ?? 1)), 0);
+                  const limits = carryLimits(stats?.mods ? ((parseInt(data?.str) || 0) + (stats?.itemBonuses.ability.str ?? 0)) : 10, data?.size ?? 'Medium');
+                  return ` · ${loadBracket(weight, limits)} (light ${limits.light} / medium ${limits.medium} / heavy ${limits.heavy})`;
+                })()}
               </span>
               {editable && (
                 <div className="flex gap-1">
@@ -692,7 +766,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
       )}
 
       {isSection('equipped') && <EquipmentEditor value={data.equipped ?? {}} characterId={characterId} campaignId={data.campaignId} editable={editable}
-        bab={Number(data.bab) || 0} strMod={stats?.strMod ?? 0} dexMod={stats?.dexMod ?? 0} sizeMod={Number(data.sizeMod) || 0} attackMod={stats?.itemBonuses.attack ?? 0} damageMod={stats?.itemBonuses.damage ?? 0}
+        bab={Number(data.bab) || 0} strMod={stats?.strMod ?? 0} dexMod={stats?.dexMod ?? 0} sizeMod={Number(data.sizeMod) || 0} attackMod={stats?.itemBonuses.attack ?? 0} damageMod={stats?.itemBonuses.damage ?? 0} abilityMods={stats?.mods}
         onChange={value => {
           for (const key of ['armor', 'shield'] as const) {
             const field = key === 'armor' ? 'armorBonus' : 'shieldBonus';
@@ -734,7 +808,9 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
               <tbody>
                 {PF1E_SKILLS.map((skill: SkillDef) => {
                   const entry = (data?.skills ?? []).find((s: SkillEntry) => s?.name === skill.name) ?? { name: skill.name, ranks: 0, classSkill: false, misc: 0 };
-                  const abMod = abilityModForSkill(skill.ability);
+                  const primary = entry.ability || skill.ability;
+                  const extra = entry.extraAbility && entry.extraAbility !== primary ? entry.extraAbility : '';
+                  const abMod = abilityModForSkill(primary) + (extra ? abilityModForSkill(extra) : 0);
                   const ranks = entry?.ranks ?? 0;
                   const csBonus = (entry?.classSkill && ranks >= 1) ? 3 : 0;
                   const gearSkill = (stats?.itemBonuses.skills[skill.name] ?? 0) + (stats?.itemBonuses.skillAll ?? 0);
@@ -756,7 +832,15 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                     <tr key={skill.name} className="border-b border-border/50 hover:bg-muted/30">
                       <td className="py-1 px-1">
                         <span className="text-xs">{skill.name}</span>
-                        <span className="text-[10px] text-muted-foreground ml-1">({skill.ability})</span>
+                        <span className="ml-1 inline-flex gap-1">
+                          <select aria-label={`${skill.name} ability`} value={entry.ability || skill.ability} disabled={!editable} onChange={e => updateSkill('ability', e.target.value)} className="bg-transparent text-[10px] text-muted-foreground">
+                            {(['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'] as const).map(ability => <option key={ability} value={ability}>{ability}</option>)}
+                          </select>
+                          <select aria-label={`${skill.name} extra ability`} value={entry.extraAbility ?? ''} disabled={!editable} onChange={e => updateSkill('extraAbility', e.target.value)} className="bg-transparent text-[10px] text-muted-foreground">
+                            <option value="">+ none</option>
+                            {(['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'] as const).map(ability => <option key={ability} value={ability}>+{ability}</option>)}
+                          </select>
+                        </span>
                       </td>
                       <td className="text-center font-mono font-bold" title={gearSkill ? `${formatMod(gearSkill)} included` : undefined}>{formatMod(total)}</td>
                       <td className="text-center">
@@ -870,6 +954,30 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             </div>
           </div>
 
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="font-display font-semibold text-sm">Casting pools</h3>
+              {editable && <Button variant="ghost" size="sm" onClick={() => { const spells = { ...(data?.spells ?? { slots: {}, known: [] }) }; spells.pools = [...(spells.pools ?? []), { name: 'Sorcerer', spontaneous: true, ability: 'cha', slots: Array(10).fill(0), used: Array(10).fill(0) }]; update('spells', spells); autoSave(); }}>+ Pool</Button>}
+            </div>
+            <p className="text-xs text-muted-foreground">Spontaneous pools share one set of slots. A spell set to its own uses is left out, which is how a prepared class stays separate. Add one pool per class if you multiclass.</p>
+            {(data?.spells?.pools ?? []).map((pool: { name: string; spontaneous?: boolean; ability?: string; slots?: number[]; used?: number[] }, index: number) => (
+              <div key={index} className="rounded-md border p-3 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input aria-label="Pool name" value={pool.name} disabled={!editable} className="h-8 w-40" onChange={e => { const spells = { ...(data.spells ?? {}) }; const pools = [...(spells.pools ?? [])]; pools[index] = { ...pools[index], name: e.target.value }; update('spells', { ...spells, pools }); autoSave(); }} />
+                  <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={pool.spontaneous !== false} disabled={!editable} onChange={e => { const spells = { ...(data.spells ?? {}) }; const pools = [...(spells.pools ?? [])]; pools[index] = { ...pools[index], spontaneous: e.target.checked }; update('spells', { ...spells, pools }); autoSave(); }} /> Spontaneous</label>
+                  <select aria-label="Pool casting ability" value={pool.ability ?? ''} disabled={!editable} onChange={e => { const spells = { ...(data.spells ?? {}) }; const pools = [...(spells.pools ?? [])]; pools[index] = { ...pools[index], ability: e.target.value }; update('spells', { ...spells, pools }); autoSave(); }} className="h-8 rounded-md border bg-card px-2 text-xs">
+                    <option value="">Casting ability</option>
+                    {(['int', 'wis', 'cha', 'str', 'dex', 'con'] as const).map(ability => <option key={ability} value={ability}>{ability.toUpperCase()}</option>)}
+                  </select>
+                  {editable && <Button variant="ghost" size="sm" onClick={() => { const spells = { ...(data.spells ?? {}) }; update('spells', { ...spells, pools: (spells.pools ?? []).filter((_: unknown, i: number) => i !== index) }); autoSave(); }}>Remove</Button>}
+                </div>
+                <div className="grid grid-cols-5 sm:grid-cols-10 gap-1">
+                  {Array.from({ length: 10 }, (_, level) => <label key={level} className="text-center text-[10px] text-muted-foreground">{level}<Input type="number" aria-label={`${pool.name} level ${level} slots`} value={pool.slots?.[level] ?? 0} disabled={!editable} className="h-7 text-center text-xs" onChange={e => { const spells = { ...(data.spells ?? {}) }; const pools = [...(spells.pools ?? [])]; const slots = Array.from({ length: 10 }, (_, i) => pools[index]?.slots?.[i] ?? 0); slots[level] = parseInt(e.target.value) || 0; pools[index] = { ...pools[index], slots }; update('spells', { ...spells, pools }); autoSave(); }} /></label>)}
+                </div>
+              </div>
+            ))}
+          </div>
+
           {/* Known Spells */}
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -889,9 +997,30 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                       <div className="h-px flex-1 bg-border" />
                     </div>
                     <div className={sheetCardGridClass}>
-                      {group.items.map(({ spell }) => (
+                      {group.items.map(({ spell }) => {
+                        const pools = data?.spells?.pools ?? [];
+                        const pool = pools.find((item: { name?: string }) => item?.name && item.name === spell.pool);
+                        const ability = spell.dcAbility || pool?.ability || castingAbility;
+                        const mod = ability && stats ? stats[`${ability}Mod` as 'intMod'] : null;
+                        const dc = mod === null || mod === undefined ? null : spellDc(spell.level ?? 0, mod + (stats?.itemBonuses.spellDc ?? 0));
+                        const level = Math.max(0, Math.min(9, spell.level ?? 0));
+                        const shared = pool?.spontaneous === false || !pool ? null : { used: pool.used?.[level] ?? 0, max: pool.slots?.[level] ?? 0 };
+                        return (
                         <SpellCard key={spell.clientId} spell={spell} editable={editable} classes={spellClasses}
-                          dc={castingMod === null ? null : spellDc(spell.level ?? 0, castingMod + (stats?.itemBonuses.spellDc ?? 0))}
+                          dc={dc}
+                          pools={pools.map((item: { name: string }) => ({ name: item.name })).filter((item: { name: string }) => item.name)}
+                          shared={shared}
+                          onShared={(used) => {
+                            const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                            spells.pools = (spells.pools ?? []).map((item: { name?: string; used?: number[] }) => {
+                              if (item.name !== spell.pool) return item;
+                              const next = Array.from({ length: 10 }, (_, i) => item.used?.[i] ?? 0);
+                              next[level] = used;
+                              return { ...item, used: next };
+                            });
+                            update('spells', spells);
+                            autoSave();
+                          }}
                           onPatch={(partial) => {
                             setData((prev: any) => {
                               const spells = { ...(prev?.spells ?? { slots: {}, known: [] }) };
@@ -927,7 +1056,8 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                             });
                             autoSave();
                           }} />
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ))}

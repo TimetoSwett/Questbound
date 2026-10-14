@@ -3,8 +3,8 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { BODY_SLOTS, UNSLOTTED_SLOTS, bonusLabel, equipmentEffects, weaponTotals } from '@/lib/equipment';
-import type { AcBonusName, AbilityName, Equipped, ItemBonus, SaveBonusName, SlotItem, ArmorPiece, Weapon } from '@/lib/equipment';
+import { BODY_SLOTS, STACKS, STACK_LABELS, UNSLOTTED_SLOTS, bonusLabel, equipmentEffects, weaponTotals } from '@/lib/equipment';
+import type { AcBonusName, AbilityName, Equipped, ItemBonus, SaveBonusName, SlotItem, ArmorPiece, StackKind, Weapon } from '@/lib/equipment';
 import { PF1E_SKILLS, formatMod } from '@/lib/pf1e-skills';
 import { CatalogSearchDialog } from '@/components/library/catalog-search-dialog';
 import { rulesUrl } from '@/components/library/types';
@@ -37,7 +37,7 @@ function blankBonus(kind: ItemBonus['kind']): ItemBonus {
 export function BonusEditor({ bonuses, onChange, hint = 'This gives a bonus while it is on. These add, so do not also type the same number on the sheet.' }: { bonuses: ItemBonus[]; onChange: (bonuses: ItemBonus[]) => void; hint?: string }) {
   const update = (index: number, bonus: ItemBonus) => onChange(bonuses.map((current, i) => i === index ? bonus : current));
   return <div className="space-y-2">
-    <p className="text-xs text-muted-foreground">{hint}</p>
+    <p className="text-xs text-muted-foreground">{hint} Untyped, dodge, and penalties add. Every other type keeps only the best bonus.</p>
     {bonuses.map((bonus, index) => <div key={index} className="space-y-1 rounded-md border p-2">
       <select aria-label="Bonus kind" className="w-full min-h-[44px] rounded-md border bg-card px-2 text-sm" value={bonus.kind} onChange={e => update(index, blankBonus(e.target.value as ItemBonus['kind']))}>
         <option value="ability">Ability score</option>
@@ -65,12 +65,16 @@ export function BonusEditor({ bonuses, onChange, hint = 'This gives a bonus whil
         <Input aria-label="Bonus amount" type="number" min={-30} max={30} value={bonus.amount} onChange={e => update(index, { ...bonus, amount: Math.max(-30, Math.min(30, parseInt(e.target.value) || 0)) } as ItemBonus)} />
         <Button variant="ghost" onClick={() => onChange(bonuses.filter((_, i) => i !== index))}>Remove</Button>
       </div>
+      <select aria-label="Modifier type" className="w-full min-h-[44px] rounded-md border bg-card px-2 text-sm" value={bonus.stack ?? 'untyped'} onChange={e => update(index, { ...bonus, stack: e.target.value as StackKind })}>
+        {STACKS.map(kind => <option key={kind} value={kind}>{STACK_LABELS[kind]}</option>)}
+      </select>
     </div>)}
     <Button variant="ghost" onClick={() => onChange([...bonuses, blankBonus('ability')])}>Add bonus</Button>
   </div>;
 }
-export function EquipmentEditor({ value, onChange, characterId, campaignId, editable, bab, strMod, dexMod, sizeMod, attackMod = 0, damageMod = 0 }: {
+export function EquipmentEditor({ value, onChange, characterId, campaignId, editable, bab, strMod, dexMod, sizeMod, attackMod = 0, damageMod = 0, abilityMods }: {
   value: Equipped; onChange: (value: Equipped) => void; characterId: string; campaignId: string | null; editable: boolean; bab: number; strMod: number; dexMod: number; sizeMod: number; attackMod?: number; damageMod?: number;
+  abilityMods?: Partial<Record<AbilityName, number>>;
 }) {
   const [items, setItems] = useState<Choice[]>([]);
   const [error, setError] = useState(false);
@@ -123,12 +127,17 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
       <div className="flex flex-wrap justify-between gap-2"><h3>Weapons</h3>{editable && <div className="flex gap-1"><Button variant="ghost" disabled={(value.weapons?.length ?? 0) >= 50} onClick={() => setPicker('weapon')}>+ From armory</Button><Button variant="ghost" disabled={(value.weapons?.length ?? 0) >= 50} onClick={() => onChange({ ...value, weapons: [...(value.weapons ?? []), { ...emptyWeapon }] })}>+ Custom weapon</Button></div>}</div>
       {(value.weapons ?? []).map((weapon, index) => {
         const change = (next: Weapon) => onChange({ ...value, weapons: value.weapons?.map((w, i) => i === index ? next : w) });
-        const totals = weaponTotals(weapon, bab, strMod, dexMod, sizeMod, attackMod, damageMod);
+        const extra = (weapon.extraAbilities ?? []).reduce((sum, ability) => sum + (abilityMods?.[ability] ?? 0), 0);
+        const totals = weaponTotals(weapon, bab, strMod, dexMod, sizeMod, attackMod + extra, damageMod);
         return <div key={index} className="rounded-md border p-3 space-y-3">
           {identity(weapon, change, `Weapon ${index + 1}`)}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {numeric('Attack bonus', weapon.attackBonus, v => change({ ...weapon, attackBonus: v ?? 0 }))}
             <div><Label>Attack ability</Label><select aria-label="Attack ability" className="w-full min-h-[44px] rounded-md border bg-card" disabled={!editable} value={weapon.ability} onChange={e => change({ ...weapon, ability: e.target.value as 'str' | 'dex' })}><option value="str">Strength</option><option value="dex">Dexterity</option></select></div>
+            <div><Label>Also add</Label><select aria-label="Extra attack ability" className="w-full min-h-[44px] rounded-md border bg-card" disabled={!editable} value={weapon.extraAbilities?.[0] ?? ''} onChange={e => change({ ...weapon, extraAbilities: e.target.value ? [e.target.value as AbilityName] : [] })}>
+              <option value="">None</option>
+              {(['str', 'dex', 'con', 'int', 'wis', 'cha'] as const).map(ability => <option key={ability} value={ability}>{ability.toUpperCase()}</option>)}
+            </select></div>
             {(['damage', 'crit', 'type'] as const).map(field => <div key={field}><Label>{field === 'damage' ? 'Damage dice' : field === 'crit' ? 'Critical' : 'Damage type'}</Label><Input aria-label={field} maxLength={100} value={weapon[field]} disabled={!editable} onChange={e => change({ ...weapon, [field]: e.target.value })} /></div>)}
             {numeric('Damage bonus', weapon.damageBonus, v => change({ ...weapon, damageBonus: v ?? 0 }))}
             <div><Label>Weapon category</Label><select aria-label="Weapon category" className="w-full min-h-[44px] rounded-md border bg-card" disabled={!editable} value={weapon.category ?? 'melee'} onChange={e => change({ ...weapon, category: e.target.value as Weapon['category'] })}><option value="melee">Melee</option><option value="ranged">Ranged</option><option value="thrown">Thrown</option><option value="composite">Composite</option></select></div>

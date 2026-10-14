@@ -1,9 +1,10 @@
 // Common conditions and buffs. Same-type bonuses do not stack (the highest
 // counts). Penalties stack. A group keeps only the first listed toggle, so
 // exhausted replaces fatigued when both were saved.
-import { adjustmentFromBonuses, namedGear, type AbilityName, type Adjustment, type Equipped, type ItemBonus, type SaveBonusName } from './equipment';
+import { adjustmentFromBonuses, bonusStack, foldStacks, namedGear, stackParts, type AbilityName, type Adjustment, type Equipped, type ItemBonus, type SaveBonusName, type StackKind } from './equipment';
 
-export type StackKind = 'untyped' | 'penalty' | 'dodge' | 'morale' | 'enhancement' | 'size' | 'luck' | 'circumstance';
+export type { StackKind };
+export { foldStacks, stackParts };
 type Mod = { amount: number; stack: StackKind };
 type SaveKey = SaveBonusName | 'all';
 
@@ -20,6 +21,8 @@ export interface Toggle {
   skills?: Mod[];
   dodge?: number;
   acPenalty?: number;
+  acSize?: number;
+  sizeCmb?: number;
   init?: Mod[];
   cmb?: number;
   loseDex?: boolean;
@@ -52,29 +55,14 @@ export const TOGGLES: Toggle[] = [
   { id: 'inspire', label: 'Inspire courage +1', section: 'buff', detail: '+1 morale on attacks and saves. It does not stack with bless or heroism.', attack: [morale(1)], saves: { all: morale(1) } },
   { id: 'haste', label: 'Haste', section: 'buff', detail: '+1 attack, +1 dodge AC, and +1 Reflex.', attack: [untyped(1)], dodge: 1, saves: { ref: untyped(1) } },
   { id: 'rage', label: 'Rage', section: 'buff', detail: '+4 Strength and Constitution, +2 Will, and −2 AC.', ability: { str: morale(4), con: morale(4) }, saves: { will: morale(2) }, acPenalty: -2 },
-  { id: 'enlarge', label: 'Enlarge person', section: 'buff', group: 'size', detail: '+2 Strength, −2 Dexterity, −1 attack, and −1 AC.', ability: { str: { amount: 2, stack: 'size' }, dex: { amount: -2, stack: 'size' } }, attack: [{ amount: -1, stack: 'size' }], acPenalty: -1 },
-  { id: 'reduce', label: 'Reduce person', section: 'buff', group: 'size', detail: '−2 Strength, +2 Dexterity, +1 attack, and +1 AC.', ability: { str: { amount: -2, stack: 'size' }, dex: { amount: 2, stack: 'size' } }, attack: [{ amount: 1, stack: 'size' }], acPenalty: 1 },
+  { id: 'enlarge', label: 'Enlarge person', section: 'buff', group: 'size', detail: '+2 Strength, −2 Dexterity, −1 attack and AC, and +1 on CMB and CMD.', ability: { str: { amount: 2, stack: 'size' }, dex: { amount: -2, stack: 'size' } }, attack: [{ amount: -1, stack: 'size' }], acSize: -1, sizeCmb: 1 },
+  { id: 'reduce', label: 'Reduce person', section: 'buff', group: 'size', detail: '−2 Strength, +2 Dexterity, +1 attack and AC, and −1 on CMB and CMD.', ability: { str: { amount: -2, stack: 'size' }, dex: { amount: 2, stack: 'size' } }, attack: [{ amount: 1, stack: 'size' }], acSize: 1, sizeCmb: -1 },
   { id: 'prayer', label: 'Prayer', section: 'buff', detail: '+1 luck on attacks, damage, saves, and skills.', attack: [{ amount: 1, stack: 'luck' }], damage: [{ amount: 1, stack: 'luck' }], saves: { all: { amount: 1, stack: 'luck' } }, skills: [{ amount: 1, stack: 'luck' }] },
   { id: 'flanking', label: 'Flanking', section: 'buff', detail: '+2 circumstance on attacks against the flanked creature.', attack: [{ amount: 2, stack: 'circumstance' }] },
 ];
 
-export function foldStacks(entries: Mod[]): number {
-  let total = 0;
-  const bonus = new Map<string, number>();
-  const penalized = new Map<string, number>();
-  for (const entry of entries) {
-    if (!entry.amount) continue;
-    if (entry.stack === 'untyped' || entry.stack === 'penalty' || entry.stack === 'dodge') {
-      total += entry.amount;
-      continue;
-    }
-    const bucket = entry.amount > 0 ? bonus : penalized;
-    const current = bucket.get(entry.stack);
-    bucket.set(entry.stack, current === undefined ? entry.amount : entry.amount > 0 ? Math.max(current, entry.amount) : Math.min(current, entry.amount));
-  }
-  for (const amount of bonus.values()) total += amount;
-  for (const amount of penalized.values()) total += amount;
-  return total;
+export function maneuverSize(acSizeMod: number, sizeCmb = 0) {
+  return -acSizeMod + sizeCmb;
 }
 
 export function activeToggles(ids: string[]): Toggle[] {
@@ -97,7 +85,7 @@ export function resolveToggles(ids: string[]) {
   const skills: Mod[] = [];
   const init: Mod[] = [];
   const saves: Record<SaveBonusName, Mod[]> = { fort: [], ref: [], will: [] };
-  let dodge = 0, acPenalty = 0, cmb = 0, loseDex = false;
+  let dodge = 0, acPenalty = 0, acSize = 0, sizeCmb = 0, cmb = 0, loseDex = false;
   for (const toggle of active) {
     for (const key of Object.keys(ability) as AbilityName[]) {
       const mod = toggle.ability?.[key];
@@ -115,20 +103,30 @@ export function resolveToggles(ids: string[]) {
     }
     dodge += toggle.dodge ?? 0;
     acPenalty += toggle.acPenalty ?? 0;
+    acSize += toggle.acSize ?? 0;
+    sizeCmb += toggle.sizeCmb ?? 0;
     cmb += toggle.cmb ?? 0;
     loseDex = loseDex || !!toggle.loseDex;
   }
   return {
     active,
+    abilityParts: ability,
+    attackParts: attack,
+    damageParts: damage,
+    skillParts: skills,
+    initParts: init,
+    saveParts: saves,
     ability: { str: foldStacks(ability.str), dex: foldStacks(ability.dex), con: foldStacks(ability.con), int: foldStacks(ability.int), wis: foldStacks(ability.wis), cha: foldStacks(ability.cha) },
     attack: foldStacks(attack),
     damage: foldStacks(damage),
     skillAll: foldStacks(skills),
     init: foldStacks(init),
     saves: { fort: foldStacks(saves.fort), ref: foldStacks(saves.ref), will: foldStacks(saves.will) },
-    dodge, acPenalty, cmb, loseDex,
+    dodge, acPenalty, acSize, sizeCmb, cmb, loseDex,
   };
 }
+
+const CMD_AC = new Set<StackKind>(['luck', 'morale', 'insight', 'sacred', 'profane', 'circumstance']);
 
 export function sheetAdjustment(input: { equipped?: Equipped; feats?: { name?: string; bonuses?: ItemBonus[] }[] } = {}): Adjustment {
   const equipped = input.equipped ?? {};
@@ -137,17 +135,55 @@ export function sheetAdjustment(input: { equipped?: Equipped; feats?: { name?: s
     ...(input.feats ?? []).filter(feat => feat?.name?.trim()).flatMap(feat => feat.bonuses ?? []),
     ...(equipped.buffs ?? []).filter(buff => buff.on && buff.name?.trim()).flatMap(buff => buff.bonuses ?? []),
   ];
-  const totals = adjustmentFromBonuses(bonuses);
+  const totals = adjustmentFromBonuses([]);
   const toggles = resolveToggles(equipped.conditions ?? []);
-  (Object.keys(totals.ability) as AbilityName[]).forEach(key => { totals.ability[key] += toggles.ability[key]; });
-  (Object.keys(totals.saves) as SaveBonusName[]).forEach(key => { totals.saves[key] += toggles.saves[key]; });
-  totals.ac.dodge += toggles.dodge;
-  totals.attack += toggles.attack;
-  totals.damage += toggles.damage;
-  totals.init += toggles.init;
-  totals.skillAll += toggles.skillAll;
-  totals.acPenalty += toggles.acPenalty;
-  totals.cmb += toggles.cmb;
+  const ability: Record<AbilityName, Mod[]> = { str: [], dex: [], con: [], int: [], wis: [], cha: [] };
+  const attack: Mod[] = [];
+  const damage: Mod[] = [];
+  const init: Mod[] = [];
+  const spell: Mod[] = [];
+  const saves: Record<SaveBonusName, Mod[]> = { fort: [], ref: [], will: [] };
+  const skills: Record<string, Mod[]> = {};
+  const naturalEnh: Mod[] = [];
+  const cmdAc: Mod[] = [];
+  const ac: Record<string, number> = { armor: 0, shield: 0, natural: 0, deflection: 0, dodge: 0 };
+  for (const bonus of bonuses) {
+    const mod = { amount: bonus.amount, stack: bonusStack(bonus) };
+    if (bonus.kind === 'ability') ability[bonus.ability].push(mod);
+    else if (bonus.kind === 'ac') {
+      if (bonus.bonus === 'natural' && mod.stack === 'enhancement') naturalEnh.push(mod);
+      else ac[bonus.bonus] += bonus.amount;
+      if (CMD_AC.has(mod.stack)) cmdAc.push(mod);
+    } else if (bonus.kind === 'skill') skills[bonus.skill] = [...(skills[bonus.skill] ?? []), mod];
+    else if (bonus.kind === 'save') saves[bonus.save].push(mod);
+    else if (bonus.kind === 'spell') spell.push(mod);
+    else if (bonus.kind === 'attack') attack.push(mod);
+    else if (bonus.kind === 'damage') damage.push(mod);
+    else init.push(mod);
+  }
+  (Object.keys(ability) as AbilityName[]).forEach(key => {
+    const mods = [...ability[key], ...toggles.abilityParts[key]];
+    totals.ability[key] = foldStacks(mods);
+    totals.abilityParts[key] = stackParts(mods);
+  });
+  (Object.keys(saves) as SaveBonusName[]).forEach(key => { totals.saves[key] = foldStacks([...saves[key], ...toggles.saveParts[key]]); });
+  for (const [name, mods] of Object.entries(skills)) totals.skills[name] = foldStacks(mods);
+  totals.ac.armor = ac.armor;
+  totals.ac.shield = ac.shield;
+  totals.ac.natural = ac.natural;
+  totals.ac.deflection = ac.deflection;
+  totals.ac.dodge = ac.dodge + toggles.dodge;
+  totals.attack = foldStacks([...attack, ...toggles.attackParts]);
+  totals.damage = foldStacks([...damage, ...toggles.damageParts]);
+  totals.init = foldStacks([...init, ...toggles.initParts]);
+  totals.spellDc = foldStacks(spell);
+  totals.skillAll = toggles.skillAll;
+  totals.acPenalty = toggles.acPenalty;
+  totals.acSize = toggles.acSize;
+  totals.sizeCmb = toggles.sizeCmb;
+  totals.naturalEnhancement = foldStacks(naturalEnh);
+  totals.cmdAc = foldStacks(cmdAc);
+  totals.cmb = toggles.cmb;
   totals.loseDex = toggles.loseDex;
   return totals;
 }

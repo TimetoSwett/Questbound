@@ -15,7 +15,15 @@ export type AcBonusName = (typeof AC_BONUSES)[number];
 export const SAVE_BONUSES = ['fort', 'ref', 'will'] as const;
 export type SaveBonusName = (typeof SAVE_BONUSES)[number];
 
-export type ItemBonus =
+export const STACKS = ['untyped', 'penalty', 'enhancement', 'size', 'morale', 'luck', 'circumstance', 'competence', 'insight', 'dodge', 'deflection', 'natural', 'racial', 'alchemical', 'sacred', 'profane', 'resistance', 'inherent'] as const;
+export type StackKind = (typeof STACKS)[number];
+export const STACK_LABELS: Record<StackKind, string> = {
+  untyped: 'Untyped', penalty: 'Penalty', enhancement: 'Enhancement', size: 'Size', morale: 'Morale', luck: 'Luck',
+  circumstance: 'Circumstance', competence: 'Competence', insight: 'Insight', dodge: 'Dodge', deflection: 'Deflection',
+  natural: 'Natural', racial: 'Racial', alchemical: 'Alchemical', sacred: 'Sacred', profane: 'Profane', resistance: 'Resistance', inherent: 'Inherent',
+};
+
+export type ItemBonus = (
   | { kind: 'ability'; ability: AbilityName; amount: number }
   | { kind: 'ac'; bonus: AcBonusName; amount: number }
   | { kind: 'skill'; skill: string; amount: number }
@@ -23,7 +31,41 @@ export type ItemBonus =
   | { kind: 'spell'; amount: number }
   | { kind: 'attack'; amount: number }
   | { kind: 'damage'; amount: number }
-  | { kind: 'init'; amount: number };
+  | { kind: 'init'; amount: number }
+) & { stack?: StackKind };
+
+export function bonusStack(bonus: { stack?: StackKind }): StackKind {
+  return bonus.stack ?? 'untyped';
+}
+
+/** Untyped, dodge, and penalties add. Other types keep the best bonus and the worst penalty. */
+export function foldStacks(entries: { amount: number; stack: StackKind }[]): number {
+  let total = 0;
+  const bonus = new Map<string, number>();
+  const penalized = new Map<string, number>();
+  for (const entry of entries) {
+    if (!entry.amount) continue;
+    if (entry.stack === 'untyped' || entry.stack === 'penalty' || entry.stack === 'dodge') {
+      total += entry.amount;
+      continue;
+    }
+    const bucket = entry.amount > 0 ? bonus : penalized;
+    const current = bucket.get(entry.stack);
+    bucket.set(entry.stack, current === undefined ? entry.amount : entry.amount > 0 ? Math.max(current, entry.amount) : Math.min(current, entry.amount));
+  }
+  for (const amount of bonus.values()) total += amount;
+  for (const amount of penalized.values()) total += amount;
+  return total;
+}
+
+export function stackParts(entries: { amount: number; stack: StackKind }[]): { stack: StackKind; amount: number }[] {
+  const groups = new Map<StackKind, { amount: number; stack: StackKind }[]>();
+  for (const entry of entries) {
+    if (!entry.amount) continue;
+    groups.set(entry.stack, [...(groups.get(entry.stack) ?? []), entry]);
+  }
+  return [...groups.entries()].map(([stack, mods]) => ({ stack, amount: foldStacks(mods) })).filter(part => part.amount !== 0);
+}
 
 export interface SlotItem {
   name: string;
@@ -44,6 +86,7 @@ export interface ArmorPiece extends SlotItem {
 export interface Weapon extends SlotItem {
   attackBonus: number;      // misc/enhancement on top of BAB + ability
   ability: 'str' | 'dex';
+  extraAbilities?: AbilityName[];
   damage: string;           // dice, e.g. "1d8"
   damageBonus: number;
   crit: string;             // e.g. "19-20/x2"
@@ -60,6 +103,18 @@ export interface CharacterBuff {
   sourceUrl?: string | null;
 }
 
+export interface SheetOptions {
+  dodge?: number;
+  naturalEnhancement?: number;
+  initAbilities?: AbilityName[];
+  favoredClass?: string;
+  favoredHp?: number;
+  favoredRanks?: number;
+  favoredNotes?: string;
+  dr?: { amount: number; bypass: string }[];
+  resist?: { energy: string; amount: number }[];
+}
+
 export interface Equipped {
   armor?: ArmorPiece | null;
   shield?: ArmorPiece | null;
@@ -67,6 +122,7 @@ export interface Equipped {
   slots?: Partial<Record<BodySlot | UnslottedSlot, SlotItem | null>>;
   conditions?: string[];
   buffs?: CharacterBuff[];
+  sheet?: SheetOptions;
 }
 
 export interface Adjustment {
@@ -80,6 +136,11 @@ export interface Adjustment {
   init: number;
   skillAll: number;
   acPenalty: number;
+  acSize: number;
+  sizeCmb: number;
+  naturalEnhancement: number;
+  cmdAc: number;
+  abilityParts: Record<AbilityName, { stack: StackKind; amount: number }[]>;
   cmb: number;
   loseDex: boolean;
 }
@@ -100,7 +161,7 @@ export function adjustmentFromBonuses(bonuses: ItemBonus[]): Adjustment {
     else if (bonus.kind === 'damage') damage += bonus.amount;
     else init += bonus.amount;
   }
-  return { ability, ac, skills, saves, spellDc, attack, damage, init, skillAll: 0, acPenalty: 0, cmb: 0, loseDex: false };
+  return { ability, ac, skills, saves, spellDc, attack, damage, init, skillAll: 0, acPenalty: 0, acSize: 0, sizeCmb: 0, naturalEnhancement: 0, cmdAc: 0, abilityParts: { str: [], dex: [], con: [], int: [], wis: [], cha: [] }, cmb: 0, loseDex: false };
 }
 
 /** Blank names are placeholders, rather than equipped items. */
@@ -120,14 +181,15 @@ const SAVE_LABELS: Record<SaveBonusName, string> = { fort: 'Fortitude', ref: 'Re
 
 export function bonusLabel(bonus: ItemBonus): string {
   const amount = bonus.amount >= 0 ? `+${bonus.amount}` : `${bonus.amount}`;
-  if (bonus.kind === 'ability') return `${ABILITY_LABELS[bonus.ability]} ${amount}`;
-  if (bonus.kind === 'ac') return `${AC_LABELS[bonus.bonus]} ${amount}`;
-  if (bonus.kind === 'skill') return `${bonus.skill} ${amount}`;
-  if (bonus.kind === 'save') return `${SAVE_LABELS[bonus.save]} ${amount}`;
-  if (bonus.kind === 'attack') return `Attack ${amount}`;
-  if (bonus.kind === 'damage') return `Damage ${amount}`;
-  if (bonus.kind === 'init') return `Initiative ${amount}`;
-  return `Spell DC ${amount}`;
+  const typed = bonus.stack && bonus.stack !== 'untyped' ? ` ${STACK_LABELS[bonus.stack].toLowerCase()}` : '';
+  if (bonus.kind === 'ability') return `${ABILITY_LABELS[bonus.ability]} ${amount}${typed}`;
+  if (bonus.kind === 'ac') return `${AC_LABELS[bonus.bonus]} ${amount}${typed}`;
+  if (bonus.kind === 'skill') return `${bonus.skill} ${amount}${typed}`;
+  if (bonus.kind === 'save') return `${SAVE_LABELS[bonus.save]} ${amount}${typed}`;
+  if (bonus.kind === 'attack') return `Attack ${amount}${typed}`;
+  if (bonus.kind === 'damage') return `Damage ${amount}${typed}`;
+  if (bonus.kind === 'init') return `Initiative ${amount}${typed}`;
+  return `Spell DC ${amount}${typed}`;
 }
 
 /** Blank names are placeholders, rather than equipped items. */
