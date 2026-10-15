@@ -12,6 +12,7 @@ function load(path, mocks = {}) {
   return exports;
 }
 const skillsValidation = load('lib/skills-validation.ts');
+const pathOfWar = load('lib/path-of-war.ts');
 const equipment = load('lib/equipment.ts');
 const validation = load('lib/equipment-validation.ts', { './equipment': equipment });
 const { equipmentEffects, equipmentSkillPenalty, weaponTotals } = equipment;
@@ -117,6 +118,7 @@ const route = load('app/api/characters/route.ts', {
   '@/lib/battle-map': { removeCharacterTokens: () => null },
   '@/lib/equipment-validation': validation,
   '@/lib/skills-validation': skillsValidation,
+  '@/lib/path-of-war': pathOfWar,
   '@/lib/equipment': equipment,
   '@/lib/library': { libraryIdsIn: library.libraryIdsIn, stripMissingLibraryIds: library.stripMissingLibraryIds },
   '@/lib/prisma': { prisma: {

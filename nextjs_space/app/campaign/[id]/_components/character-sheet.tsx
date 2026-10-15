@@ -16,6 +16,7 @@ import { EntryCard, sheetCardGridClass } from './entry-card';
 import { castingAbilityFor, spellDc } from '@/lib/spell-dc';
 import { newSpellClientId } from '@/lib/spell-client-id';
 import { EquipmentEditor, BonusEditor } from './equipment-editor';
+import { PathOfWarSection } from '@/components/characters/path-of-war-section';
 import { AbilityScoreCell } from './ability-score-cell';
 import { SheetEffects } from './sheet-effects';
 import { SensesSection } from './senses-section';
@@ -420,6 +421,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
     { key: 'equipped', label: 'Equipment', icon: Shield },
     { key: 'equipment', label: 'Inventory', icon: Package },
     { key: 'details', label: 'Feats, Skills, Spells & Notes', icon: BookOpen },
+    { key: 'maneuvers', label: 'Maneuvers', icon: BookOpen },
   ];
 
   return (
@@ -819,6 +821,10 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           }
           update('equipped', value); autoSave();
         }} />}
+
+      {isSection('maneuvers') && <PathOfWarSection value={data.spells?.pathOfWar} editable={editable}
+        abilityMods={{ int: stats?.intMod ?? 0, wis: stats?.wisMod ?? 0, cha: stats?.chaMod ?? 0 }}
+        onChange={pathOfWar => { update('spells', { ...(data.spells ?? { slots: {}, known: [] }), pathOfWar }); autoSave(); }} />}
 
       {/* DETAILS TAB: Feats, Skills, Spells & Notes */}
       {isSection('details') && (
