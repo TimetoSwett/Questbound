@@ -47,6 +47,15 @@ const buff = z.object({
   sourceUrl: z.string().url().max(500).nullable().optional(),
 }).strict();
 const sheet = z.object({
+  senses: z.object({
+    darkvision: z.number().int().min(0).max(1000).optional(),
+    lowLight: z.boolean().optional(),
+    scent: z.boolean().optional(),
+    blindsense: z.number().int().min(0).max(1000).optional(),
+    blindsight: z.number().int().min(0).max(1000).optional(),
+    tremorsense: z.number().int().min(0).max(1000).optional(),
+    custom: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+  }).strict().optional(),
   nonlethal: z.number().int().min(0).max(10000).optional(),
   noScore: z.array(z.enum(ABILITIES)).max(6).optional(),
   dodge: z.number().int().min(-100).max(100).optional(),

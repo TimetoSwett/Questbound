@@ -150,6 +150,27 @@ export async function PUT(request: Request) {
       const rawSheet = (rawEquipped as Record<string, unknown>).sheet;
       if (rawSheet && typeof rawSheet === 'object' && !Array.isArray(rawSheet)) {
         const options = rawSheet as Record<string, unknown>;
+        const rawSenses = options.senses;
+        if (rawSenses && typeof rawSenses === 'object' && !Array.isArray(rawSenses)) {
+          const source = rawSenses as Record<string, unknown>;
+          const senses: Record<string, unknown> = {};
+          for (const key of ['darkvision', 'blindsense', 'blindsight', 'tremorsense']) {
+            const value = source[key];
+            if (typeof value === 'number' && !Number.isNaN(value)) {
+              senses[key] = Math.max(0, Math.min(1000, Math.trunc(value)));
+            }
+          }
+          for (const key of ['lowLight', 'scent']) {
+            if (typeof source[key] === 'boolean') senses[key] = source[key];
+          }
+          if (Array.isArray(source.custom)) {
+            senses.custom = source.custom.filter((value): value is string => typeof value === 'string')
+              .map(value => value.trim().slice(0, 80).trim()).filter(Boolean).slice(0, 20);
+          }
+          options.senses = senses;
+        } else {
+          delete options.senses;
+        }
         if (typeof options.nonlethal === 'number' && !Number.isNaN(options.nonlethal)) {
           options.nonlethal = Math.max(0, Math.min(10000, Math.trunc(options.nonlethal)));
         } else {

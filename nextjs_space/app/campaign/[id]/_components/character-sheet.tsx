@@ -18,6 +18,7 @@ import { newSpellClientId } from '@/lib/spell-client-id';
 import { EquipmentEditor, BonusEditor } from './equipment-editor';
 import { AbilityScoreCell } from './ability-score-cell';
 import { SheetEffects } from './sheet-effects';
+import { SensesSection } from './senses-section';
 import { NonlethalField } from './nonlethal-field';
 import { sheetAdjustment, maneuverSize } from '@/lib/conditions';
 import { STACK_LABELS, bonusLabel, equipmentEffects, manualBonusAfterChange, weaponTotals, type AbilityName, type ItemBonus, type SheetOptions } from '@/lib/equipment';
@@ -699,6 +700,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
               ))}
             </div>
           </div>
+          <SensesSection value={data.equipped?.sheet?.senses} disabled={!editable} onChange={senses => patchSheet({ senses })} />
           <SheetEffects equipped={data.equipped ?? {}} editable={editable} onChange={next => { update('equipped', next); autoSave(); }} />
           <div className="bg-card rounded-lg p-4 border border-border space-y-3" style={{ boxShadow: 'var(--shadow-sm)' }}>
             <h3 className="font-display font-semibold text-sm">DR and resistances</h3>

@@ -203,3 +203,25 @@ assert.deepEqual(JSON.parse(JSON.stringify(customSkills)), [
   { id: 'custom-2', custom: true, name: 'Navigation', ability: 'INT', ranks: 0, misc: 0, classSkill: false },
   { id: 'custom-3', custom: true, name: 'Athletics', ability: 'STR', ranks: 0, misc: 0, classSkill: false },
 ]);
+
+// Senses remain optional, strict, and normalized before PUT validation.
+for (const senses of [{ darkvision: -1 }, { blindsight: 1.5 }, { scent: 'true' }, { custom: [''] }, { unknown: true }]) {
+  assert.equal(validation.equippedSchema.safeParse({ sheet: { senses } }).success, false);
+}
+user = 'owner'; role = 'player';
+const sensesResponse = await put({ sheet: { senses: {
+  darkvision: 2000.9, blindsense: -10, blindsight: 30.9, tremorsense: '60',
+  lowLight: true, scent: 'true', unknown: 'drop',
+  custom: [null, '  ', '  echolocation  ', 'x'.repeat(100), ...Array(25).fill('sense')],
+} } });
+assert.equal(sensesResponse.status, 200);
+const savedSenses = (await sensesResponse.json()).equipped.sheet.senses;
+assert.deepEqual(savedSenses, {
+  darkvision: 1000, blindsense: 0, blindsight: 30, lowLight: true,
+  custom: ['echolocation', 'x'.repeat(80), ...Array(18).fill('sense')],
+});
+for (const senses of [null, [], 'bad', 10]) {
+  const response = await put({ sheet: { senses } });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).equipped.sheet.senses, undefined);
+}
