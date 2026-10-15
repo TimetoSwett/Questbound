@@ -352,7 +352,7 @@ export async function searchLibraryPage(db: Db, query: SearchQuery): Promise<{ r
     exactWhere ? { where: exactWhere } : null,
     { where: prefixWhere },
     containsWhere ? { where: containsWhere } : null,
-  ].filter((bucket): bucket is { where: object } => bucket !== null);
+  ].filter((bucket): bucket is NonNullable<typeof bucket> => bucket !== null);
   const counts = await Promise.all(buckets.map((bucket) => db.libraryEntry.count({ where: bucket.where })));
   const total = counts.reduce((sum: number, count: number) => sum + count, 0);
   let skip = (query.page - 1) * query.limit;

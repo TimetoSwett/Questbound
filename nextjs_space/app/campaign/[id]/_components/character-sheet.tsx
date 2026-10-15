@@ -34,6 +34,8 @@ import type { FeatData, GearData } from '@/lib/library';
 
 const SIZES = ['Fine', 'Diminutive', 'Tiny', 'Small', 'Medium', 'Large', 'Huge', 'Gargantuan', 'Colossal'];
 const ALIGNMENTS = ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'];
+type DrRow = NonNullable<SheetOptions['dr']>[number];
+type ResistRow = NonNullable<SheetOptions['resist']>[number];
 
 interface EquipItem { name: string; weight: number; quantity: number; value: string; notes: string; summary?: string; libraryEntryId?: string; sourceUrl?: string | null; }
 interface FeatEntry { name: string; description: string; summary?: string; kind?: 'feat' | 'ability'; tag?: AbilityTag; libraryEntryId?: string; sourceUrl?: string | null; bonuses?: ItemBonus[]; }
@@ -388,7 +390,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
     const cmd = 10 + bab + strMod + cmdDex + combatSize + s('miscCMD') + adjust.cmb + dodge + s('deflection') + adjust.ac.deflection + adjust.acPenalty + adjust.cmdAc;
     const cmb = bab + strMod + combatSize + s('miscCMB') + adjust.cmb;
     const initAbilities = sheet.initAbilities ?? ['dex'];
-    const init = initAbilities.reduce((sum, ability) => sum + mods[ability], 0) + s('miscInit') + adjust.init;
+    const init = initAbilities.reduce((sum: number, ability: AbilityName) => sum + mods[ability], 0) + s('miscInit') + adjust.init;
     const fort = s('baseFort') + conMod + s('miscFort') + adjust.saves.fort;
     const ref = s('baseRef') + dexMod + s('miscRef') + adjust.saves.ref;
     const will = s('baseWill') + wisMod + s('miscWill') + adjust.saves.will;
@@ -618,7 +620,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                   const selected = (data?.equipped?.sheet?.initAbilities ?? ['dex']).includes(ability);
                   return <button key={ability} type="button" aria-pressed={selected} disabled={!editable} onClick={() => {
                     const current = data?.equipped?.sheet?.initAbilities ?? ['dex' as AbilityName];
-                    patchSheet({ initAbilities: selected ? current.filter(item => item !== ability) : [...current, ability] });
+                    patchSheet({ initAbilities: selected ? current.filter((item: AbilityName) => item !== ability) : [...current, ability] });
                   }} className={`rounded border px-1.5 py-0.5 text-[10px] uppercase ${selected ? 'bg-primary text-primary-foreground border-primary' : 'text-muted-foreground'}`}>{ability}</button>;
                 })}
               </div>
@@ -660,7 +662,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                   </thead>
                   <tbody>
                     {(data?.equipped?.weapons ?? []).filter((weapon: { name?: string }) => weapon?.name?.trim()).map((weapon: { name: string; ability?: 'str' | 'dex'; extraAbilities?: AbilityName[]; attackBonus?: number; damage?: string; damageBonus?: number; crit?: string; range?: number; type?: string; category?: 'melee' | 'ranged' | 'thrown' | 'composite' }, index: number) => {
-                      const ability = weapon.ability === 'dex' ? 'dex' : 'str';
+                      const ability: 'str' | 'dex' = weapon.ability === 'dex' ? 'dex' : 'str';
                       const extraAbilities = weapon.extraAbilities ?? [];
                       const stat = (stats?.mods?.[ability] ?? 0) + extraAbilities.reduce((sum, extra) => sum + (stats?.mods?.[extra] ?? 0), 0);
                       const bab = parseInt(data?.bab) || 0;
@@ -709,18 +711,18 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           <div className="bg-card rounded-lg p-4 border border-border space-y-3" style={{ boxShadow: 'var(--shadow-sm)' }}>
             <h3 className="font-display font-semibold text-sm">DR and resistances</h3>
             <div className="space-y-2">
-              {(data?.equipped?.sheet?.dr ?? []).map((row, index) => <div key={index} className="flex gap-2">
-                <Input aria-label="DR amount" type="number" value={row.amount} disabled={!editable} className="h-8 w-20" onChange={e => patchSheet({ dr: (data.equipped?.sheet?.dr ?? []).map((item, i) => i === index ? { ...item, amount: parseInt(e.target.value) || 0 } : item) })} />
-                <Input aria-label="DR bypass" value={row.bypass} disabled={!editable} placeholder="magic, adamantine…" className="h-8 flex-1" onChange={e => patchSheet({ dr: (data.equipped?.sheet?.dr ?? []).map((item, i) => i === index ? { ...item, bypass: e.target.value } : item) })} />
-                {editable && <Button variant="ghost" size="sm" onClick={() => patchSheet({ dr: (data.equipped?.sheet?.dr ?? []).filter((_, i) => i !== index) })}>Remove</Button>}
+              {(data?.equipped?.sheet?.dr ?? []).map((row: DrRow, index: number) => <div key={index} className="flex gap-2">
+                <Input aria-label="DR amount" type="number" value={row.amount} disabled={!editable} className="h-8 w-20" onChange={e => patchSheet({ dr: (data.equipped?.sheet?.dr ?? []).map((item: DrRow, i: number) => i === index ? { ...item, amount: parseInt(e.target.value) || 0 } : item) })} />
+                <Input aria-label="DR bypass" value={row.bypass} disabled={!editable} placeholder="magic, adamantine…" className="h-8 flex-1" onChange={e => patchSheet({ dr: (data.equipped?.sheet?.dr ?? []).map((item: DrRow, i: number) => i === index ? { ...item, bypass: e.target.value } : item) })} />
+                {editable && <Button variant="ghost" size="sm" onClick={() => patchSheet({ dr: (data.equipped?.sheet?.dr ?? []).filter((_: DrRow, i: number) => i !== index) })}>Remove</Button>}
               </div>)}
               {editable && <Button variant="ghost" size="sm" onClick={() => patchSheet({ dr: [...(data.equipped?.sheet?.dr ?? []), { amount: 5, bypass: '' }] })}>+ DR</Button>}
             </div>
             <div className="space-y-2">
-              {(data?.equipped?.sheet?.resist ?? []).map((row, index) => <div key={index} className="flex gap-2">
-                <Input aria-label="Energy" value={row.energy} disabled={!editable} placeholder="Fire" className="h-8 flex-1" onChange={e => patchSheet({ resist: (data.equipped?.sheet?.resist ?? []).map((item, i) => i === index ? { ...item, energy: e.target.value } : item) })} />
-                <Input aria-label="Resistance amount" type="number" value={row.amount} disabled={!editable} className="h-8 w-20" onChange={e => patchSheet({ resist: (data.equipped?.sheet?.resist ?? []).map((item, i) => i === index ? { ...item, amount: parseInt(e.target.value) || 0 } : item) })} />
-                {editable && <Button variant="ghost" size="sm" onClick={() => patchSheet({ resist: (data.equipped?.sheet?.resist ?? []).filter((_, i) => i !== index) })}>Remove</Button>}
+              {(data?.equipped?.sheet?.resist ?? []).map((row: ResistRow, index: number) => <div key={index} className="flex gap-2">
+                <Input aria-label="Energy" value={row.energy} disabled={!editable} placeholder="Fire" className="h-8 flex-1" onChange={e => patchSheet({ resist: (data.equipped?.sheet?.resist ?? []).map((item: ResistRow, i: number) => i === index ? { ...item, energy: e.target.value } : item) })} />
+                <Input aria-label="Resistance amount" type="number" value={row.amount} disabled={!editable} className="h-8 w-20" onChange={e => patchSheet({ resist: (data.equipped?.sheet?.resist ?? []).map((item: ResistRow, i: number) => i === index ? { ...item, amount: parseInt(e.target.value) || 0 } : item) })} />
+                {editable && <Button variant="ghost" size="sm" onClick={() => patchSheet({ resist: (data.equipped?.sheet?.resist ?? []).filter((_: ResistRow, i: number) => i !== index) })}>Remove</Button>}
               </div>)}
               {editable && <Button variant="ghost" size="sm" onClick={() => patchSheet({ resist: [...(data.equipped?.sheet?.resist ?? []), { energy: '', amount: 10 }] })}>+ Resistance</Button>}
             </div>

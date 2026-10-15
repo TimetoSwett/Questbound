@@ -29,7 +29,7 @@ function Pages({ page, pages, onPage }: { page: number; pages: number; onPage: (
 
 export function HallClient({ hall, userName }: { hall: HallId; userName: string }) {
   const config = HALLS[hall];
-  const [filterId, setFilterId] = useState(config.filters[0].id);
+  const [filterId, setFilterId] = useState<HallFilter['id']>(config.filters[0].id);
   const filter = config.filters.find((item) => item.id === filterId) ?? config.filters[0];
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
