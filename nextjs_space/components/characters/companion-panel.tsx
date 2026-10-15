@@ -22,6 +22,8 @@ export function CompanionPanel({ characterId, campaignId, editable }: { characte
   const [busy, setBusy] = useState(false);
 
   const companions = data?.companions ?? [];
+  // Companions are one level deep: a sheet that has an owner cannot take companions.
+  const canAdd = editable && !data?.isCompanion && !data?.owner;
   const changed = () => {
     window.dispatchEvent(new Event(COMPANIONS_CHANGED_EVENT));
     nav?.onChanged?.();
@@ -50,7 +52,8 @@ export function CompanionPanel({ characterId, campaignId, editable }: { characte
     setMode('link');
     const res = await fetch(campaignId ? `/api/characters?campaignId=${campaignId}` : '/api/characters');
     const rows: Candidate[] = res.ok ? await res.json() : [];
-    setCandidates(rows.filter((c) => c.id !== characterId && !c.ownerCharacterId && (campaignId ? c.campaignId === campaignId : !c.isAssigned)));
+    const hasCompanions = new Set(rows.flatMap((c) => (c.ownerCharacterId ? [c.ownerCharacterId] : [])));
+    setCandidates(rows.filter((c) => c.id !== characterId && !c.ownerCharacterId && !hasCompanions.has(c.id) && (campaignId ? c.campaignId === campaignId : !c.isAssigned)));
   };
   const link = async (id: string) => {
     if (await send('PUT', { characterId: id, ownerId: characterId, companionType: type.trim() || undefined }, 'Companion linked')) { setMode(null); setType(''); }
@@ -72,13 +75,13 @@ export function CompanionPanel({ characterId, campaignId, editable }: { characte
               {editable && <Button size="sm" variant="ghost" onClick={() => unlink(c.id)} disabled={busy} title="Unlink"><Unlink className="w-4 h-4" /></Button>}
             </div>
           ))}
-          {editable && mode === null && (
+          {canAdd && mode === null && (
             <div className="flex gap-2">
               <Button size="sm" onClick={() => setMode('create')}><Plus className="w-4 h-4 mr-1" /> Create companion</Button>
               <Button size="sm" variant="secondary" onClick={startLink}><Link2 className="w-4 h-4 mr-1" /> Link existing</Button>
             </div>
           )}
-          {editable && mode === 'create' && (
+          {canAdd && mode === 'create' && (
             <div className="flex flex-wrap gap-2">
               <Input className="w-44" placeholder="Name" maxLength={120} value={name} onChange={(e) => setName(e.target.value)} />
               <Input className="w-44" placeholder="Type (e.g. familiar)" maxLength={60} value={type} onChange={(e) => setType(e.target.value)} />
@@ -86,7 +89,7 @@ export function CompanionPanel({ characterId, campaignId, editable }: { characte
               <Button size="sm" variant="ghost" onClick={() => setMode(null)}>Cancel</Button>
             </div>
           )}
-          {editable && mode === 'link' && (
+          {canAdd && mode === 'link' && (
             <div className="space-y-2">
               <Input className="w-56" placeholder="Type (optional)" maxLength={60} value={type} onChange={(e) => setType(e.target.value)} />
               {candidates.length === 0 && <p className="text-muted-foreground">No characters available to link.</p>}
