@@ -163,3 +163,51 @@ for (const query of ['id=creature', 'campaignId=campaign']) {
 }
 assert.ok(published.length > 0 && published.every((e) => e.topic === 'battle' && !e.gmOnly), 'loot writes publish battle invalidations');
 console.log('Loot dice, weights, coins, validation, GM access, campaign scoping, player privacy, balance limits, and transaction rollback tests passed.');
+
+// Shared purse and existing coin routes: exercise the actual auth gates.
+let routeUser = 'gm', routeRole = 'dm';
+const campaignCalls = [];
+const routePublished = [];
+const routeMocks = {
+  'next/server': { NextResponse: { json: (body, options) => ({ status: options?.status ?? 200, body }) } },
+  '@/auth': { auth: async () => routeUser ? { user: { id: routeUser } } : null },
+  '@/lib/campaign-helpers': { getUserRole: async () => routeRole },
+  '@/lib/realtime': { publish: (...args) => routePublished.push(args) },
+  '@/lib/prisma': { prisma: { campaign: {
+    update: async args => { campaignCalls.push(args); return { sharedPurse: args.data.sharedPurse }; },
+    updateMany: async args => { campaignCalls.push(args); return { count: 1 }; },
+    findUnique: async args => { campaignCalls.push(args); return { partyCp: 100 }; },
+  } } },
+};
+const campaignRoute = load('app/api/campaigns/[id]/route.ts', routeMocks);
+const coinRoute = load('app/api/loot/coins/route.ts', routeMocks);
+const campaignContext = { params: Promise.resolve({ id: 'campaign' }) };
+assert.deepEqual(Object.keys(campaignRoute).filter(key => ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].includes(key)), ['PATCH']);
+routeUser = null;
+assert.equal((await campaignRoute.PATCH(req({ sharedPurse: true }, 'PATCH'), campaignContext)).status, 401);
+routeUser = 'player';
+for (const deniedRole of ['player', null]) {
+  routeRole = deniedRole;
+  assert.equal((await campaignRoute.PATCH(req({ sharedPurse: true }, 'PATCH'), campaignContext)).status, 403);
+}
+routeRole = 'player';
+assert.equal((await coinRoute.POST(req({ campaignId: 'campaign', deltaCp: 100 }))).status, 403);
+assert.equal(campaignCalls.length, 0);
+routeUser = 'gm'; routeRole = 'dm';
+for (const body of [{ sharedPurse: 'yes' }, { sharedPurse: true, extra: 1 }, null, [], {}]) {
+  assert.equal((await campaignRoute.PATCH(req(body, 'PATCH'), campaignContext)).status, 400);
+}
+assert.equal(campaignCalls.length, 0);
+const enabled = await campaignRoute.PATCH(req({ sharedPurse: true }, 'PATCH'), campaignContext);
+assert.equal(enabled.status, 200);
+assert.equal(enabled.body.sharedPurse, true);
+assert.equal(JSON.stringify(campaignCalls[0]), JSON.stringify({
+  where: { id: 'campaign' }, data: { sharedPurse: true }, select: { sharedPurse: true },
+}));
+const disabled = await campaignRoute.PATCH(req({ sharedPurse: false }, 'PATCH'), campaignContext);
+assert.equal(disabled.status, 200);
+assert.equal(disabled.body.sharedPurse, false);
+assert.equal((await coinRoute.POST(req({ campaignId: 'campaign', deltaCp: 100 }))).status, 200);
+assert.equal(routePublished.length, 3);
+assert.ok(routePublished.every(([id, topic]) => id === 'campaign' && topic === 'battle'));
+console.log('Shared purse PATCH validation, DM authorization, and coin POST authorization tests passed.');

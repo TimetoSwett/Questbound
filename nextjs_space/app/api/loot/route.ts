@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   if (!role) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
 
   const [campaign, items, characters] = await Promise.all([
-    prisma.campaign.findUnique({ where: { id: campaignId }, select: { partyCp: true } }),
+    prisma.campaign.findUnique({ where: { id: campaignId }, select: { partyCp: true, sharedPurse: true } }),
     prisma.inventoryItem.findMany({
       where: { campaignId },
       include: { character: { select: { id: true, name: true, userId: true } } },
@@ -35,6 +35,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     partyCp: campaign.partyCp,
+    sharedPurse: campaign.sharedPurse,
     items,
     characters,
     role,

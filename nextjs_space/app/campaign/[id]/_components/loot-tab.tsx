@@ -29,6 +29,7 @@ interface LootItem {
 
 interface LootData {
   partyCp: number;
+  sharedPurse: boolean;
   items: LootItem[];
   characters: LootCharacter[];
   role: string;
@@ -89,7 +90,7 @@ export function LootTab({ campaignId, role, userId }: { campaignId: string; role
         </h2>
       </FadeIn>
 
-      <CoinsCard partyCp={data.partyCp} campaignId={campaignId} isDM={isDM} onChange={load} />
+      <CoinsCard sharedPurse={data.sharedPurse} partyCp={data.partyCp} campaignId={campaignId} isDM={isDM} onChange={load} />
 
       <div className="mt-8">
         <div className="flex items-center justify-between mb-3">
@@ -152,7 +153,7 @@ function GroupTotals({ value, weight }: { value: number; weight: number }) {
   );
 }
 
-function CoinsCard({ partyCp, campaignId, isDM, onChange }: { partyCp: number; campaignId: string; isDM: boolean; onChange: () => void }) {
+function CoinsCard({ partyCp, sharedPurse, campaignId, isDM, onChange }: { sharedPurse: boolean; partyCp: number; campaignId: string; isDM: boolean; onChange: () => void }) {
   const { pp, gp, sp, cp } = breakdownCoins(partyCp);
   const [adj, setAdj] = useState({ pp: '', gp: '', sp: '', cp: '' });
   const [busy, setBusy] = useState(false);
@@ -184,7 +185,36 @@ function CoinsCard({ partyCp, campaignId, isDM, onChange }: { partyCp: number; c
   };
 
   return (
-    <div className="bg-card rounded-lg border border-border p-5" style={{ boxShadow: 'var(--shadow-sm)' }}>
+    <div className={`bg-card rounded-lg border border-border p-5 ${sharedPurse ? '' : 'opacity-60'}`} style={{ boxShadow: 'var(--shadow-sm)' }}>
+      <div className="mb-3 text-sm">
+        {isDM ? (
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={sharedPurse} disabled={busy} onChange={async e => {
+              const enabled = e.target.checked;
+              setBusy(true);
+              try {
+                const res = await fetch(`/api/campaigns/${campaignId}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ sharedPurse: enabled }),
+                });
+                if (!res.ok) throw new Error('Could not update shared purse');
+                onChange();
+              } catch {
+                toast.error('Could not update shared purse');
+              } finally {
+                setBusy(false);
+              }
+            }} />
+            Shared party purse
+          </label>
+        ) : <p>Shared party purse: {sharedPurse ? 'On' : 'Off'}</p>}
+        <p className="mt-2 text-xs text-muted-foreground">
+          {sharedPurse
+            ? "Gold and platinum are shared by the party; silver and copper stay on each character's sheet."
+            : 'Inactive — each character tracks their own coins'}
+        </p>
+      </div>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
         <Coin label="pp" value={pp} />
         <Coin label="gp" value={gp} />
@@ -192,7 +222,7 @@ function CoinsCard({ partyCp, campaignId, isDM, onChange }: { partyCp: number; c
         <Coin label="cp" value={cp} />
         <span className="text-xs text-muted-foreground font-mono ml-auto">{partyCp.toLocaleString()} cp total</span>
       </div>
-      {isDM && (
+      {isDM && sharedPurse && (
         <div className="flex flex-wrap items-end gap-2 mt-4 pt-4 border-t border-border">
           {(['pp', 'gp', 'sp', 'cp'] as const).map((k) => (
             <label key={k} className="flex flex-col gap-1">

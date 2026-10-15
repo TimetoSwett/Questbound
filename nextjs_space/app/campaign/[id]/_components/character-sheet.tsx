@@ -25,7 +25,7 @@ import { BackstoryTab } from './backstory-tab';
 import { sheetAdjustment, maneuverSize } from '@/lib/conditions';
 import { STACK_LABELS, bonusLabel, equipmentEffects, manualBonusAfterChange, weaponTotals, type AbilityName, type ItemBonus, type SheetOptions } from '@/lib/equipment';
 import { carryLimits, loadBracket } from '@/lib/carry';
-import { formatCoins } from '@/lib/coins';
+import { CoinsBox, useSharedPurse } from './coins-box';
 import { AddSpellToLibraryDialog } from './add-spell-dialog';
 import { AddSpellSearchDialog } from './add-spell-search-dialog';
 import { CatalogSearchDialog } from '@/components/library/catalog-search-dialog';
@@ -190,6 +190,7 @@ function CollapsibleSection({ sectionKey, title, actions, children, openSections
 
 export function CharacterSheet({ characterId, editable, initialSection }: { characterId: string; editable: boolean; initialSection?: string }) {
   const [data, setData] = useState<any>(null);
+  const purse = useSharedPurse(data?.campaignId);
   const [saving, setSaving] = useState(false);
   // Old tab ids (core, combat, feats, skills, spells, notes) map to the merged tabs.
   // Keep the state type as string so old tab ids can be resolved at runtime.
@@ -413,10 +414,6 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
   }, [data]);
 
   const abilityList = Array.isArray(data?.spells?.abilities) ? data.spells.abilities : [];
-  const safeCoinInt = (value: unknown) => {
-    const number = Number(value);
-    return Number.isFinite(number) && number >= 0 ? Math.trunc(number) : 0;
-  };
   const spellClasses = (data?.classes ?? []).map((cls: ClassEntry) => cls.name);
   const castingAbility = castingAbilityFor(spellClasses);
   const castingMod = stats && castingAbility ? stats[`${castingAbility}Mod`] : null;
@@ -773,35 +770,11 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
               )}
             </div>
           </div>
-          {/* Personal coins */}
-          <div className="flex flex-wrap items-center gap-2 mb-3 p-3 bg-muted/50 rounded-lg border border-border">
-            <span className="text-xs font-semibold text-muted-foreground mr-1">Coins</span>
-            {(['pp', 'gp', 'sp', 'cp'] as const).map((k) => (
-              <label key={k} className="flex items-center gap-1 text-xs text-muted-foreground">
-                <span className="font-mono">{k}</span>
-                <Input
-                  type="number" min="0" step="1"
-                  value={safeCoinInt(data?.spells?.coins?.[k])}
-                  disabled={!editable}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                    const v = safeCoinInt(e.target.value);
-                    const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-                    spells.coins = { pp: 0, gp: 0, sp: 0, cp: 0, ...(spells.coins ?? {}), [k]: v };
-                    update('spells', spells);
-                    autoSave();
-                  }}
-                  className="w-20 h-7 text-xs text-center font-mono"
-                />
-              </label>
-            ))}
-            <span className="text-xs text-muted-foreground font-mono ml-auto">
-              Total: {(() => {
-                const c = data?.spells?.coins ?? { pp: 0, gp: 0, sp: 0, cp: 0 };
-                const totalCp = safeCoinInt(c.pp) * 1000 + safeCoinInt(c.gp) * 100 + safeCoinInt(c.sp) * 10 + safeCoinInt(c.cp);
-                return formatCoins(totalCp);
-              })()}
-            </span>
-          </div>
+          <CoinsBox purse={purse} coins={data.spells?.coins} editable={editable}
+            onChange={coins => {
+              update('spells', { ...(data.spells ?? { slots: {}, known: [] }), coins });
+              autoSave();
+            }} />
           {(data?.equipment ?? []).length === 0 ? (
             <p className="text-xs text-muted-foreground py-4 text-center">No items</p>
           ) : (

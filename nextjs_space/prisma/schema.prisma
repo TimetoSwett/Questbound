@@ -84,6 +84,7 @@ model Campaign {
   diceRolls             DiceRoll[]
   towns                 Town[]
   partyCp               Int                  @default(0) // party coin total in copper (1 gp = 100 cp)
+  sharedPurse           Boolean              @default(false) // DM-only: when true, gp/pp come from partyCp; sp/cp stay per character
   inventoryItems        InventoryItem[]
   lootTables            LootTable[]
 }
