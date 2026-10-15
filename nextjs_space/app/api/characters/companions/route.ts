@@ -12,6 +12,8 @@ import {
 const updateSelect = { id: true, name: true, companionType: true, ownerCharacterId: true, campaignId: true } as const;
 const accessFields = { id: true, userId: true, campaignId: true, ownerCharacterId: true } as const;
 
+const SAME_PLAYER_ERROR = 'A companion must belong to the same player as its owner';
+
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
 // An integrity rule failed inside a transaction; carries the response to send.
@@ -151,6 +153,7 @@ export async function PUT(request: Request) {
     const owner = await prisma.character.findUnique({ where: { id: ownerId }, select: accessFields });
     if (!owner) return NextResponse.json({ error: 'Owner not found' }, { status: 404 });
     if (!canEditCharacter || !(await canAccessCharacterById(prisma, userId, owner))) return forbidden();
+    if (owner.userId !== character.userId) return NextResponse.json({ error: SAME_PLAYER_ERROR }, { status: 400 });
     // Integrity checks and the write run in one transaction with both rows locked, so two
     // concurrent links (A->B and B->A) can't both pass their checks and form a loop.
     try {
@@ -165,6 +168,8 @@ export async function PUT(request: Request) {
         if (lockedOwner.campaignId !== lockedChar.campaignId) {
           throw new Rejection(400, 'Owner and companion must be in the same campaign');
         }
+        // Re-checked under the lock in case either sheet changed hands since the pre-check.
+        if (lockedOwner.userId !== lockedChar.userId) throw new Rejection(400, SAME_PLAYER_ERROR);
         // One level only: the owner must not be a companion, the companion must own none.
         if (lockedOwner.ownerCharacterId) throw new Rejection(400, COMPANION_ERRORS.ownerIsCompanion);
         if (await tx.character.count({ where: { ownerCharacterId: characterId } })) {

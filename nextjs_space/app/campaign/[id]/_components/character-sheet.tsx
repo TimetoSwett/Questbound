@@ -441,7 +441,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
   return (
     <div className="space-y-4">
       <CompanionSwitcher characterId={characterId} />
-      <CompanionPanel characterId={characterId} campaignId={data?.campaignId ?? null} editable={editable} />
+      <CompanionPanel characterId={characterId} campaignId={data?.campaignId ?? null} ownerUserId={data?.userId ?? null} editable={editable} />
       {/* Section tabs */}
       <div className="flex flex-wrap gap-1 bg-card/50 p-1 rounded-lg">
         {sections.map((s) => (

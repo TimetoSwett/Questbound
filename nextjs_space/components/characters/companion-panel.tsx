@@ -8,10 +8,10 @@ import { Input } from '@/components/ui/input';
 import { COMPANIONS_CHANGED_EVENT, useCompanionNav } from './companion-nav';
 import { useCompanions } from './use-companions';
 
-interface Candidate { id: string; name: string; campaignId: string | null; isAssigned?: boolean; ownerCharacterId?: string | null }
+interface Candidate { id: string; name: string; campaignId: string | null; userId?: string; isAssigned?: boolean; ownerCharacterId?: string | null }
 
 // Companions of this sheet: open, create, link an existing character, unlink.
-export function CompanionPanel({ characterId, campaignId, editable }: { characterId: string; campaignId: string | null; editable: boolean }) {
+export function CompanionPanel({ characterId, campaignId, ownerUserId, editable }: { characterId: string; campaignId: string | null; ownerUserId?: string | null; editable: boolean }) {
   const nav = useCompanionNav();
   const { data } = useCompanions(characterId);
   const [open, setOpen] = useState(false);
@@ -47,13 +47,14 @@ export function CompanionPanel({ characterId, campaignId, editable }: { characte
     }
   };
 
-  // Characters the user can edit in the same campaign (the list endpoints only return those), not already owned.
+  // Characters the user can edit in the same campaign (the list endpoints only return those), not already owned,
+  // and belonging to the same player as this sheet (the server enforces the same rule).
   const startLink = async () => {
     setMode('link');
     const res = await fetch(campaignId ? `/api/characters?campaignId=${campaignId}` : '/api/characters');
     const rows: Candidate[] = res.ok ? await res.json() : [];
     const hasCompanions = new Set(rows.flatMap((c) => (c.ownerCharacterId ? [c.ownerCharacterId] : [])));
-    setCandidates(rows.filter((c) => c.id !== characterId && !c.ownerCharacterId && !hasCompanions.has(c.id) && (campaignId ? c.campaignId === campaignId : !c.isAssigned)));
+    setCandidates(rows.filter((c) => c.id !== characterId && c.userId === ownerUserId && !c.ownerCharacterId && !hasCompanions.has(c.id) && (campaignId ? c.campaignId === campaignId : !c.isAssigned)));
   };
   const link = async (id: string) => {
     if (await send('PUT', { characterId: id, ownerId: characterId, companionType: type.trim() || undefined }, 'Companion linked')) { setMode(null); setType(''); }

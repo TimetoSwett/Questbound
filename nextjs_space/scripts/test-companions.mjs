@@ -202,7 +202,13 @@ try {
   r = await put(p1, { characterId: N.id, ownerId: A.id }); assert.equal(r.status, 400, 'cross-campaign'); assert.match(r.json.error, /same campaign/);
   r = await put(p1, { characterId: V.id, ownerId: A.id }); assert.equal(r.status, 400, 'vault sheet into campaign owner');
   r = await put(p1, { characterId: compA.id, ownerId: L2.id }); assert.equal(r.status, 409, 'already a companion elsewhere');
-  r = await put(dm, { characterId: M.id, ownerId: A.id }); assert.equal(r.status, 200, 'DM can edit both');
+  // same-player rule: applies to DMs too, and leaves the DB untouched
+  r = await put(dm, { characterId: M.id, ownerId: A.id }); assert.equal(r.status, 400, 'DM cannot link player B\'s sheet under player A\'s character');
+  assert.equal(r.json.error, 'A companion must belong to the same player as its owner');
+  assert.equal((await prisma.character.findUnique({ where: { id: M.id } })).ownerCharacterId, null, 'no DB change');
+  const M2 = await mk('M2', p1, camp1), M3 = await mk('M3', p1, camp1);
+  r = await put(dm, { characterId: M2.id, ownerId: A.id }); assert.equal(r.status, 200, 'DM can link same-player sheets');
+  r = await put(p1, { characterId: M3.id, ownerId: A.id }); assert.equal(r.status, 200, 'player links own sheets');
   r = await put(p1, { characterId: 'missing', ownerId: A.id }); assert.equal(r.status, 404);
   r = await put(p1, { characterId: L2.id, ownerId: 'missing' }); assert.equal(r.status, 404);
   r = await put(p1, { characterId: L2.id }); assert.equal(r.status, 400);
@@ -248,7 +254,7 @@ try {
   const dr = async (u, id) => { sessionUser = u.id; return chars.DELETE(new Request(`http://t/api/characters?id=${id}`, { method: 'DELETE' })); };
   assert.equal((await dr(p1, A.id)).status, 200);
   assert.equal(await prisma.character.findUnique({ where: { id: A.id } }), null);
-  for (const id of [L.id, M.id, OW.id, created[0]]) {
+  for (const id of [L.id, M2.id, M3.id, OW.id, created[0]]) {
     const c = await prisma.character.findUnique({ where: { id } });
     assert.ok(c, 'companion survives'); assert.equal(c.ownerCharacterId, null);
   }
