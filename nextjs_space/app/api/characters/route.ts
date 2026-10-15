@@ -5,7 +5,7 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
 import { equippedSchema } from '@/lib/equipment-validation';
-import { equipmentEffects, manualBonusAfterChange, type Equipped } from '@/lib/equipment';
+import { ABILITIES, equipmentEffects, manualBonusAfterChange, type Equipped } from '@/lib/equipment';
 import { libraryIdsIn, stripMissingLibraryIds } from '@/lib/library';
 import { removeCharacterTokens } from '@/lib/battle-map';
 
@@ -143,6 +143,17 @@ export async function PUT(request: Request) {
   );
 
   if (Object.prototype.hasOwnProperty.call(data, 'equipped')) {
+    // Normalize the optional flags without making legacy saves fail validation.
+    const rawEquipped = data.equipped;
+    if (rawEquipped && typeof rawEquipped === 'object' && !Array.isArray(rawEquipped)) {
+      const rawSheet = (rawEquipped as Record<string, unknown>).sheet;
+      if (rawSheet && typeof rawSheet === 'object' && !Array.isArray(rawSheet) && Object.prototype.hasOwnProperty.call(rawSheet, 'noScore')) {
+        const options = rawSheet as Record<string, unknown>;
+        options.noScore = Array.isArray(options.noScore)
+          ? [...new Set(options.noScore.filter((ability): ability is typeof ABILITIES[number] => ABILITIES.some(key => key === ability)))].slice(0, 6)
+          : [];
+      }
+    }
     const result = equippedSchema.safeParse(data.equipped);
     if (!result.success) return NextResponse.json({ error: 'Invalid equipped equipment', details: result.error.flatten() }, { status: 400 });
     const equipped = result.data;

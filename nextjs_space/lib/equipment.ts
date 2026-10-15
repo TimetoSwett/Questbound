@@ -104,6 +104,7 @@ export interface CharacterBuff {
 }
 
 export interface SheetOptions {
+  noScore?: AbilityName[];
   dodge?: number;
   naturalEnhancement?: number;
   initAbilities?: AbilityName[];

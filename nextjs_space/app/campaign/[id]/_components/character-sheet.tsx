@@ -16,6 +16,7 @@ import { EntryCard, sheetCardGridClass } from './entry-card';
 import { castingAbilityFor, spellDc } from '@/lib/spell-dc';
 import { newSpellClientId } from '@/lib/spell-client-id';
 import { EquipmentEditor, BonusEditor } from './equipment-editor';
+import { AbilityScoreCell } from './ability-score-cell';
 import { SheetEffects } from './sheet-effects';
 import { sheetAdjustment, maneuverSize } from '@/lib/conditions';
 import { STACK_LABELS, bonusLabel, equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange, weaponTotals, type AbilityName, type ItemBonus, type SheetOptions } from '@/lib/equipment';
@@ -358,12 +359,13 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
     const adjust = sheetAdjustment({ equipped: data.equipped, feats: data.feats });
     const sheet = data.equipped?.sheet ?? {};
     const score = (ability: 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha') => (parseInt(data?.[ability]) || 0) + adjust.ability[ability];
-    const strMod = abilityMod(score('str'));
-    const dexMod = abilityMod(score('dex'));
-    const conMod = abilityMod(score('con'));
-    const intMod = abilityMod(score('int'));
-    const wisMod = abilityMod(score('wis'));
-    const chaMod = abilityMod(score('cha'));
+    const mod = (ability: AbilityName) => sheet.noScore?.includes(ability) ? 0 : abilityMod(score(ability));
+    const strMod = mod('str');
+    const dexMod = mod('dex');
+    const conMod = mod('con');
+    const intMod = mod('int');
+    const wisMod = mod('wis');
+    const chaMod = mod('cha');
     const mods = { str: strMod, dex: dexMod, con: conMod, int: intMod, wis: wisMod, cha: chaMod };
     const bab = s('bab');
     const sizeMod = s('sizeMod');
@@ -532,10 +534,12 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                 const mod = { str: stats?.strMod, dex: stats?.dexMod, con: stats?.conMod, int: stats?.intMod, wis: stats?.wisMod, cha: stats?.chaMod }[ab] ?? 0;
                 return (
                   <div key={ab} className="text-center">
-                    <Label className="text-xs font-mono text-primary uppercase">{ab}</Label>
-                    <Input type="number" value={data?.[ab] ?? 10} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { update(ab, e.target.value); autoSave(); }} disabled={!editable} className="mt-0.5 h-10 text-center font-mono text-lg" />
-                    <div className={`text-sm font-mono mt-1 ${mod >= 0 ? 'text-green-700' : 'text-red-600'}`}>{formatMod(mod)}</div>
-                    {gear !== 0 && <div className="text-[10px] text-muted-foreground">{formatMod(gear)} included</div>}
+                    <AbilityScoreCell ability={ab} score={data?.[ab] ?? 10} modifier={mod} gear={gear}
+                      noScore={data.equipped?.sheet?.noScore?.includes(ab) ?? false} editable={editable}
+                      onScoreChange={value => { update(ab, value); autoSave(); }}
+                      onNoScoreChange={absent => patchSheet({ noScore: absent
+                        ? [...new Set<AbilityName>([...(data.equipped?.sheet?.noScore ?? []), ab])]
+                        : (data.equipped?.sheet?.noScore ?? []).filter((ability: AbilityName) => ability !== ab) })} />
                     <button type="button" className="text-[10px] text-primary underline" onClick={() => setOpenAbility(openAbility === ab ? null : ab)}>{openAbility === ab ? 'Hide' : 'Breakdown'}</button>
                   </div>
                 );
@@ -546,7 +550,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                 <p className="font-medium uppercase">{openAbility}</p>
                 <p>Base {parseInt(data?.[openAbility]) || 0}</p>
                 {(stats?.itemBonuses.abilityParts[openAbility] ?? []).map(part => <p key={part.stack}>{STACK_LABELS[part.stack]} {formatMod(part.amount)}</p>)}
-                <p className="font-medium">Score {(parseInt(data?.[openAbility]) || 0) + (stats?.itemBonuses.ability[openAbility] ?? 0)} · modifier {formatMod(stats?.mods?.[openAbility] ?? 0)}</p>
+                <p className="font-medium">Score {data.equipped?.sheet?.noScore?.includes(openAbility) ? 'N/A' : (parseInt(data?.[openAbility]) || 0) + (stats?.itemBonuses.ability[openAbility] ?? 0)} · modifier {data.equipped?.sheet?.noScore?.includes(openAbility) ? 'N/A (treated as +0)' : formatMod(stats?.mods?.[openAbility] ?? 0)}</p>
               </div>
             )}
           </div>

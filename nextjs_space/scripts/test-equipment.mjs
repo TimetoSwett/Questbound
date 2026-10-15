@@ -96,6 +96,9 @@ assert.equal(conditions.resolveToggles(['reduce']).sizeCmb, -1);
 const belt = conditions.sheetAdjustment({ equipped: { conditions: ['rage'], slots: { belt: { name: 'Belt', bonuses: [{ kind: 'ability', ability: 'str', amount: 4, stack: 'enhancement' }, { kind: 'ability', ability: 'str', amount: 2, stack: 'enhancement' }] } } } });
 assert.equal(belt.ability.str, 8);
 assert.equal(validation.equippedSchema.safeParse({ sheet: { dodge: 1, naturalEnhancement: 2, initAbilities: ['int'], dr: [{ amount: 5, bypass: 'magic' }], resist: [{ energy: 'Fire', amount: 10 }] }, weapons: [{ ...weapon, extraAbilities: ['int'] }] }).success, true);
+assert.equal(validation.equippedSchema.safeParse({ sheet: { noScore: ['con', 'int'] } }).success, true);
+assert.equal(validation.equippedSchema.safeParse({ sheet: { noScore: ['invalid'] } }).success, false);
+assert.equal(validation.equippedSchema.safeParse({ sheet: { noScore: Array(7).fill('con') } }).success, false);
 const carry = load('lib/carry.ts', {});
 assert.equal(carry.carryLimits(10, 'Medium').light, 33);
 assert.equal(carry.carryLimits(10, 'Medium').heavy, 100);
@@ -153,4 +156,14 @@ assert.equal(res.status, 200);
 assert.equal('libraryEntryId' in body.equipped.armor, false);
 assert.equal(body.equipped.armor.name, armor.name);
 assert.equal(body.equipped.armor.sourceUrl, 'https://www.aonprd.com/EquipmentArmorDisplay.aspx?ItemName=Mail');
+for (const noScore of [['con', 'con', 'int', 'bad', ...equipment.ABILITIES], 'bad', null]) {
+  res = await put({ sheet: { noScore } });
+  assert.equal(res.status, 200);
+  const flags = (await res.json()).equipped.sheet.noScore;
+  assert.ok(flags.length <= 6);
+  assert.equal(new Set(flags).size, flags.length);
+  assert.ok(flags.every(ability => equipment.ABILITIES.includes(ability)));
+  if (Array.isArray(noScore)) assert.equal(flags.join(','), 'con,int,str,dex,wis,cha');
+  else assert.equal(flags.length, 0);
+}
 console.log('Equipment math, validation, authorization, inventory scoping and save synchronization tests passed.');

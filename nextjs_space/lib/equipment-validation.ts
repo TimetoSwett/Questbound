@@ -47,6 +47,7 @@ const buff = z.object({
   sourceUrl: z.string().url().max(500).nullable().optional(),
 }).strict();
 const sheet = z.object({
+  noScore: z.array(z.enum(ABILITIES)).max(6).optional(),
   dodge: z.number().int().min(-100).max(100).optional(),
   naturalEnhancement: z.number().int().min(-100).max(100).optional(),
   initAbilities: z.array(z.enum(ABILITIES)).max(6).optional(),
