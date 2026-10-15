@@ -1152,7 +1152,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
 
           {detailTab === 'notes' && (
           <CollapsibleSection sectionKey="notes" title="Notes & Backstory" bare openSections={openSections} setOpenSections={setOpenSections}>
-          <TipTapEditor content={data?.notes ?? ''} onChange={(html: string) => { update('notes', html); autoSave(); }} editable={editable} placeholder="Write your character's backstory, notes, and other details..." />
+          <TipTapEditor content={data?.notes ?? ''} onChange={(html: string) => { update('notes', html); autoSave(); }} editable={editable} placeholder="Session notes, reminders, anything else..." />
           </CollapsibleSection>
           )}
           {detailTab === 'backstory' && (
