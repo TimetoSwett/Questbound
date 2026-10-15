@@ -190,3 +190,16 @@ assert.equal(capped[0].misc, 5);
 assert.equal(capped[0].specialty.length, 60);
 assert.equal(capped[0].ability, undefined);
 assert.equal(capped[0].extraAbility, undefined);
+
+const customSkills = skillsValidation.sanitizeSkills([
+  { id: 'custom-1', custom: true, name: ' Sailing ', ability: 'invalid', ranks: 999, misc: -999, classSkill: true },
+  { id: 'custom-2', custom: true, name: 'Navigation' },
+  { id: 'custom-3', custom: true, name: 'Athletics', ability: 'STR' },
+  { custom: true, name: '  ' },
+  { custom: true },
+]);
+assert.deepEqual(JSON.parse(JSON.stringify(customSkills)), [
+  { id: 'custom-1', custom: true, name: 'Sailing', ability: 'INT', ranks: 100, misc: -100, classSkill: true },
+  { id: 'custom-2', custom: true, name: 'Navigation', ability: 'INT', ranks: 0, misc: 0, classSkill: false },
+  { id: 'custom-3', custom: true, name: 'Athletics', ability: 'STR', ranks: 0, misc: 0, classSkill: false },
+]);

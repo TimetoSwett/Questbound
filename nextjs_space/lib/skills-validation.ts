@@ -24,6 +24,7 @@ export function sanitizeSkills(values: unknown[]): SkillEntry[] {
     if (!name) continue;
     const entry: SkillEntry = { name, ranks: integer(raw.ranks, 0, 100), misc: integer(raw.misc, -100, 100), classSkill: raw.classSkill === true };
     if (typeof raw.ability === 'string' && abilities.has(raw.ability)) entry.ability = raw.ability;
+    if (raw.custom === true && !entry.ability) entry.ability = 'INT';
     if (typeof raw.extraAbility === 'string' && (raw.extraAbility === '' || abilities.has(raw.extraAbility))) entry.extraAbility = raw.extraAbility;
     if (typeof raw.id === 'string') entry.id = raw.id.slice(0, 100);
     if (raw.base === 'Craft' || raw.base === 'Profession') entry.base = raw.base;
