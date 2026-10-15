@@ -111,6 +111,7 @@ let carried = [{ id: 'item', campaignId: 'campaign', characterId: 'character' }]
 const character = { id: 'character', campaignId: 'campaign', userId: 'owner', armorBonus: 3, shieldBonus: 4 };
 const library = load('lib/library.ts', { zod: require('zod') });
 const route = load('app/api/characters/route.ts', {
+  '@/lib/spells-extras': load('lib/spells-extras.ts'),
   'next/server': { NextResponse: { json: (body, options) => Response.json(body, options) } },
   '@/auth': { auth: async () => user ? { user: { id: user } } : null },
   '@/lib/campaign-helpers': { getUserRole: async () => role },
@@ -225,3 +226,72 @@ for (const senses of [null, [], 'bad', 10]) {
   assert.equal(response.status, 200);
   assert.equal((await response.json()).equipped.sheet.senses, undefined);
 }
+
+const { sanitizeSpellsExtras } = load('lib/spells-extras.ts');
+const extras = { coins: { gp: 12 }, psionics: { x: 1 }, known: [], slots: {} };
+const untouched = [extras.psionics, extras.known, extras.slots];
+sanitizeSpellsExtras(extras);
+assert.equal(JSON.stringify(extras.coins), JSON.stringify({ pp: 0, gp: 12, sp: 0, cp: 0 }));
+assert.equal(extras.psionics, untouched[0]);
+assert.equal(extras.known, untouched[1]);
+assert.equal(extras.slots, untouched[2]);
+for (const gp of [-1, 1.5, '2', 1e9 + 1, Infinity, NaN, null]) {
+  const spells = { coins: { gp } };
+  sanitizeSpellsExtras(spells);
+  assert.equal('coins' in spells, false);
+}
+for (const abilities of [null, {}, 'bad']) {
+  const spells = { abilities };
+  sanitizeSpellsExtras(spells);
+  assert.equal('abilities' in spells, false);
+}
+const abilityExtras = { abilities: Array.from({ length: 110 }, (_, i) => ({
+  ...(i === 2 ? {} : { id: 'duplicate' }), name: `  ${'x'.repeat(130)}  `,
+  source: 'bad', reset: 'bad', max: 3, used: 20, extra: true,
+})) };
+sanitizeSpellsExtras(abilityExtras);
+assert.equal(abilityExtras.abilities.length, 100);
+assert.equal(new Set(abilityExtras.abilities.map(a => a.id)).size, 100);
+assert.ok(abilityExtras.abilities.every(a => typeof a.id === 'string' && a.id.length > 0 && a.id.length <= 100));
+assert.equal(abilityExtras.abilities[0].name, 'x'.repeat(120));
+assert.equal(abilityExtras.abilities[0].source, 'class');
+assert.equal(abilityExtras.abilities[0].reset, 'day');
+assert.equal(abilityExtras.abilities[0].used, 3);
+assert.equal('extra' in abilityExtras.abilities[0], false);
+for (const coins of [null, [], 'bad', new Date()]) {
+  const spells = { coins };
+  sanitizeSpellsExtras(spells);
+  assert.equal('coins' in spells, false);
+}
+const boundedAbilities = { abilities: [null, [], 'bad', new Date(),
+  { id: 'valid', name: '  Feature  ', notes: 'n'.repeat(2100), source: 'item', reset: 'week', max: 1500.9, used: -2 },
+  { id: '', max: '5', used: '2' },
+  { id: 'x'.repeat(101), max: -3, used: 5 },
+  { max: NaN, used: Infinity },
+  { max: 3.9, used: 2.9 },
+] };
+sanitizeSpellsExtras(boundedAbilities);
+assert.equal(boundedAbilities.abilities.length, 5);
+const [bounded, defaults, negative, nonfinite, fractional] = boundedAbilities.abilities;
+assert.equal(bounded.id, 'valid');
+assert.equal(bounded.name, 'Feature');
+assert.equal(bounded.notes.length, 2000);
+assert.equal(bounded.source, 'item');
+assert.equal(bounded.reset, 'week');
+assert.equal(bounded.max, 1000);
+assert.equal(bounded.used, 0);
+assert.equal(defaults.max, 1);
+assert.equal(defaults.used, 0);
+assert.equal(negative.max, 0);
+assert.equal(negative.used, 0);
+assert.ok(negative.id.length <= 100);
+assert.equal(nonfinite.max, 1);
+assert.equal(nonfinite.used, 0);
+assert.equal(fractional.max, 3);
+assert.equal(fractional.used, 2);
+console.log('Spells extras tests passed');
+const oversizedSpells = await route.PUT(new Request('https://test/api', {
+  method: 'PUT', body: JSON.stringify({ id: 'character', spells: { notes: 'é'.repeat(2 * 1024 * 1024) } }),
+}));
+assert.equal(oversizedSpells.status, 413);
+assert.equal((await oversizedSpells.json()).error, 'Spells exceed the 4 MiB size limit');

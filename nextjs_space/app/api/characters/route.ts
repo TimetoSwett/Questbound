@@ -5,6 +5,7 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
 import { sanitizeSkills } from '@/lib/skills-validation';
+import { sanitizeSpellsExtras } from '@/lib/spells-extras';
 import { equippedSchema } from '@/lib/equipment-validation';
 import { ABILITIES, equipmentEffects, manualBonusAfterChange, type Equipped } from '@/lib/equipment';
 import { libraryIdsIn, stripMissingLibraryIds } from '@/lib/library';
@@ -97,6 +98,9 @@ export async function PUT(request: Request) {
   const body = await request.json();
   if (Object.prototype.hasOwnProperty.call(body, 'equipped') && Buffer.byteLength(JSON.stringify(body.equipped)) > 64 * 1024) {
     return NextResponse.json({ error: 'Equipped equipment exceeds the 64 KiB size limit' }, { status: 413 });
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'spells') && Buffer.byteLength(JSON.stringify(body.spells)) > 4 * 1024 * 1024) {
+    return NextResponse.json({ error: 'Spells exceed the 4 MiB size limit' }, { status: 413 });
   }
   const { id } = body;
   if (!id) return NextResponse.json({ error: 'Character id required' }, { status: 400 });
@@ -245,6 +249,7 @@ export async function PUT(request: Request) {
     try { data.spells = JSON.parse(data.spells); } catch { /* unparseable: stored as before, no ids to honour */ }
   }
   if (data.spells !== undefined && data.spells !== null && typeof data.spells === 'object') {
+    sanitizeSpellsExtras(data.spells as Record<string, unknown>);
     const known = (data.spells as { known?: unknown })?.known;
     if (Array.isArray(known)) {
       const ids = [...new Set(

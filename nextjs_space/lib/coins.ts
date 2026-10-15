@@ -1,5 +1,5 @@
 // Coin display helpers for the Loot tab and loot toasts.
-// Coins are stored as copper (Campaign.partyCp); display breaks out
+// Coins are stored as copper (Campaign.partyCp); display intentionally breaks out
 // platinum (1 pp = 10 gp = 1000 cp).
 export function breakdownCoins(cp: number): { pp: number; gp: number; sp: number; cp: number } {
   const pp = Math.floor(cp / 1000);

@@ -14,6 +14,7 @@ import { levelForCharacter } from '@/components/library/spell-picker';
 import { SpellCard, type SpellEntry } from './spell-card';
 import { EntryCard, sheetCardGridClass } from './entry-card';
 import { castingAbilityFor, spellDc } from '@/lib/spell-dc';
+import { newAbilityId } from '@/lib/spells-extras';
 import { newSpellClientId } from '@/lib/spell-client-id';
 import { EquipmentEditor, BonusEditor } from './equipment-editor';
 import { AbilityScoreCell } from './ability-score-cell';
@@ -244,6 +245,17 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             clientIds.add(clientId);
             return { ...spell, clientId };
           });
+          const abilityIds = new Set<string>();
+          parsed.spells.abilities = (Array.isArray(parsed.spells.abilities) ? parsed.spells.abilities : [])
+            .filter((ability: any) => ability && typeof ability === 'object' && !Array.isArray(ability))
+            .map((ability: any) => {
+              let id = ability.id;
+              if (typeof id !== 'string' || !id.length || id.length > 100 || abilityIds.has(id)) {
+                do { id = newAbilityId(); } while (abilityIds.has(id));
+              }
+              abilityIds.add(id);
+              return { ...ability, id };
+            });
           setData(parsed);
           // Load portrait
           if (ch?.portraitPath) {
@@ -398,6 +410,11 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
     return { effects, itemBonuses: adjust, mods, strMod, dexMod, conMod, intMod, wisMod, chaMod, ac, touchAC, flatAC, cmd, cmb, combatSize, init, fort, ref, will, dodge, naturalEnh };
   }, [data]);
 
+  const abilityList = Array.isArray(data?.spells?.abilities) ? data.spells.abilities : [];
+  const safeCoinInt = (value: unknown) => {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? Math.trunc(number) : 0;
+  };
   const spellClasses = (data?.classes ?? []).map((cls: ClassEntry) => cls.name);
   const castingAbility = castingAbilityFor(spellClasses);
   const castingMod = stats && castingAbility ? stats[`${castingAbility}Mod`] : null;
@@ -760,10 +777,10 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                 <span className="font-mono">{k}</span>
                 <Input
                   type="number" min="0" step="1"
-                  value={data?.spells?.coins?.[k] ?? 0}
+                  value={safeCoinInt(data?.spells?.coins?.[k])}
                   disabled={!editable}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                    const v = Math.max(0, parseInt(e.target.value) || 0);
+                    const v = safeCoinInt(e.target.value);
                     const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
                     spells.coins = { pp: 0, gp: 0, sp: 0, cp: 0, ...(spells.coins ?? {}), [k]: v };
                     update('spells', spells);
@@ -776,7 +793,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             <span className="text-xs text-muted-foreground font-mono ml-auto">
               Total: {(() => {
                 const c = data?.spells?.coins ?? { pp: 0, gp: 0, sp: 0, cp: 0 };
-                const totalCp = (c.pp ?? 0) * 1000 + (c.gp ?? 0) * 100 + (c.sp ?? 0) * 10 + (c.cp ?? 0);
+                const totalCp = safeCoinInt(c.pp) * 1000 + safeCoinInt(c.gp) * 100 + safeCoinInt(c.sp) * 10 + safeCoinInt(c.cp);
                 return formatCoins(totalCp);
               })()}
             </span>
@@ -1070,41 +1087,48 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
               <>
                 <Button variant="ghost" size="sm" onClick={() => {
                   const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-                  const abilities = [...(spells.abilities ?? []), { name: '', source: 'class', max: 1, used: 0, reset: 'day', notes: '' }];
+                  const abilities = [...abilityList, { id: newAbilityId(), name: '', source: 'class', max: 1, used: 0, reset: 'day', notes: '' }];
                   update('spells', { ...spells, abilities });
                   autoSave();
                 }}>+ Add ability</Button>
                 <Button variant="ghost" size="sm" onClick={() => {
                   const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-                  const abilities = (spells.abilities ?? []).map((a: any) => a?.reset === 'day' ? { ...a, used: 0 } : a);
+                  const abilities = abilityList.map((a: any) => a?.reset === 'day' ? { ...a, used: 0 } : a);
                   update('spells', { ...spells, abilities });
                   autoSave();
                 }}>Reset daily uses</Button>
               </>
             )}
           </div>
-          {((data?.spells?.abilities ?? []) as any[]).length === 0 ? (
+          {abilityList.length === 0 ? (
             <p className="text-xs text-muted-foreground py-4 text-center">No limited-use abilities. Add class features, item powers, or spell-like abilities.</p>
           ) : (
             <div className={sheetCardGridClass}>
-              {((data?.spells?.abilities ?? []) as any[]).map((ability: any, i: number) => {
+              {abilityList.map((ability: any) => {
                 const patch = (partial: any) => {
                   const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-                  const abilities = [...(spells.abilities ?? [])];
+                  const abilities = [...abilityList];
+                  const i = abilities.findIndex((a: any) => a.id === ability.id);
+                  if (i < 0) return;
                   abilities[i] = { ...(abilities[i] ?? {}), ...partial };
                   update('spells', { ...spells, abilities });
                   autoSave();
                 };
-                const max = Math.max(0, ability?.max ?? 1);
-                const used = Math.min(max, Math.max(0, ability?.used ?? 0));
+                const rawMax = Number(ability?.max);
+                const rawUsed = Number(ability?.used);
+                const max = Number.isFinite(rawMax) ? Math.min(1000, Math.max(0, Math.trunc(rawMax))) : 1;
+                const used = Number.isFinite(rawUsed) ? Math.min(max, Math.max(0, Math.trunc(rawUsed))) : 0;
                 return (
-                  <div key={i} className="bg-muted/50 rounded-lg p-3 border border-border flex flex-col gap-2">
+                  <div key={ability.id} className="bg-muted/50 rounded-lg p-3 border border-border flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <Input value={ability?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ name: e.target.value })} disabled={!editable} className="h-7 text-xs font-semibold" placeholder="Ability name" />
                       {editable && (
                         <Button variant="ghost" size="icon-sm" aria-label={`Delete ${ability?.name || 'ability'}`} onClick={() => {
                           const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
-                          const abilities = (spells.abilities ?? []).filter((_: any, idx: number) => idx !== i);
+                          const abilities = [...abilityList];
+                          const i = abilities.findIndex((a: any) => a.id === ability.id);
+                          if (i < 0) return;
+                          abilities.splice(i, 1);
                           update('spells', { ...spells, abilities });
                           autoSave();
                         }}><Trash2 className="w-3 h-3 text-destructive" /></Button>
@@ -1133,11 +1157,11 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                       {editable && (
                         <>
                           <Button variant="ghost" size="icon-sm" className="h-5 w-5" aria-label={`Refund a use of ${ability?.name || 'ability'}`} onClick={() => patch({ used: Math.max(0, used - 1) })}>-</Button>
-                          <Button variant="ghost" size="icon-sm" className="h-5 w-5" aria-label={`Spend a use of ${ability?.name || 'ability'}`} disabled={max > 0 && used >= max} onClick={() => patch({ used: max > 0 ? Math.min(max, used + 1) : used + 1 })}>+</Button>
+                          <Button variant="ghost" size="icon-sm" className="h-5 w-5" aria-label={`Spend a use of ${ability?.name || 'ability'}`} disabled={used >= max} onClick={() => patch({ used: Math.min(max, used + 1) })}>+</Button>
                         </>
                       )}
                       <label className="ml-auto flex items-center gap-1 text-muted-foreground">
-                        <span>Per day</span>
+                        <span>{{ day: 'Per day', encounter: 'Per encounter', week: 'Per week', none: 'Total uses' }[ability?.reset as string] ?? 'Per day'}</span>
                         <Input type="number" min="0" value={max} disabled={!editable} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ max: Math.max(0, parseInt(e.target.value) || 0) })} className="w-16 h-6 text-xs text-center font-mono" />
                       </label>
                     </div>
