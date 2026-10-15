@@ -16,7 +16,8 @@
     "import:aon-spells": "tsx scripts/import-aon-spells.ts",
     "import:aon-rules": "tsx scripts/import-aon-spells.ts --kind rule",
     "test:aon": "tsx scripts/test-aon-spells.mjs",
-    "test:terms": "node scripts/test-term-match.mjs"
+    "test:terms": "node scripts/test-term-match.mjs",
+    "test:psionics": "node scripts/test-psionics.mjs"
   },
   "prisma": {
     "seed": "tsx --require dotenv/config scripts/safe-seed.ts"
