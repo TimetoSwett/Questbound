@@ -147,6 +147,14 @@ export async function PUT(request: Request) {
     const rawEquipped = data.equipped;
     if (rawEquipped && typeof rawEquipped === 'object' && !Array.isArray(rawEquipped)) {
       const rawSheet = (rawEquipped as Record<string, unknown>).sheet;
+      if (rawSheet && typeof rawSheet === 'object' && !Array.isArray(rawSheet)) {
+        const options = rawSheet as Record<string, unknown>;
+        if (typeof options.nonlethal === 'number' && !Number.isNaN(options.nonlethal)) {
+          options.nonlethal = Math.max(0, Math.min(10000, Math.trunc(options.nonlethal)));
+        } else {
+          delete options.nonlethal;
+        }
+      }
       if (rawSheet && typeof rawSheet === 'object' && !Array.isArray(rawSheet) && Object.prototype.hasOwnProperty.call(rawSheet, 'noScore')) {
         const options = rawSheet as Record<string, unknown>;
         options.noScore = Array.isArray(options.noScore)

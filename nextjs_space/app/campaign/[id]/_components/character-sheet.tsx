@@ -18,6 +18,7 @@ import { newSpellClientId } from '@/lib/spell-client-id';
 import { EquipmentEditor, BonusEditor } from './equipment-editor';
 import { AbilityScoreCell } from './ability-score-cell';
 import { SheetEffects } from './sheet-effects';
+import { NonlethalField } from './nonlethal-field';
 import { sheetAdjustment, maneuverSize } from '@/lib/conditions';
 import { STACK_LABELS, bonusLabel, equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange, weaponTotals, type AbilityName, type ItemBonus, type SheetOptions } from '@/lib/equipment';
 import { carryLimits, loadBracket } from '@/lib/carry';
@@ -562,6 +563,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
               <NumField label="Max HP" value={data?.hpMax ?? 0} onChange={(v: string) => { update('hpMax', v); autoSave(); }} disabled={!editable} />
               {(data?.equipped?.sheet?.favoredHp ?? 0) > 0 && <p className="text-[10px] text-muted-foreground text-center">Total max {(parseInt(data?.hpMax) || 0) + (data.equipped.sheet.favoredHp ?? 0)} with favored class</p>}
               <NumField label="Current HP" value={data?.hpCurrent ?? 0} onChange={(v: string) => { update('hpCurrent', v); autoSave(); }} disabled={!editable} />
+              <NonlethalField value={data?.equipped?.sheet?.nonlethal ?? 0} currentHp={(parseInt(data?.hpCurrent) || 0) + (parseInt(data?.hpTemp) || 0)} disabled={!editable} onChange={nonlethal => patchSheet({ nonlethal })} />
               <NumField label="Temp HP" value={data?.hpTemp ?? 0} onChange={(v: string) => { update('hpTemp', v); autoSave(); }} disabled={!editable} />
             </div>
             {data?.hpMax > 0 && (
