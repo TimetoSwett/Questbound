@@ -153,15 +153,15 @@ function GroupTotals({ value, weight }: { value: number; weight: number }) {
 }
 
 function CoinsCard({ partyCp, campaignId, isDM, onChange }: { partyCp: number; campaignId: string; isDM: boolean; onChange: () => void }) {
-  const { gp, sp, cp } = breakdownCoins(partyCp);
-  const [adj, setAdj] = useState({ gp: '', sp: '', cp: '' });
+  const { pp, gp, sp, cp } = breakdownCoins(partyCp);
+  const [adj, setAdj] = useState({ pp: '', gp: '', sp: '', cp: '' });
   const [busy, setBusy] = useState(false);
 
   const adjust = async (sign: 1 | -1) => {
     // Each field must be blank or a whole, non-negative number of coins.
-    const parts = (['gp', 'sp', 'cp'] as const).map((k) => adj[k].trim() === '' ? 0 : Number(adj[k]));
+    const parts = (['pp', 'gp', 'sp', 'cp'] as const).map((k) => adj[k].trim() === '' ? 0 : Number(adj[k]));
     if (parts.some((n) => !Number.isInteger(n) || n < 0)) { toast.error('Coin amounts must be whole, non-negative numbers'); return; }
-    const deltaCp = parts[0] * 100 + parts[1] * 10 + parts[2];
+    const deltaCp = parts[0] * 1000 + parts[1] * 100 + parts[2] * 10 + parts[3];
     if (deltaCp <= 0) { toast.error('Enter an amount first'); return; }
     setBusy(true);
     try {
@@ -172,7 +172,7 @@ function CoinsCard({ partyCp, campaignId, isDM, onChange }: { partyCp: number; c
       });
       if (res.ok) {
         toast.success(sign === 1 ? 'Coins added' : 'Coins removed');
-        setAdj({ gp: '', sp: '', cp: '' });
+        setAdj({ pp: '', gp: '', sp: '', cp: '' });
         onChange();
       } else {
         const d = await res.json().catch(() => null);
@@ -186,6 +186,7 @@ function CoinsCard({ partyCp, campaignId, isDM, onChange }: { partyCp: number; c
   return (
     <div className="bg-card rounded-lg border border-border p-5" style={{ boxShadow: 'var(--shadow-sm)' }}>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <Coin label="pp" value={pp} />
         <Coin label="gp" value={gp} />
         <Coin label="sp" value={sp} />
         <Coin label="cp" value={cp} />
@@ -193,7 +194,7 @@ function CoinsCard({ partyCp, campaignId, isDM, onChange }: { partyCp: number; c
       </div>
       {isDM && (
         <div className="flex flex-wrap items-end gap-2 mt-4 pt-4 border-t border-border">
-          {(['gp', 'sp', 'cp'] as const).map((k) => (
+          {(['pp', 'gp', 'sp', 'cp'] as const).map((k) => (
             <label key={k} className="flex flex-col gap-1">
               <span className="text-[11px] text-muted-foreground font-mono">{k}</span>
               <Input
