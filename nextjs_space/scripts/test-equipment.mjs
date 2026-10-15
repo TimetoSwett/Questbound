@@ -106,6 +106,7 @@ let user = 'owner', role = 'player', writes = 0;
 let carried = [{ id: 'item', campaignId: 'campaign', characterId: 'character' }];
 const character = { id: 'character', campaignId: 'campaign', userId: 'owner', armorBonus: 3, shieldBonus: 4 };
 const library = load('lib/library.ts', { zod: require('zod') });
+const companions = load('lib/companions.ts', { zod: require('zod') });
 const route = load('app/api/characters/route.ts', {
   'next/server': { NextResponse: { json: (body, options) => Response.json(body, options) } },
   '@/auth': { auth: async () => user ? { user: { id: user } } : null },
@@ -113,6 +114,7 @@ const route = load('app/api/characters/route.ts', {
   '@/lib/battle-map': { removeCharacterTokens: () => null },
   '@/lib/equipment-validation': validation,
   '@/lib/equipment': equipment,
+  '@/lib/companions': companions,
   '@/lib/library': { libraryIdsIn: library.libraryIdsIn, stripMissingLibraryIds: library.stripMissingLibraryIds },
   '@/lib/prisma': { prisma: {
     character: { findUnique: async () => character, update: async args => { writes++; return { ...character, ...args.data }; } },
