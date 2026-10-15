@@ -218,6 +218,19 @@ try {
   r = await put(p2, { characterId: L.id, companionType: 'hack' }); assert.equal(r.status, 403);
   console.log('ok   link / unlink / one-level / cross-campaign');
 
+  // concurrent opposite links must never form a loop (row locks + in-tx re-check)
+  for (let i = 0; i < 5; i++) {
+    const [X, Y] = await Promise.all(['x', 'y'].map((n) => prisma.character.create({ data: { name: `${tag} race${i}${n}`, userId: p1.id, campaignId: camp1.id } })));
+    const results = await Promise.all([put(p1, { characterId: X.id, ownerId: Y.id }), put(p1, { characterId: Y.id, ownerId: X.id })]);
+    const statuses = results.map((res) => res.status);
+    assert.ok(statuses.filter((s) => s === 200).length <= 1, `at most one link wins (got ${statuses})`);
+    assert.ok(statuses.every((s) => s === 200 || s === 400), `loser is rejected cleanly (got ${statuses})`);
+    const [x, y] = await Promise.all([X, Y].map((c) => prisma.character.findUnique({ where: { id: c.id } })));
+    assert.ok(!(x.ownerCharacterId === Y.id && y.ownerCharacterId === X.id), 'no loop');
+    assert.ok(!(x.ownerCharacterId && y.ownerCharacterId), 'one-level rule holds');
+  }
+  console.log('ok   concurrent link race');
+
   // generic update cannot touch the link
   const gput = (u, body) => { sessionUser = u.id; return chars.PUT(new Request('http://t/api/characters', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })); };
   let gr = await gput(p1, { id: L.id, name: `${tag} Renamed`, ownerCharacterId: B.id, companionType: 'hacked', owner: { connect: { id: B.id } } });
