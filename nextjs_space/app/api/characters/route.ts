@@ -12,6 +12,7 @@ import { ABILITIES, equipmentEffects, manualBonusAfterChange, type Equipped } fr
 import { libraryIdsIn, stripMissingLibraryIds } from '@/lib/library';
 import { removeCharacterTokens } from '@/lib/battle-map';
 import { sanitizeSpellsPsionics } from '@/lib/psionics';
+import { sanitizeSpellsPathOfWar } from '@/lib/path-of-war';
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -260,6 +261,8 @@ export async function PUT(request: Request) {
   }
   // Psionics lives under spells.psionics; clamp/validate it (other spells keys pass through).
   data.spells = sanitizeSpellsPsionics(data.spells);
+  // Path of War lives under spells.pathOfWar; clamp/validate it too.
+  data.spells = sanitizeSpellsPathOfWar(data.spells);
   if (data.spells !== undefined && data.spells !== null && typeof data.spells === 'object') {
     sanitizeSpellsExtras(data.spells as Record<string, unknown>);
     const known = (data.spells as { known?: unknown })?.known;
