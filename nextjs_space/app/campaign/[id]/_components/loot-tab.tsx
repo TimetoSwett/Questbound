@@ -185,7 +185,7 @@ function CoinsCard({ partyCp, sharedPurse, campaignId, isDM, onChange }: { share
   };
 
   return (
-    <div className={`bg-card rounded-lg border border-border p-5 ${sharedPurse ? '' : 'opacity-60'}`} style={{ boxShadow: 'var(--shadow-sm)' }}>
+    <div className="bg-card rounded-lg border border-border p-5" style={{ boxShadow: 'var(--shadow-sm)' }}>
       <div className="mb-3 text-sm">
         {isDM ? (
           <label className="flex items-center gap-2">
@@ -212,7 +212,7 @@ function CoinsCard({ partyCp, sharedPurse, campaignId, isDM, onChange }: { share
         <p className="mt-2 text-xs text-muted-foreground">
           {sharedPurse
             ? "Gold and platinum are shared by the party; silver and copper stay on each character's sheet."
-            : 'Inactive — each character tracks their own coins'}
+            : "Party loot pool, not shared to sheets. Each character tracks their own coins; the DM can still adjust this total and hand it out."}
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
@@ -222,7 +222,7 @@ function CoinsCard({ partyCp, sharedPurse, campaignId, isDM, onChange }: { share
         <Coin label="cp" value={cp} />
         <span className="text-xs text-muted-foreground font-mono ml-auto">{partyCp.toLocaleString()} cp total</span>
       </div>
-      {isDM && sharedPurse && (
+      {isDM && (
         <div className="flex flex-wrap items-end gap-2 mt-4 pt-4 border-t border-border">
           {(['pp', 'gp', 'sp', 'cp'] as const).map((k) => (
             <label key={k} className="flex flex-col gap-1">
