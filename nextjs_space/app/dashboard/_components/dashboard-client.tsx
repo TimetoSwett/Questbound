@@ -333,7 +333,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
                             <p className="text-xs text-muted-foreground mt-0.5">Created {ch.createdAt ? new Date(ch.createdAt).toLocaleDateString() : ''}</p>
                           </div>
                           <div className="text-right shrink-0 hidden sm:block">
-                            <p className="text-sm font-mono"><span className="text-green-700">{ch.hpCurrent ?? 0}</span>/{ch.hpMax ?? 0} HP</p>
+                            <p className="text-sm font-mono"><span className="text-success">{ch.hpCurrent ?? 0}</span>/{ch.hpMax ?? 0} HP</p>
                           </div>
                           {!ch.isAssigned && (
                             <Button variant="secondary" size="sm" onClick={() => setAttachChar(ch)} disabled={(campaigns?.length ?? 0) === 0} title={(campaigns?.length ?? 0) === 0 ? 'Join a campaign first' : 'Add to a campaign'}>

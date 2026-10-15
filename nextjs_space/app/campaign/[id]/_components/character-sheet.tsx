@@ -587,7 +587,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
 
           {/* HP */}
           <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-sm)' }}>
-            <h3 className="font-display font-semibold text-sm mb-3 flex items-center gap-1"><Heart className="w-4 h-4 text-red-400" /> Hit Points</h3>
+            <h3 className="font-display font-semibold text-sm mb-3 flex items-center gap-1"><Heart className="w-4 h-4 text-destructive" /> Hit Points</h3>
             <div className="grid grid-cols-3 gap-3">
               <NumField label="Max HP" value={data?.hpMax ?? 0} onChange={(v: string) => { update('hpMax', v); autoSave(); }} disabled={!editable} />
               {(data?.equipped?.sheet?.favoredHp ?? 0) > 0 && <p className="text-[10px] text-muted-foreground text-center">Total max {(parseInt(data?.hpMax) || 0) + (data.equipped.sheet.favoredHp ?? 0)} with favored class</p>}
@@ -597,7 +597,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             </div>
             {data?.hpMax > 0 && (
               <div className="mt-2 h-2 bg-muted rounded-full overflow-hidden">
-                <div className="h-full bg-green-500 transition-all" style={{ width: `${Math.min(100, Math.max(0, ((parseInt(data?.hpCurrent) || 0) / (parseInt(data?.hpMax) || 1)) * 100))}%` }} />
+                <div className="h-full bg-success transition-all" style={{ width: `${Math.min(100, Math.max(0, ((parseInt(data?.hpCurrent) || 0) / (parseInt(data?.hpMax) || 1)) * 100))}%` }} />
               </div>
             )}
           </div>

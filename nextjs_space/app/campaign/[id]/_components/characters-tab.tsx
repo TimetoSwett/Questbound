@@ -136,7 +136,7 @@ export function CharactersTab({ campaignId, role, userId, initialCharacterId }: 
                         {role === 'dm' && <p className="text-xs text-muted-foreground mt-0.5">Player: {ch.user?.displayName ?? 'Unknown'}</p>}
                       </div>
                       <div className="text-right shrink-0">
-                        <p className="text-sm font-mono"><span className="text-green-700">{ch.hpCurrent ?? 0}</span>/{ch.hpMax ?? 0} HP</p>
+                        <p className="text-sm font-mono"><span className="text-success">{ch.hpCurrent ?? 0}</span>/{ch.hpMax ?? 0} HP</p>
                       </div>
                       {(isOwner || role === 'dm') && (
                         <Button variant="ghost" size="icon-sm" onClick={(e: React.MouseEvent) => { e.stopPropagation(); deleteChar(ch.id, ch.name); }}>

@@ -124,7 +124,7 @@ export function PlayersTab({ campaignId }: { campaignId: string }) {
             </div>
             <div className="flex gap-2">
               <Button variant="ghost" size="sm" onClick={copyCode}>
-                {copied ? <Check className="w-4 h-4 text-green-700" /> : <Copy className="w-4 h-4" />}
+                {copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
               </Button>
               <Button variant="secondary" size="sm" onClick={regenCode}>
                 <RefreshCw className="w-4 h-4 mr-1" /> Regenerate

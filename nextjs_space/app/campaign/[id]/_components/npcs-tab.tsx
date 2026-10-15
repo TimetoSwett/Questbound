@@ -182,7 +182,7 @@ export function NpcsTab({ campaignId }: { campaignId: string }) {
                     </div>
                     {typeof c.hpMax === 'number' && (
                       <div className="text-right shrink-0 hidden sm:block">
-                        <p className="text-sm font-mono"><span className="text-green-700">{c.hpCurrent ?? 0}</span>/{c.hpMax ?? 0} HP</p>
+                        <p className="text-sm font-mono"><span className="text-success">{c.hpCurrent ?? 0}</span>/{c.hpMax ?? 0} HP</p>
                       </div>
                     )}
                     <Button

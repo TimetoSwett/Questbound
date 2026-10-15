@@ -24,7 +24,7 @@ export function AbilityScoreCell({ ability, score, modifier, gear, noScore, edit
     <Input id={id} type={noScore ? 'text' : 'number'} value={noScore ? 'N/A' : score}
       onChange={event => onScoreChange(event.target.value)} disabled={!editable || noScore}
       className="mt-0.5 h-10 text-center font-mono text-lg" />
-    <div className={`text-sm font-mono mt-1 ${noScore ? 'text-muted-foreground' : modifier >= 0 ? 'text-green-700' : 'text-red-600'}`}>{noScore ? 'N/A' : formatMod(modifier)}</div>
+    <div className={`text-sm font-mono mt-1 ${noScore ? 'text-muted-foreground' : modifier >= 0 ? 'text-success' : 'text-destructive'}`}>{noScore ? 'N/A' : formatMod(modifier)}</div>
     {!noScore && gear !== 0 && <div className="text-[10px] text-muted-foreground">{formatMod(gear)} included</div>}
     <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-[10px]" disabled={!editable}
       aria-label={`${ability.toUpperCase()} no score`} aria-pressed={noScore}

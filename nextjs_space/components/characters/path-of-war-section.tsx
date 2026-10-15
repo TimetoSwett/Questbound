@@ -94,7 +94,7 @@ export function PathOfWarSection({ value, editable, abilityMods, onChange }: Pro
           </>}
         </div>
         {warnings.length > 0 && (
-          <div role="alert" className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-600">
+          <div role="alert" className="rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-xs text-warning">
             Over limit: {warnings.join(' · ')}
           </div>
         )}
