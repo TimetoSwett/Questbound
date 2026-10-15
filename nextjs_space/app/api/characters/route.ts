@@ -11,6 +11,7 @@ import { equippedSchema } from '@/lib/equipment-validation';
 import { ABILITIES, equipmentEffects, manualBonusAfterChange, type Equipped } from '@/lib/equipment';
 import { libraryIdsIn, stripMissingLibraryIds } from '@/lib/library';
 import { removeCharacterTokens } from '@/lib/battle-map';
+import { sanitizeSpellsPsionics } from '@/lib/psionics';
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -257,6 +258,8 @@ export async function PUT(request: Request) {
   if (typeof data.spells === 'string') {
     try { data.spells = JSON.parse(data.spells); } catch { /* unparseable: stored as before, no ids to honour */ }
   }
+  // Psionics lives under spells.psionics; clamp/validate it (other spells keys pass through).
+  data.spells = sanitizeSpellsPsionics(data.spells);
   if (data.spells !== undefined && data.spells !== null && typeof data.spells === 'object') {
     sanitizeSpellsExtras(data.spells as Record<string, unknown>);
     const known = (data.spells as { known?: unknown })?.known;

@@ -17,6 +17,7 @@ import { castingAbilityFor, spellDc } from '@/lib/spell-dc';
 import { newAbilityId } from '@/lib/spells-extras';
 import { newSpellClientId } from '@/lib/spell-client-id';
 import { EquipmentEditor, BonusEditor } from './equipment-editor';
+import { PsionicsSection } from '@/components/characters/psionics-section';
 import { AbilityScoreCell } from './ability-score-cell';
 import { SheetEffects } from './sheet-effects';
 import { SensesSection } from './senses-section';
@@ -436,6 +437,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
     { key: 'equipped', label: 'Equipment', icon: Shield },
     { key: 'equipment', label: 'Inventory', icon: Package },
     { key: 'details', label: 'Feats, Skills, Spells & Notes', icon: BookOpen },
+    { key: 'powers', label: 'Powers', icon: BookOpen },
   ];
 
   return (
@@ -813,6 +815,10 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           }
           update('equipped', value); autoSave();
         }} />}
+
+      {isSection('powers') && <PsionicsSection value={data.spells?.psionics} editable={editable}
+        abilityMods={{ int: stats?.intMod ?? 0, wis: stats?.wisMod ?? 0, cha: stats?.chaMod ?? 0 }}
+        onChange={psionics => { update('spells', { ...(data.spells ?? { slots: {}, known: [] }), psionics }); autoSave(); }} />}
 
       {/* DETAILS TAB: Feats, Skills, Spells & Notes */}
       {isSection('details') && (
