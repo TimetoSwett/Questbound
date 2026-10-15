@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { PF1E_SKILLS, abilityMod, formatMod } from '@/lib/pf1e-skills';
-import type { SkillDef } from '@/lib/pf1e-skills';
+import { abilityMod, formatMod } from '@/lib/pf1e-skills';
+import { SkillRows } from './skill-rows';
 import { TipTapEditor } from '@/components/tiptap-editor';
 import Image from 'next/image';
 import { levelForCharacter } from '@/components/library/spell-picker';
@@ -20,7 +20,7 @@ import { AbilityScoreCell } from './ability-score-cell';
 import { SheetEffects } from './sheet-effects';
 import { NonlethalField } from './nonlethal-field';
 import { sheetAdjustment, maneuverSize } from '@/lib/conditions';
-import { STACK_LABELS, bonusLabel, equipmentEffects, equipmentSkillPenalty, manualBonusAfterChange, weaponTotals, type AbilityName, type ItemBonus, type SheetOptions } from '@/lib/equipment';
+import { STACK_LABELS, bonusLabel, equipmentEffects, manualBonusAfterChange, weaponTotals, type AbilityName, type ItemBonus, type SheetOptions } from '@/lib/equipment';
 import { carryLimits, loadBracket } from '@/lib/carry';
 import { AddSpellToLibraryDialog } from './add-spell-dialog';
 import { AddSpellSearchDialog } from './add-spell-search-dialog';
@@ -32,7 +32,6 @@ import type { FeatData, GearData } from '@/lib/library';
 const SIZES = ['Fine', 'Diminutive', 'Tiny', 'Small', 'Medium', 'Large', 'Huge', 'Gargantuan', 'Colossal'];
 const ALIGNMENTS = ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'];
 
-interface SkillEntry { name: string; ranks: number; classSkill: boolean; misc: number; ability?: string; extraAbility?: string; }
 interface EquipItem { name: string; weight: number; quantity: number; value: string; notes: string; summary?: string; libraryEntryId?: string; sourceUrl?: string | null; }
 interface FeatEntry { name: string; description: string; summary?: string; kind?: 'feat' | 'ability'; tag?: AbilityTag; libraryEntryId?: string; sourceUrl?: string | null; bonuses?: ItemBonus[]; }
 interface ClassEntry { name: string; level: number; }
@@ -812,59 +811,10 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                 </tr>
               </thead>
               <tbody>
-                {PF1E_SKILLS.map((skill: SkillDef) => {
-                  const entry = (data?.skills ?? []).find((s: SkillEntry) => s?.name === skill.name) ?? { name: skill.name, ranks: 0, classSkill: false, misc: 0 };
-                  const primary = entry.ability || skill.ability;
-                  const extra = entry.extraAbility && entry.extraAbility !== primary ? entry.extraAbility : '';
-                  const abMod = abilityModForSkill(primary) + (extra ? abilityModForSkill(extra) : 0);
-                  const ranks = entry?.ranks ?? 0;
-                  const csBonus = (entry?.classSkill && ranks >= 1) ? 3 : 0;
-                  const gearSkill = (stats?.itemBonuses.skills[skill.name] ?? 0) + (stats?.itemBonuses.skillAll ?? 0);
-                  const total = ranks + csBonus + abMod + (entry?.misc ?? 0) + equipmentSkillPenalty(skill.ability, stats?.effects.checkPenalty ?? 0) + gearSkill;
-
-                  const updateSkill = (field: string, value: any) => {
-                    const skills = [...(data?.skills ?? [])];
-                    const idx = skills.findIndex((s: SkillEntry) => s?.name === skill.name);
-                    if (idx >= 0) {
-                      skills[idx] = { ...(skills[idx] ?? {}), [field]: value };
-                    } else {
-                      skills.push({ name: skill.name, ranks: 0, classSkill: false, misc: 0, [field]: value });
-                    }
-                    update('skills', skills);
-                    autoSave();
-                  };
-
-                  return (
-                    <tr key={skill.name} className="border-b border-border/50 hover:bg-muted/30">
-                      <td className="py-1 px-1">
-                        <span className="text-xs">{skill.name}</span>
-                        <span className="ml-1 inline-flex gap-1">
-                          <select aria-label={`${skill.name} ability`} value={entry.ability || skill.ability} disabled={!editable} onChange={e => updateSkill('ability', e.target.value)} className="bg-transparent text-[10px] text-muted-foreground">
-                            {(['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'] as const).map(ability => <option key={ability} value={ability}>{ability}</option>)}
-                          </select>
-                          <select aria-label={`${skill.name} extra ability`} value={entry.extraAbility ?? ''} disabled={!editable} onChange={e => updateSkill('extraAbility', e.target.value)} className="bg-transparent text-[10px] text-muted-foreground">
-                            <option value="">+ none</option>
-                            {(['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'] as const).map(ability => <option key={ability} value={ability}>+{ability}</option>)}
-                          </select>
-                        </span>
-                      </td>
-                      <td className="text-center font-mono font-bold" title={gearSkill ? `${formatMod(gearSkill)} included` : undefined}>{formatMod(total)}</td>
-                      <td className="text-center">
-                        <input type="number" value={ranks} onChange={(e) => updateSkill('ranks', parseInt(e.target.value) || 0)} disabled={!editable}
-                          className="w-10 h-6 text-center bg-transparent border border-border rounded text-xs font-mono" />
-                      </td>
-                      <td className="text-center">
-                        <input type="checkbox" checked={entry?.classSkill ?? false} onChange={(e) => updateSkill('classSkill', e.target.checked)} disabled={!editable}
-                          className="w-3.5 h-3.5 accent-primary" />
-                      </td>
-                      <td className="text-center text-xs font-mono text-muted-foreground">{formatMod(abMod)}</td>
-                      <td className="text-center">
-                        <input type="number" value={entry?.misc ?? 0} onChange={(e) => updateSkill('misc', parseInt(e.target.value) || 0)} disabled={!editable}
-                          className="w-10 h-6 text-center bg-transparent border border-border rounded text-xs font-mono" />
-                      </td>
-                    </tr>
-                  );
-                })}
+                <SkillRows skills={data?.skills ?? []} editable={editable} abilityModForSkill={abilityModForSkill}
+                  skillBonuses={stats?.itemBonuses.skills ?? {}} skillAll={stats?.itemBonuses.skillAll ?? 0}
+                  checkPenalty={stats?.effects.checkPenalty ?? 0}
+                  onChange={(skills) => { update('skills', skills); autoSave(); }} />
               </tbody>
             </table>
           </div>

@@ -11,6 +11,7 @@ function load(path, mocks = {}) {
   runInNewContext(js, { exports, URL, Buffer, require: name => name in mocks ? mocks[name] : require(name) });
   return exports;
 }
+const skillsValidation = load('lib/skills-validation.ts');
 const equipment = load('lib/equipment.ts');
 const validation = load('lib/equipment-validation.ts', { './equipment': equipment });
 const { equipmentEffects, equipmentSkillPenalty, weaponTotals } = equipment;
@@ -115,6 +116,7 @@ const route = load('app/api/characters/route.ts', {
   '@/lib/campaign-helpers': { getUserRole: async () => role },
   '@/lib/battle-map': { removeCharacterTokens: () => null },
   '@/lib/equipment-validation': validation,
+  '@/lib/skills-validation': skillsValidation,
   '@/lib/equipment': equipment,
   '@/lib/library': { libraryIdsIn: library.libraryIdsIn, stripMissingLibraryIds: library.stripMissingLibraryIds },
   '@/lib/prisma': { prisma: {
@@ -167,3 +169,24 @@ for (const noScore of [['con', 'con', 'int', 'bad', ...equipment.ABILITIES], 'ba
   else assert.equal(flags.length, 0);
 }
 console.log('Equipment math, validation, authorization, inventory scoping and save synchronization tests passed.');
+
+// Skill saves accept legacy rows and clamp malformed/new specialty data.
+const oldSkill = { name: 'Craft', ranks: 2, classSkill: true, misc: -1 };
+for (const skills of [[oldSkill], JSON.stringify([oldSkill])]) {
+  const response = await route.PUT(new Request('https://test/api', { method: 'PUT', body: JSON.stringify({ id: 'character', skills }) }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse((await response.json()).skills), [oldSkill]);
+}
+const sanitizedResponse = await route.PUT(new Request('https://test/api', { method: 'PUT', body: JSON.stringify({ id: 'character', skills: [null, [], {}, {
+  name: ' stale ', id: 'x'.repeat(120), base: 'Craft', specialty: 'Alchemy', ranks: 999.5, misc: -999,
+  classSkill: true, ability: 'INT', extraAbility: '', custom: false, unknown: 'drop',
+}] }) }));
+assert.equal(sanitizedResponse.status, 200);
+assert.deepEqual(JSON.parse((await sanitizedResponse.json()).skills), [{ name: 'Craft (Alchemy)', id: 'x'.repeat(100), base: 'Craft', specialty: 'Alchemy', ranks: 100, misc: -100, classSkill: true, ability: 'INT', extraAbility: '', custom: false }]);
+const capped = skillsValidation.sanitizeSkills(Array(205).fill({ name: 'Profession', ranks: -2, misc: 5.9, ability: 'bad', extraAbility: 'bad', specialty: 'x'.repeat(100) }));
+assert.equal(capped.length, 200);
+assert.equal(capped[0].ranks, 0);
+assert.equal(capped[0].misc, 5);
+assert.equal(capped[0].specialty.length, 60);
+assert.equal(capped[0].ability, undefined);
+assert.equal(capped[0].extraAbility, undefined);

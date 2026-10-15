@@ -4,6 +4,7 @@ import type { Prisma } from '@prisma/client';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
+import { sanitizeSkills } from '@/lib/skills-validation';
 import { equippedSchema } from '@/lib/equipment-validation';
 import { ABILITIES, equipmentEffects, manualBonusAfterChange, type Equipped } from '@/lib/equipment';
 import { libraryIdsIn, stripMissingLibraryIds } from '@/lib/library';
@@ -240,11 +241,12 @@ export async function PUT(request: Request) {
     }
   }
 
-  for (const field of ['feats', 'equipment'] as const) {
+  for (const field of ['feats', 'equipment', 'skills'] as const) {
     if (typeof data[field] === 'string') {
       try { data[field] = JSON.parse(data[field] as string); } catch { /* stored as text; no ids to check */ }
     }
   }
+  if (Array.isArray(data.skills)) data.skills = sanitizeSkills(data.skills);
   const linked = [data.feats, data.equipment, data.equipped].filter((value) => value && typeof value === 'object');
   const linkedIds = libraryIdsIn(linked);
   if (linkedIds.length) {
