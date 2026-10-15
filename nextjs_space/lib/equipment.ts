@@ -38,14 +38,16 @@ export function bonusStack(bonus: { stack?: StackKind }): StackKind {
   return bonus.stack ?? 'untyped';
 }
 
-/** Untyped, dodge, and penalties add. Other types keep the best bonus and the worst penalty. */
+/** Untyped, dodge, circumstance, and penalties add. Other types keep the best bonus and the worst penalty.
+ * Note: circumstance bonuses from the same source would technically overlap, but we accept that
+ * because it's rare — entries here don't carry source info to distinguish them. */
 export function foldStacks(entries: { amount: number; stack: StackKind }[]): number {
   let total = 0;
   const bonus = new Map<string, number>();
   const penalized = new Map<string, number>();
   for (const entry of entries) {
     if (!entry.amount) continue;
-    if (entry.stack === 'untyped' || entry.stack === 'penalty' || entry.stack === 'dodge') {
+    if (entry.stack === 'untyped' || entry.stack === 'penalty' || entry.stack === 'dodge' || entry.stack === 'circumstance') {
       total += entry.amount;
       continue;
     }
