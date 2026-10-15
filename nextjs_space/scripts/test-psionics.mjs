@@ -32,7 +32,7 @@ assert.deepEqual({ ...spendPP(pool, 0).pool }, { ...pool });
 assert.deepEqual({ ...restorePP({ max: 10, current: 8, temp: 2 }, 5) }, { max: 10, current: 10, temp: 2 });
 assert.equal(restorePP({ max: 10, current: 3, temp: 0 }, 4).current, 7);
 assert.equal(restorePP({ max: 10, current: 3, temp: 0 }, -4).current, 3);
-assert.equal(restorePP({ max: 10, current: 12, temp: 0 }, 1).current, 12);
+assert.equal(restorePP({ max: 10, current: 12, temp: 0 }, 1).current, 10); // over-max current is capped
 // Rest
 assert.deepEqual({ ...restPool({ max: 10, current: 1, temp: 5 }) }, { max: 10, current: 10, temp: 0 });
 // Manifest cost + augment cap at ML
@@ -52,7 +52,7 @@ const messy = normalizePsionics({
   pp: { max: -5, current: 1e9, temp: 3.9 }, manifesterLevel: 99, keyAbility: 'str', psionicFocus: 'yes',
   powers: [{ id: 'a', name: 'x'.repeat(500), level: 42, ppCost: -3, description: 5 }, { name: 'no id' }, null, 'bad'],
 });
-assert.equal(messy.pp.max, 0); assert.equal(messy.pp.current, 10000); assert.equal(messy.pp.temp, 3);
+assert.equal(messy.pp.max, 0); assert.equal(messy.pp.current, 0); // capped to max assert.equal(messy.pp.temp, 3);
 assert.equal(messy.manifesterLevel, 40); assert.equal(messy.keyAbility, 'int'); assert.equal(messy.psionicFocus, false);
 assert.equal(messy.powers.length, 1);
 assert.equal(messy.powers[0].name.length, 100); assert.equal(messy.powers[0].level, 9); assert.equal(messy.powers[0].ppCost, 0); assert.equal(messy.powers[0].description, '');
@@ -73,6 +73,12 @@ const plain = { slots: {}, known: [] };
 assert.equal(sanitizeSpellsPsionics(plain), plain);
 assert.equal(sanitizeSpellsPsionics(null), null); assert.equal(sanitizeSpellsPsionics(undefined), undefined);
 assert.deepEqual(plainOf(sanitizeSpellsPsionics({ slots: {}, known: [], psionics: 'junk' }).psionics), plainOf(defaultPsionics()));
+// PP cap: current clamped to 0..max on sanitize and restore
+assert.deepEqual({ ...sanitizeSpellsPsionics({ psionics: { pp: { max: 10, current: 50, temp: 0 } } }).psionics.pp }, { max: 10, current: 10, temp: 0 });
+assert.deepEqual({ ...normalizePsionics({ pp: { max: 5, current: -3, temp: 2 } }).pp }, { max: 5, current: 0, temp: 2 });
+assert.deepEqual({ ...p.clampPool({ max: 4, current: 9, temp: 1 }) }, { max: 4, current: 4, temp: 1 });
+assert.equal(restorePP({ max: 10, current: 15, temp: 0 }, 1).current, 10);
+assert.equal(restorePP({ max: 10, current: 8, temp: 0 }, 5).current, 10);
 // Creature (NPC) spells schema is passthrough, so psionics survives and is scrambled with spells when locked
 const src = readFileSync(new URL('../lib/creatures.ts', import.meta.url), 'utf8');
 assert.ok(/spells: z\.object\(\{ slots: z\.record\(z\.unknown\(\)\), known: jsonList \}\)\.passthrough\(\)/.test(src));

@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { formatMod } from '@/lib/pf1e-skills';
 import {
-  KEY_ABILITIES, MAX_POWERS, manifestCost, normalizePsionics, restPool, restorePP, saveDC, spendPP,
+  KEY_ABILITIES, MAX_POWERS, clampPool, manifestCost, normalizePsionics, restPool, restorePP, saveDC, spendPP,
   type KeyAbility, type PsionicPower, type PsionicsData,
 } from '@/lib/psionics';
 
@@ -37,7 +37,7 @@ export function PsionicsSection({ value, editable, abilityMods, onChange }: Prop
   const keyMod = abilityMods[data.keyAbility] ?? 0;
 
   const patch = (partial: Partial<PsionicsData>) => onChange({ ...data, ...partial });
-  const setPool = (partial: Partial<PsionicsData['pp']>) => patch({ pp: { ...data.pp, ...partial } });
+  const setPool = (partial: Partial<PsionicsData['pp']>) => patch({ pp: clampPool({ ...data.pp, ...partial }) });
   const updatePower = (id: string, partial: Partial<PsionicPower>) =>
     patch({ powers: data.powers.map(p => (p.id === id ? { ...p, ...partial } : p)) });
 
@@ -70,7 +70,7 @@ export function PsionicsSection({ value, editable, abilityMods, onChange }: Prop
             <Input type="number" min={0} aria-label="Max power points" value={data.pp.max} disabled={!editable} className="mt-0.5 h-8 text-center font-mono"
               onChange={e => setPool({ max: numberOr0(e.target.value) })} /></div>
           <div className="w-24"><Label className="text-xs text-muted-foreground">Current PP</Label>
-            <Input type="number" min={0} aria-label="Current power points" value={data.pp.current} disabled={!editable} className="mt-0.5 h-8 text-center font-mono"
+            <Input type="number" min={0} aria-label="Current power points" max={data.pp.max} value={data.pp.current} disabled={!editable} className="mt-0.5 h-8 text-center font-mono"
               onChange={e => setPool({ current: numberOr0(e.target.value) })} /></div>
           <div className="w-24"><Label className="text-xs text-muted-foreground">Temp PP</Label>
             <Input type="number" min={0} aria-label="Temporary power points" value={data.pp.temp} disabled={!editable} className="mt-0.5 h-8 text-center font-mono"

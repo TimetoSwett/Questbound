@@ -48,7 +48,14 @@ export function normalizePsionics(raw: unknown): PsionicsData {
     const parsed = powerSchema.safeParse(item);
     if (parsed.success) powers.push(parsed.data);
   }
-  return psionicsSchema.parse({ ...rec, powers });
+  const parsed = psionicsSchema.parse({ ...rec, powers });
+  return { ...parsed, pp: clampPool(parsed.pp) };
+}
+
+/** Current PP is always within 0..max. */
+export function clampPool(pool: PPPool): PPPool {
+  const max = Math.max(0, pool.max);
+  return { ...pool, max, current: Math.min(max, Math.max(0, pool.current)) };
 }
 
 /** Sanitizes the `psionics` key of a spells object in place-safe fashion (returns a copy). Other keys untouched. */
@@ -67,7 +74,7 @@ export function spendPP(pool: PPPool, n: number): { ok: boolean; pool: PPPool; e
 
 export function restorePP(pool: PPPool, n: number): PPPool {
   const amount = Number.isInteger(n) && n > 0 ? n : 0;
-  return { ...pool, current: Math.max(pool.current, Math.min(pool.max, pool.current + amount)) };
+  return { ...pool, current: Math.min(pool.max, Math.max(0, pool.current + amount)) };
 }
 
 export function restPool(pool: PPPool): PPPool {
