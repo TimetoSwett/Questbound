@@ -4,6 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 import { Shield, Swords, Globe, Users, BookOpen, LogOut, ChevronLeft, Copy, Check, Dices, Castle, Drama, Coins } from 'lucide-react';
+import { BrightnessControl } from '@/components/brightness-control';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { CharactersTab } from './characters-tab';
@@ -115,10 +116,11 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
             <span className="font-display text-lg font-bold tracking-tight">{campaignName}</span>
             <button onClick={copyCode} className="flex items-center gap-1 text-xs font-mono bg-muted px-2 py-1 rounded hover:bg-muted/80 transition-colors" title="Copy invite code">
               {inviteCode}
-              {copied ? <Check className="w-3 h-3 text-green-700" /> : <Copy className="w-3 h-3 text-muted-foreground" />}
+              {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3 text-muted-foreground" />}
             </button>
           </div>
           <div className="flex items-center gap-2">
+            <BrightnessControl />
             <HallNav />
             <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${role === 'dm' ? 'bg-primary/20 text-primary' : 'bg-secondary text-secondary-foreground'}`}>{role === 'dm' ? 'Dungeon Master' : 'Player'}</span>
             <Button variant="ghost" size="sm" onClick={() => setLogOpen((o) => !o)} title={logOpen ? 'Hide roll log' : 'Show roll log'} aria-label={logOpen ? 'Hide roll log' : 'Show roll log'} aria-expanded={logOpen} aria-controls="campaign-roll-log">
