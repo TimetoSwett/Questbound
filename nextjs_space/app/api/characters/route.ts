@@ -150,6 +150,13 @@ export async function PUT(request: Request) {
       const rawSheet = (rawEquipped as Record<string, unknown>).sheet;
       if (rawSheet && typeof rawSheet === 'object' && !Array.isArray(rawSheet)) {
         const options = rawSheet as Record<string, unknown>;
+        if (typeof options.backstory === 'string') {
+          options.backstory = Array.from(options.backstory)
+            .filter(char => char >= ' ' || char === '\n' || char === '\r' || char === '\t')
+            .join('').slice(0, 20000);
+        } else {
+          delete options.backstory;
+        }
         const rawSenses = options.senses;
         if (rawSenses && typeof rawSenses === 'object' && !Array.isArray(rawSenses)) {
           const source = rawSenses as Record<string, unknown>;

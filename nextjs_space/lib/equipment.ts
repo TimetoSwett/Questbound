@@ -104,6 +104,7 @@ export interface CharacterBuff {
 }
 
 export interface SheetOptions {
+  backstory?: string;
   senses?: { darkvision?: number; lowLight?: boolean; scent?: boolean; blindsense?: number; blindsight?: number; tremorsense?: number; custom?: string[] };
   nonlethal?: number;
   noScore?: AbilityName[];

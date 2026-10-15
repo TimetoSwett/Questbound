@@ -47,6 +47,7 @@ const buff = z.object({
   sourceUrl: z.string().url().max(500).nullable().optional(),
 }).strict();
 const sheet = z.object({
+  backstory: z.string().max(20000).optional(),
   senses: z.object({
     darkvision: z.number().int().min(0).max(1000).optional(),
     lowLight: z.boolean().optional(),

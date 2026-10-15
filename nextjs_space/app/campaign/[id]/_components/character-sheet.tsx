@@ -20,6 +20,7 @@ import { AbilityScoreCell } from './ability-score-cell';
 import { SheetEffects } from './sheet-effects';
 import { SensesSection } from './senses-section';
 import { NonlethalField } from './nonlethal-field';
+import { BackstoryTab } from './backstory-tab';
 import { sheetAdjustment, maneuverSize } from '@/lib/conditions';
 import { STACK_LABELS, bonusLabel, equipmentEffects, manualBonusAfterChange, weaponTotals, type AbilityName, type ItemBonus, type SheetOptions } from '@/lib/equipment';
 import { carryLimits, loadBracket } from '@/lib/carry';
@@ -121,6 +122,7 @@ const SECTION_ALIASES: Record<string, string> = {
   skills: 'details',
   spells: 'details',
   notes: 'details',
+  backstory: 'details',
 };
 
 const DETAIL_TABS = [
@@ -129,6 +131,7 @@ const DETAIL_TABS = [
   { key: 'spells', label: 'Spells' },
   { key: 'abilities', label: 'Limited-use' },
   { key: 'notes', label: 'Notes' },
+  { key: 'backstory', label: 'Backstory' },
 ] as const;
 type DetailTab = (typeof DETAIL_TABS)[number]['key'];
 
@@ -1151,6 +1154,9 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           <CollapsibleSection sectionKey="notes" title="Notes & Backstory" bare openSections={openSections} setOpenSections={setOpenSections}>
           <TipTapEditor content={data?.notes ?? ''} onChange={(html: string) => { update('notes', html); autoSave(); }} editable={editable} placeholder="Write your character's backstory, notes, and other details..." />
           </CollapsibleSection>
+          )}
+          {detailTab === 'backstory' && (
+            <BackstoryTab backstory={data.equipped?.sheet?.backstory ?? ''} editable={editable} onChange={backstory => patchSheet({ backstory })} />
           )}
         </div>
       )}
