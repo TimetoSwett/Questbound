@@ -37,11 +37,6 @@ assert.ok(pure.canAccessCharacter({ userId: 'u', campaignId: 'c' }, 'dm1', 'dm')
 assert.ok(!pure.canAccessCharacter({ userId: 'u', campaignId: 'c' }, 'p', 'player'));
 assert.ok(!pure.canAccessCharacter({ userId: 'u', campaignId: 'c' }, 'p', null));
 assert.ok(!pure.canAccessCharacter({ userId: 'u', campaignId: null }, 'p', 'dm'), 'role in no campaign never counts');
-const chain = { b: 'a', c: 'b', a: null };
-assert.ok(pure.wouldCreateCycle('a', 'c', (id) => chain[id]), 'a under c (c->b->a) is a cycle');
-assert.ok(pure.wouldCreateCycle('a', 'a', () => null), 'self');
-assert.ok(!pure.wouldCreateCycle('c', 'a', (id) => chain[id]));
-assert.ok(pure.wouldCreateCycle('z', 'x', (id) => ({ x: 'y', y: 'x' })[id]), 'existing loop is not extended');
 assert.equal(pure.linkCompanionSchema.safeParse({ characterId: 'a' }).success, false);
 assert.equal(pure.linkCompanionSchema.safeParse({ characterId: 'a', ownerId: null }).success, true);
 assert.equal(pure.linkCompanionSchema.safeParse({ characterId: 'a', ownerId: 'b', extra: 1 }).success, false);
@@ -52,8 +47,10 @@ const grouped = pure.groupCompanions([
   { id: 'c1', ownerCharacterId: 'o1', companionType: 'familiar' }, { id: 'o1' }, { id: 'lone', ownerCharacterId: 'hidden' }, { id: 'o2' },
 ]);
 deq(grouped.map((g) => [g.item.id, g.depth, g.isCompanion]), [['o1', 0, false], ['c1', 1, true], ['lone', 0, true], ['o2', 0, false]]);
-const loop = pure.groupCompanions([{ id: 'a', ownerCharacterId: 'b' }, { id: 'b', ownerCharacterId: 'a' }]);
-assert.equal(loop.length, 2, 'data cycle still lists every entry once');
+const loop = pure.groupCompanions([{ id: 'a', ownerCharacterId: 'b' }, { id: 'b', ownerCharacterId: 'a' }, { id: 's', ownerCharacterId: 's' }]);
+assert.equal(loop.length, 1, 'bad data is not nested recursively; only the self-owned row is listed as a root');
+const nested = pure.groupCompanions([{ id: 'o' }, { id: 'c', ownerCharacterId: 'o' }, { id: 'g', ownerCharacterId: 'c' }]);
+deq(nested.map((g) => [g.item.id, g.depth]), [['o', 0], ['c', 1]], 'no grandchild nesting');
 console.log('ok   pure helpers');
 
 if (!process.env.DATABASE_URL) { console.log('skip DB tests (set DATABASE_URL to a TEST database)'); console.log('COMPANION TESTS: PASS'); process.exit(0); }
@@ -191,9 +188,17 @@ try {
   assert.equal((await prisma.character.findUnique({ where: { id: L2.id } })).ownerCharacterId, null);
   r = await put(p1, { characterId: A.id, ownerId: A.id }); assert.equal(r.status, 400, 'self-link');
   r = await put(p1, { characterId: A.id, ownerId: compA.id }); assert.equal(r.status, 400, 'direct cycle');
-  const deep = await mk('deep', p1, camp1, { ownerCharacterId: compA.id });
-  r = await put(p1, { characterId: A.id, ownerId: deep.id }); assert.equal(r.status, 400, 'indirect cycle');
-  r = await put(dm, { characterId: A.id, ownerId: deep.id }); assert.equal(r.status, 400, 'cycle rejected for DM too');
+  // one level only
+  r = await put(p1, { characterId: L2.id, ownerId: compA.id }); assert.equal(r.status, 400, 'link under a companion'); assert.match(r.json.error, /cannot have companions/);
+  r = await put(dm, { characterId: L2.id, ownerId: compA.id }); assert.equal(r.status, 400, 'link under a companion, DM too');
+  r = await put(p1, { characterId: A.id, ownerId: L2.id }); assert.equal(r.status, 400, 'link a character that has companions'); assert.match(r.json.error, /has companions/);
+  r = await put(dm, { characterId: A.id, ownerId: L2.id }); assert.equal(r.status, 400, 'same for DM');
+  assert.equal((await prisma.character.findUnique({ where: { id: A.id } })).ownerCharacterId, null);
+  assert.equal((await prisma.character.findUnique({ where: { id: L2.id } })).ownerCharacterId, null);
+  r = await call(p1, comp.POST, '/api/characters/companions', { ownerId: compA.id, name: 'Nested' }); assert.equal(r.status, 400, 'create under a companion');
+  assert.match(r.json.error, /cannot have companions/); assert.equal(await prisma.character.count({ where: { name: 'Nested' } }), 0);
+  r = await call(dm, comp.POST, '/api/characters/companions', { ownerId: compA.id, name: 'Nested' }); assert.equal(r.status, 400, 'create under a companion, DM too');
+  r = await listFor(p1, compA); assert.equal(r.json.isCompanion, true); r = await listFor(p1, A); assert.equal(r.json.isCompanion, false);
   r = await put(p1, { characterId: N.id, ownerId: A.id }); assert.equal(r.status, 400, 'cross-campaign'); assert.match(r.json.error, /same campaign/);
   r = await put(p1, { characterId: V.id, ownerId: A.id }); assert.equal(r.status, 400, 'vault sheet into campaign owner');
   r = await put(p1, { characterId: compA.id, ownerId: L2.id }); assert.equal(r.status, 409, 'already a companion elsewhere');
@@ -211,7 +216,7 @@ try {
   r = await put(outsider, { characterId: L.id, ownerId: null }); assert.equal(r.status, 403);
   r = await put(p1, { characterId: L.id, companionType: 'mount' }); assert.equal(r.json.companionType, 'mount');
   r = await put(p2, { characterId: L.id, companionType: 'hack' }); assert.equal(r.status, 403);
-  console.log('ok   link / unlink / cycles / cross-campaign');
+  console.log('ok   link / unlink / one-level / cross-campaign');
 
   // generic update cannot touch the link
   const gput = (u, body) => { sessionUser = u.id; return chars.PUT(new Request('http://t/api/characters', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })); };

@@ -15,6 +15,7 @@ export interface CompanionData {
   owner: CompanionSummary | null;
   companions: CompanionSummary[];
   siblings: CompanionSummary[];
+  isCompanion?: boolean;
 }
 
 // Loads owner / companions / siblings of a sheet and refreshes when any companion control changes them.

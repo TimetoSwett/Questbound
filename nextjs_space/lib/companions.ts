@@ -68,31 +68,12 @@ export async function redactHiddenOwnerIds<T extends { ownerCharacterId?: string
   return rows.map((r) => (r.ownerCharacterId && !visible.has(r.ownerCharacterId) ? { ...r, ownerCharacterId: null } : r));
 }
 
-// Would making `ownerId` the owner of `characterId` create a cycle (or a self-link)?
-// `ownerOf` maps a character id to its current owner id (or null).
-export function wouldCreateCycle(characterId: string, ownerId: string, ownerOf: (id: string) => string | null | undefined): boolean {
-  const seen = new Set<string>();
-  for (let cur: string | null | undefined = ownerId; cur; cur = ownerOf(cur)) {
-    if (cur === characterId) return true;
-    if (seen.has(cur)) return true; // pre-existing loop: refuse to extend it
-    seen.add(cur);
-  }
-  return false;
-}
-
-export async function linkCreatesCycle(prisma: PrismaClient, characterId: string, ownerId: string): Promise<boolean> {
-  const owners = new Map<string, string | null>();
-  let cur: string | null = ownerId;
-  while (cur && !owners.has(cur) && cur !== characterId) {
-    const row: { ownerCharacterId: string | null } | null = await prisma.character.findUnique({
-      where: { id: cur },
-      select: { ownerCharacterId: true },
-    });
-    owners.set(cur, row?.ownerCharacterId ?? null);
-    cur = row?.ownerCharacterId ?? null;
-  }
-  return wouldCreateCycle(characterId, ownerId, (id) => owners.get(id));
-}
+// Companions are one level deep: a companion cannot own companions, and an owner
+// of companions cannot become a companion. These are the shared error messages.
+export const COMPANION_ERRORS = {
+  ownerIsCompanion: 'A companion cannot have companions of its own',
+  hasCompanions: 'A character that has companions cannot become a companion; unlink its companions first',
+} as const;
 
 export const companionTypeSchema = z.string().trim().max(60);
 const nameSchema = z.string().trim().min(1).max(120);
@@ -138,26 +119,20 @@ export interface CompanionListItem {
 }
 
 // Order a flat character list so each companion follows its owner (when the owner
-// is in the list). Companions whose owner is absent stay in place as normal entries
-// (`isCompanion` still true, `depth` 0), so a hidden owner leaves no trace.
+// is in the list), one level only. Companions whose owner is absent stay in place as
+// normal entries (`isCompanion` still true, `depth` 0), so a hidden owner leaves no trace.
 export function groupCompanions<T extends CompanionListItem>(items: readonly T[]): Array<{ item: T; depth: number; isCompanion: boolean }> {
   const ids = new Set(items.map((i) => i.id));
+  const isChild = (i: T) => !!i.ownerCharacterId && i.ownerCharacterId !== i.id && ids.has(i.ownerCharacterId);
   const children = new Map<string, T[]>();
-  const roots: T[] = [];
   for (const item of items) {
-    const parent = item.ownerCharacterId && item.ownerCharacterId !== item.id && ids.has(item.ownerCharacterId) ? item.ownerCharacterId : null;
-    if (parent) children.set(parent, [...(children.get(parent) ?? []), item]);
-    else roots.push(item);
+    if (isChild(item)) children.set(item.ownerCharacterId!, [...(children.get(item.ownerCharacterId!) ?? []), item]);
   }
   const out: Array<{ item: T; depth: number; isCompanion: boolean }> = [];
-  const placed = new Set<string>();
-  const walk = (item: T, depth: number) => {
-    if (placed.has(item.id)) return;
-    placed.add(item.id);
-    out.push({ item, depth, isCompanion: !!item.ownerCharacterId || !!item.companionType });
-    for (const child of children.get(item.id) ?? []) walk(child, depth + 1);
-  };
-  for (const root of roots) walk(root, 0);
-  for (const item of items) walk(item, 0); // leftovers (only possible with a data cycle)
+  for (const item of items) {
+    if (isChild(item)) continue;
+    out.push({ item, depth: 0, isCompanion: !!item.ownerCharacterId || !!item.companionType });
+    for (const child of children.get(item.id) ?? []) out.push({ item: child, depth: 1, isCompanion: true });
+  }
   return out;
 }

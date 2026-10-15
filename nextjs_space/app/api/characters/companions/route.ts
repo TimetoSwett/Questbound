@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
 import {
   accessibleCharacters, canAccessCharacterById, companionQuerySchema, companionSelect, createCompanionSchema,
-  linkCompanionSchema, linkCreatesCycle, toCompanionSummary,
+  COMPANION_ERRORS, linkCompanionSchema, toCompanionSummary,
 } from '@/lib/companions';
 
 const accessFields = { id: true, userId: true, campaignId: true, ownerCharacterId: true } as const;
@@ -46,7 +46,7 @@ export async function GET(request: Request) {
       siblings = await listFor(ownerRow.id);
     }
   }
-  return NextResponse.json({ owner, companions, siblings });
+  return NextResponse.json({ owner, companions, siblings, isCompanion: !!character.ownerCharacterId });
 }
 
 // POST {ownerId, name, companionType?} -> create a companion sheet for an owner the caller can edit.
@@ -67,6 +67,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Not a member' }, { status: 403 });
   }
 
+  if (owner.ownerCharacterId) return NextResponse.json({ error: COMPANION_ERRORS.ownerIsCompanion }, { status: 400 });
+
   const companion = await prisma.character.create({
     data: {
       userId: owner.userId,
@@ -85,7 +87,7 @@ export async function POST(request: Request) {
 
 // PUT {characterId, ownerId?, companionType?}
 //   ownerId = string -> link characterId as a companion of ownerId (caller must edit both;
-//                       same campaign; no self-link or cycle; not already owned by someone else)
+//                       same campaign; one level only; no self-link; not already owned by someone else)
 //   ownerId = null   -> unlink (caller must edit the companion or its current owner)
 //   companionType    -> set the free-text type (caller must edit the companion)
 export async function PUT(request: Request) {
@@ -124,11 +126,13 @@ export async function PUT(request: Request) {
     if (owner.campaignId !== character.campaignId) {
       return NextResponse.json({ error: 'Owner and companion must be in the same campaign' }, { status: 400 });
     }
+    // One level only: the owner must not be a companion, the companion must own none.
+    if (owner.ownerCharacterId) return NextResponse.json({ error: COMPANION_ERRORS.ownerIsCompanion }, { status: 400 });
+    if (await prisma.character.count({ where: { ownerCharacterId: characterId } })) {
+      return NextResponse.json({ error: COMPANION_ERRORS.hasCompanions }, { status: 400 });
+    }
     if (character.ownerCharacterId && character.ownerCharacterId !== ownerId) {
       return NextResponse.json({ error: 'Character is already a companion of another character; unlink it first' }, { status: 409 });
-    }
-    if (await linkCreatesCycle(prisma, characterId, ownerId)) {
-      return NextResponse.json({ error: 'That link would create a cycle' }, { status: 400 });
     }
     data.ownerCharacterId = ownerId;
   }
