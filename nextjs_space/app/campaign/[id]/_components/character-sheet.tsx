@@ -127,6 +127,7 @@ const DETAIL_TABS = [
   { key: 'feats', label: 'Feats' },
   { key: 'skills', label: 'Skills' },
   { key: 'spells', label: 'Spells' },
+  { key: 'abilities', label: 'Limited-use' },
   { key: 'notes', label: 'Notes' },
 ] as const;
 type DetailTab = (typeof DETAIL_TABS)[number]['key'];
@@ -1053,6 +1054,96 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             )}
           </div>
           </div>
+          </CollapsibleSection>
+          )}
+
+          {detailTab === 'abilities' && (
+          <CollapsibleSection sectionKey="abilities" title="Limited-use Abilities" bare openSections={openSections} setOpenSections={setOpenSections}>
+          <div className="flex items-center gap-2 mb-3">
+            <p className="text-xs text-muted-foreground flex-1">Class features, item powers, and spell-like abilities with limited uses.</p>
+            {editable && (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => {
+                  const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                  const abilities = [...(spells.abilities ?? []), { name: '', source: 'class', max: 1, used: 0, reset: 'day', notes: '' }];
+                  update('spells', { ...spells, abilities });
+                  autoSave();
+                }}>+ Add ability</Button>
+                <Button variant="ghost" size="sm" onClick={() => {
+                  const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                  const abilities = (spells.abilities ?? []).map((a: any) => a?.reset === 'day' ? { ...a, used: 0 } : a);
+                  update('spells', { ...spells, abilities });
+                  autoSave();
+                }}>Reset daily uses</Button>
+              </>
+            )}
+          </div>
+          {((data?.spells?.abilities ?? []) as any[]).length === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">No limited-use abilities. Add class features, item powers, or spell-like abilities.</p>
+          ) : (
+            <div className={sheetCardGridClass}>
+              {((data?.spells?.abilities ?? []) as any[]).map((ability: any, i: number) => {
+                const patch = (partial: any) => {
+                  const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                  const abilities = [...(spells.abilities ?? [])];
+                  abilities[i] = { ...(abilities[i] ?? {}), ...partial };
+                  update('spells', { ...spells, abilities });
+                  autoSave();
+                };
+                const max = Math.max(0, ability?.max ?? 1);
+                const used = Math.min(max, Math.max(0, ability?.used ?? 0));
+                return (
+                  <div key={i} className="bg-muted/50 rounded-lg p-3 border border-border flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <Input value={ability?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ name: e.target.value })} disabled={!editable} className="h-7 text-xs font-semibold" placeholder="Ability name" />
+                      {editable && (
+                        <Button variant="ghost" size="icon-sm" aria-label={`Delete ${ability?.name || 'ability'}`} onClick={() => {
+                          const spells = { ...(data?.spells ?? { slots: {}, known: [] }) };
+                          const abilities = (spells.abilities ?? []).filter((_: any, idx: number) => idx !== i);
+                          update('spells', { ...spells, abilities });
+                          autoSave();
+                        }}><Trash2 className="w-3 h-3 text-destructive" /></Button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="text-xs text-muted-foreground">Source
+                        <select value={ability?.source ?? 'class'} disabled={!editable} onChange={(e) => patch({ source: e.target.value })} className="mt-1 h-7 w-full rounded-md border border-input bg-background px-2 text-xs">
+                          <option value="class">Class feature</option>
+                          <option value="item">Item power</option>
+                          <option value="sla">Spell-like ability</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </label>
+                      <label className="text-xs text-muted-foreground">Resets
+                        <select value={ability?.reset ?? 'day'} disabled={!editable} onChange={(e) => patch({ reset: e.target.value })} className="mt-1 h-7 w-full rounded-md border border-input bg-background px-2 text-xs">
+                          <option value="day">Daily</option>
+                          <option value="encounter">Per encounter</option>
+                          <option value="week">Weekly</option>
+                          <option value="none">Never</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span>Used {used} / {max}</span>
+                      {editable && (
+                        <>
+                          <Button variant="ghost" size="icon-sm" className="h-5 w-5" aria-label={`Refund a use of ${ability?.name || 'ability'}`} onClick={() => patch({ used: Math.max(0, used - 1) })}>-</Button>
+                          <Button variant="ghost" size="icon-sm" className="h-5 w-5" aria-label={`Spend a use of ${ability?.name || 'ability'}`} disabled={max > 0 && used >= max} onClick={() => patch({ used: max > 0 ? Math.min(max, used + 1) : used + 1 })}>+</Button>
+                        </>
+                      )}
+                      <label className="ml-auto flex items-center gap-1 text-muted-foreground">
+                        <span>Per day</span>
+                        <Input type="number" min="0" value={max} disabled={!editable} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ max: Math.max(0, parseInt(e.target.value) || 0) })} className="w-16 h-6 text-xs text-center font-mono" />
+                      </label>
+                    </div>
+                    <label className="block text-xs text-muted-foreground">Notes
+                      <textarea value={ability?.notes ?? ''} disabled={!editable} onChange={(e) => patch({ notes: e.target.value })} className="w-full bg-transparent text-xs text-muted-foreground resize-y min-h-[40px] mt-1" placeholder="Short notes..." />
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           </CollapsibleSection>
           )}
 
