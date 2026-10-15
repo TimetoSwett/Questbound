@@ -184,7 +184,7 @@ const sanitizedResponse = await route.PUT(new Request('https://test/api', { meth
 }] }) }));
 assert.equal(sanitizedResponse.status, 200);
 assert.deepEqual(JSON.parse((await sanitizedResponse.json()).skills), [{ name: 'Craft (Alchemy)', id: 'x'.repeat(100), base: 'Craft', specialty: 'Alchemy', ranks: 100, misc: -100, classSkill: true, ability: 'INT', extraAbility: '', custom: false }]);
-const capped = skillsValidation.sanitizeSkills(Array(205).fill({ name: 'Profession', ranks: -2, misc: 5.9, ability: 'bad', extraAbility: 'bad', specialty: 'x'.repeat(100) }));
+const capped = skillsValidation.sanitizeSkills(Array.from({ length: 205 }, (_, index) => ({ name: 'Profession ' + index, ranks: -2, misc: 5.9, ability: 'bad', extraAbility: 'bad', specialty: 'x'.repeat(100) })));
 assert.equal(capped.length, 200);
 assert.equal(capped[0].ranks, 0);
 assert.equal(capped[0].misc, 5);
@@ -204,6 +204,27 @@ assert.deepEqual(JSON.parse(JSON.stringify(customSkills)), [
   { id: 'custom-2', custom: true, name: 'Navigation', ability: 'INT', ranks: 0, misc: 0, classSkill: false },
   { id: 'custom-3', custom: true, name: 'Athletics', ability: 'STR', ranks: 0, misc: 0, classSkill: false },
 ]);
+
+assert.equal(skillsValidation.normalizeSkillName(' SteALTH '), 'stealth');
+for (const entries of [
+  [{ name: ' Sailing ', custom: true, ranks: 3 }, { name: 'sAILING', custom: true, ranks: 7 }],
+  [{ name: ' stealth ', custom: true, ranks: 3 }, { name: 'Stealth', ranks: 7 }],
+  [{ name: 'Stealth', ranks: 3 }, { name: ' stealth ', custom: true, ranks: 7 }],
+  [{ name: 'Craft (Alchemy)', base: 'Craft', specialty: 'Alchemy', ranks: 3 },
+    { name: 'Craft (alchemy)', base: 'Craft', specialty: 'alchemy', ranks: 7 }],
+  [{ name: 'Craft', ranks: 3 }, { name: 'Craft', base: 'Craft', specialty: '', ranks: 7 }],
+  [{ name: 'Craft', base: 'Craft', specialty: '', ranks: 3 }, { name: 'Craft', ranks: 7 }],
+]) {
+  const sanitized = skillsValidation.sanitizeSkills(entries);
+  assert.equal(sanitized.length, 1);
+  assert.equal(sanitized[0].ranks, 3);
+}
+assert.deepEqual(Array.from(skillsValidation.sanitizeSkills([
+  { name: 'Craft', base: 'Craft', specialty: 'Alchemy' },
+  { name: 'Craft', base: 'Craft', specialty: 'Bows' },
+  { name: 'Profession', base: 'Profession', specialty: '' },
+  { name: 'Craft', base: 'Craft', specialty: '' },
+]), entry => entry.name), ['Craft (Alchemy)', 'Craft (Bows)', 'Profession', 'Craft']);
 
 // Senses remain optional, strict, and normalized before PUT validation.
 for (const senses of [{ darkvision: -1 }, { blindsight: 1.5 }, { scent: 'true' }, { custom: [''] }, { unknown: true }]) {
@@ -236,9 +257,9 @@ assert.equal(extras.psionics, untouched[0]);
 assert.equal(extras.known, untouched[1]);
 assert.equal(extras.slots, untouched[2]);
 for (const gp of [-1, 1.5, '2', 1e9 + 1, Infinity, NaN, null]) {
-  const spells = { coins: { gp } };
+  const spells = { coins: { pp: 4, gp, sp: 1e9 } };
   sanitizeSpellsExtras(spells);
-  assert.equal('coins' in spells, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(spells.coins)), { pp: 4, gp: 0, sp: 1e9, cp: 0 });
 }
 for (const abilities of [null, {}, 'bad']) {
   const spells = { abilities };

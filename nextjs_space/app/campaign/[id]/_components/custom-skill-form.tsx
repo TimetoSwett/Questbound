@@ -4,8 +4,8 @@ import { useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { SkillEntry } from '@/lib/skills-validation';
-import type { SkillDef } from '@/lib/pf1e-skills';
+import { normalizeSkillName, type SkillEntry } from '@/lib/skills-validation';
+import { PF1E_SKILLS, type SkillDef } from '@/lib/pf1e-skills';
 
 interface Props {
   existingNames: string[];
@@ -18,7 +18,7 @@ export function CustomSkillForm({ existingNames, onAdd }: Props) {
   const [ability, setAbility] = useState<SkillDef['ability']>('INT');
   const [classSkill, setClassSkill] = useState(false);
   const trimmedName = name.trim();
-  const duplicate = existingNames.some(existing => existing.trim().toLowerCase() === trimmedName.toLowerCase());
+  const duplicate = [...PF1E_SKILLS.map(skill => skill.name), ...existingNames].some(existing => normalizeSkillName(existing) === normalizeSkillName(name));
   const add = () => {
     if (!trimmedName || duplicate) return;
     onAdd({ name: trimmedName, ability, classSkill, ranks: 0, misc: 0, custom: true });

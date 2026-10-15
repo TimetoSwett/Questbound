@@ -24,9 +24,8 @@ const EXTRA_SANITIZERS: Record<string, (value: unknown) => unknown | undefined> 
     if (!isPlainObject(value)) return undefined;
     const coins: Record<string, number> = {};
     for (const key of ['pp', 'gp', 'sp', 'cp']) {
-      const amount = value[key] === undefined ? 0 : value[key];
-      if (typeof amount !== 'number' || !Number.isInteger(amount) || amount < 0 || amount > 1e9) return undefined;
-      coins[key] = amount;
+      const amount = value[key];
+      coins[key] = typeof amount === 'number' && Number.isFinite(amount) && Number.isInteger(amount) && amount >= 0 && amount <= 1e9 ? amount : 0;
     }
     return coins;
   },

@@ -11,12 +11,15 @@ export interface SkillEntry {
   custom?: boolean;
 }
 
+export const normalizeSkillName = (name: string): string => name.trim().toLowerCase();
+
 const abilities = new Set(['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA']);
 const integer = (value: unknown, min: number, max: number) =>
   typeof value === 'number' && Number.isFinite(value) ? Math.max(min, Math.min(max, Math.trunc(value))) : 0;
 
 export function sanitizeSkills(values: unknown[]): SkillEntry[] {
   const result: SkillEntry[] = [];
+  const names = new Set<string>();
   for (const value of values) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
     const raw = value as Record<string, unknown>;
@@ -31,6 +34,9 @@ export function sanitizeSkills(values: unknown[]): SkillEntry[] {
     if (typeof raw.specialty === 'string') entry.specialty = raw.specialty.slice(0, 60);
     if (typeof raw.custom === 'boolean') entry.custom = raw.custom;
     if (entry.base) entry.name = entry.specialty ? `${entry.base} (${entry.specialty})` : entry.base;
+    const normalizedName = normalizeSkillName(entry.name);
+    if (names.has(normalizedName)) continue;
+    names.add(normalizedName);
     result.push(entry);
     if (result.length >= 200) break;
   }
