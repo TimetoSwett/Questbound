@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from 'sonner';
 import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
 import { CharacterSheet } from '@/app/campaign/[id]/_components/character-sheet';
+import { CompanionNavProvider } from '@/components/characters/companion-nav';
+import { groupCompanions } from '@/lib/companions';
 import { SiteHeader } from '@/components/site-header';
 
 interface Campaign {
@@ -28,6 +30,8 @@ interface VaultChar {
   campaignId: string | null;
   campaign: { id: string; name: string } | null;
   isAssigned: boolean;
+  ownerCharacterId?: string | null;
+  companionType?: string;
   name: string;
   race: string;
   classes: any;
@@ -194,7 +198,9 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
           <Button variant="ghost" size="sm" onClick={() => { setEditingId(null); fetchVault(); }} className="mb-4">
             <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to vault
           </Button>
-          <CharacterSheet characterId={editingId} editable={true} />
+          <CompanionNavProvider onOpen={setEditingId} onChanged={fetchVault}>
+            <CharacterSheet key={editingId} characterId={editingId} editable={true} />
+          </CompanionNavProvider>
         </main>
       </div>
     );
@@ -304,14 +310,14 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
           ) : (
             <Stagger key="vault" staggerDelay={0.06}>
               <div className="grid gap-3">
-                {(vault ?? []).map((ch: VaultChar) => {
+                {groupCompanions(vault ?? []).map(({ item: ch, depth, isCompanion }) => {
                   const cls = classSummary(ch.classes);
                   return (
                     <StaggerItem key={ch.id}>
-                      <HoverLift>
+                      <HoverLift className={depth ? 'ml-6' : undefined}>
                         <div className="flex items-center gap-3 bg-card p-4 rounded-lg border border-border hover:border-primary/30 transition-colors" style={{ boxShadow: 'var(--shadow-sm)' }}>
                           <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setEditingId(ch.id)}>
-                            <h3 className="font-display font-semibold truncate">{ch.name ?? 'Unnamed'}</h3>
+                            <h3 className="font-display font-semibold truncate">{ch.name ?? 'Unnamed'}{isCompanion && <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 align-middle text-xs font-normal text-muted-foreground">{ch.companionType || 'Companion'}</span>}</h3>
                             {ch.campaign ? (
                               <Link
                                 href={`/campaign/${ch.campaign.id}`}

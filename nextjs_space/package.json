@@ -11,6 +11,7 @@
     "test:loot": "node scripts/test-loot.mjs",
     "test:realtime": "node scripts/test-realtime.mjs",
     "test:equipment": "node scripts/test-equipment.mjs",
+    "test:companions": "node scripts/test-companions.mjs",
     "test:library": "node scripts/test-library.mjs",
     "test:catalog": "node scripts/test-catalog.mjs",
     "import:aon-spells": "tsx scripts/import-aon-spells.ts",

@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
 import { CharacterSheet } from './character-sheet';
+import { CompanionNavProvider } from '@/components/characters/companion-nav';
 
 interface NpcSummary {
   id: string;
@@ -118,7 +119,9 @@ export function NpcsTab({ campaignId }: { campaignId: string }) {
         <Button variant="ghost" size="sm" onClick={() => { setSelectedCharId(null); load(); }} className="mb-4">
           <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to NPCs
         </Button>
-        <CharacterSheet characterId={selectedCharId} editable={true} />
+        <CompanionNavProvider onOpen={setSelectedCharId}>
+          <CharacterSheet key={selectedCharId} characterId={selectedCharId} editable={true} />
+        </CompanionNavProvider>
       </div>
     );
   }

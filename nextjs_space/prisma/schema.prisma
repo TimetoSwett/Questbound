@@ -198,8 +198,16 @@ model Character {
   creature       Creature?       @relation("CharacterCreature", fields: [creatureId], references: [id], onDelete: SetNull)
   inventoryItems InventoryItem[]
 
+  // Companion sheets (animal companion, familiar, eidolon...) point at their owner
+  // sheet. Visibility is NOT inherited through this link; see lib/companions.ts.
+  ownerCharacterId String?
+  owner            Character?  @relation("CharacterCompanions", fields: [ownerCharacterId], references: [id], onDelete: SetNull)
+  companions       Character[] @relation("CharacterCompanions")
+  companionType    String      @default("")
+
   @@index([campaignId])
   @@index([userId])
+  @@index([ownerCharacterId])
 }
 
 model WikiPage {

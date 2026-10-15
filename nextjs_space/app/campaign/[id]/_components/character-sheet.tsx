@@ -29,6 +29,8 @@ import { formatCoins } from '@/lib/coins';
 import { AddSpellToLibraryDialog } from './add-spell-dialog';
 import { AddSpellSearchDialog } from './add-spell-search-dialog';
 import { CatalogSearchDialog } from '@/components/library/catalog-search-dialog';
+import { CompanionSwitcher } from '@/components/characters/companion-switcher';
+import { CompanionPanel } from '@/components/characters/companion-panel';
 import { ABILITY_TAGS, abilityTag, featFromLibrary, gearFromLibrary } from '@/lib/catalog';
 import type { AbilityTag } from '@/lib/catalog';
 import type { FeatData, GearData } from '@/lib/library';
@@ -441,6 +443,8 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
 
   return (
     <div className="space-y-4">
+      <CompanionSwitcher characterId={characterId} />
+      <CompanionPanel characterId={characterId} campaignId={data?.campaignId ?? null} editable={editable} />
       {/* Section tabs */}
       <div className="flex flex-wrap gap-1 bg-card/50 p-1 rounded-lg">
         {sections.map((s) => (
