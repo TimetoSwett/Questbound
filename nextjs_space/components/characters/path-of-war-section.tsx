@@ -110,9 +110,10 @@ export function PathOfWarSection({ value, editable, abilityMods, onChange }: Pro
       </div>
       {data.maneuvers.length === 0 && <p className="text-xs text-muted-foreground py-4 text-center">No maneuvers</p>}
       {data.maneuvers.map((m, index) => ({ m, index })).sort((a, b) => a.m.level - b.m.level || a.index - b.index).map(({ m }) => (
-        <div key={m.id} className={`rounded-lg border bg-card/50 p-3 space-y-2 ${m.expended ? 'opacity-60' : ''}`}>
+        <div key={m.id} className={`rounded-lg border p-3 space-y-2 ${m.expended ? 'bg-muted/30' : 'bg-card/50'}`}>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{m.name || 'Unnamed maneuver'}</span>
+            <span className={`font-medium ${m.expended ? 'line-through' : ''}`}>{m.name || 'Unnamed maneuver'}</span>
+            {m.expended && <span className="text-xs rounded border px-1.5 py-0.5 text-muted-foreground">Expended</span>}
             <span className="text-xs text-muted-foreground">{m.discipline} · Level {m.level} · {m.type}</span>
             <span className="text-xs font-mono rounded bg-muted px-1.5 py-0.5" title={`10 + ${m.level} + ${formatMod(mod)}`}>DC {saveDC(m.level, mod)}</span>
             <div className="ml-auto flex items-center gap-3">

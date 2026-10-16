@@ -20,7 +20,7 @@ export function CompanionSwitcher({ characterId }: { characterId: string }) {
       disabled={current || !nav}
       onClick={() => nav?.onOpen(c.id)}
       className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
-        current ? 'bg-primary text-primary-foreground border-transparent' : 'bg-card hover:border-primary/40 disabled:opacity-60'
+        current ? 'bg-primary text-primary-foreground border-transparent' : 'bg-card hover:border-primary/40 disabled:text-muted-foreground disabled:cursor-not-allowed'
       }`}
     >
       {label ?? c.name}{c.companionType && !label ? ` (${c.companionType})` : ''}
