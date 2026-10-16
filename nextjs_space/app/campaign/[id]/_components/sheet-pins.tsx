@@ -72,12 +72,12 @@ export function PinRail({ ids, side, data, stats, editable, onChange, onUnpin }:
         </div>
       </Card>;
       if (id === 'attacks') return <Card key={id} title="Attacks" onUnpin={() => onUnpin(id)}>
-        {weapons.length === 0 ? <p className="text-xs text-muted-foreground">No weapons equipped.</p> : weapons.map((weapon: { name: string; ability?: 'str' | 'dex'; extraAbilities?: AbilityName[]; attackBonus?: number; damage?: string; damageBonus?: number; crit?: string; range?: number; type?: string; category?: 'melee' | 'ranged' | 'thrown' | 'composite' }, index: number) => {
+        {weapons.length === 0 ? <p className="text-xs text-muted-foreground">No weapons equipped.</p> : weapons.map((weapon: { name: string; ability?: 'str' | 'dex'; extraAbilities?: AbilityName[]; attackBonus?: number; damage?: string; damageBonus?: number; crit?: string; range?: number; type?: string; category?: 'melee' | 'ranged' | 'thrown' | 'composite'; hands?: 'one' | 'two' | 'off'; baseDie?: 'medium' }, index: number) => {
           const ability = weapon.ability === 'dex' ? 'dex' : 'str';
           const extra = (weapon.extraAbilities ?? []).reduce((sum, item) => sum + (stats?.mods?.[item] ?? 0), 0);
           const totals = weaponTotals(
-            { name: weapon.name, attackBonus: weapon.attackBonus || 0, ability, damage: weapon.damage || '1d6', damageBonus: weapon.damageBonus || 0, crit: weapon.crit || '20/x2', range: weapon.range || 0, type: weapon.type || '', category: weapon.category },
-            Number(data?.bab) || 0, stats?.strMod ?? 0, stats?.dexMod ?? 0, Number(data?.sizeMod) || 0, (stats?.itemBonuses?.attack ?? 0) + extra, stats?.itemBonuses?.damage ?? 0,
+            { name: weapon.name, attackBonus: weapon.attackBonus || 0, ability, damage: weapon.damage || '1d6', damageBonus: weapon.damageBonus || 0, crit: weapon.crit || '20/x2', range: weapon.range || 0, type: weapon.type || '', category: weapon.category, hands: weapon.hands, baseDie: weapon.baseDie },
+            Number(data?.bab) || 0, stats?.strMod ?? 0, stats?.dexMod ?? 0, Number(data?.sizeMod) || 0, (stats?.itemBonuses?.attack ?? 0) + extra, stats?.itemBonuses?.damage ?? 0, data?.size,
           );
           return <p key={`${weapon.name}-${index}`} className="text-xs"><span className="font-medium">{weapon.name}</span> <span className="font-mono">{formatMod(totals.attack)} · {totals.damage}</span></p>;
         })}

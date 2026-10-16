@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { BODY_SLOTS, STACKS, STACK_LABELS, UNSLOTTED_SLOTS, bonusLabel, equipmentEffects, weaponTotals } from '@/lib/equipment';
+import { BODY_SLOTS, STACKS, STACK_LABELS, UNSLOTTED_SLOTS, bonusLabel, equipmentEffects, newWeapon, weaponTotals } from '@/lib/equipment';
 import type { AcBonusName, AbilityName, Equipped, ItemBonus, SaveBonusName, SlotItem, ArmorPiece, StackKind, Weapon } from '@/lib/equipment';
 import { PF1E_SKILLS, formatMod } from '@/lib/pf1e-skills';
 import { CatalogSearchDialog } from '@/components/library/catalog-search-dialog';
@@ -22,7 +22,6 @@ function wornEffect(notes: string | undefined): string {
   return (prose.length ? prose : parts).join('\n\n');
 }
 const emptyArmor: ArmorPiece = { name: '', acBonus: 0, maxDex: null, checkPenalty: 0, spellFailure: 0 };
-const emptyWeapon: Weapon = { name: '', attackBonus: 0, ability: 'str', damage: '1d6', damageBonus: 0, crit: '20/x2', range: 0, type: '' };
 function blankBonus(kind: ItemBonus['kind']): ItemBonus {
   if (kind === 'ability') return { kind, ability: 'wis', amount: 2 };
   if (kind === 'ac') return { kind, bonus: 'deflection', amount: 1 };
@@ -125,7 +124,7 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
       </div>;
     })}</div>
     <div className="rounded-lg border bg-card p-4 space-y-4">
-      <div className="flex flex-wrap justify-between gap-2"><h3>Weapons</h3>{editable && <div className="flex gap-1"><Button variant="ghost" disabled={(value.weapons?.length ?? 0) >= 50} onClick={() => setPicker('weapon')}>+ From armory</Button><Button variant="ghost" disabled={(value.weapons?.length ?? 0) >= 50} onClick={() => onChange({ ...value, weapons: [...(value.weapons ?? []), { ...emptyWeapon }] })}>+ Custom weapon</Button></div>}</div>
+      <div className="flex flex-wrap justify-between gap-2"><h3>Weapons</h3>{editable && <div className="flex gap-1"><Button variant="ghost" disabled={(value.weapons?.length ?? 0) >= 50} onClick={() => setPicker('weapon')}>+ From armory</Button><Button variant="ghost" disabled={(value.weapons?.length ?? 0) >= 50} onClick={() => onChange({ ...value, weapons: [...(value.weapons ?? []), newWeapon()] })}>+ Custom weapon</Button></div>}</div>
       {(value.weapons ?? []).map((weapon, index) => {
         const change = (next: Weapon) => onChange({ ...value, weapons: value.weapons?.map((w, i) => i === index ? next : w) });
         const extra = (weapon.extraAbilities ?? []).reduce((sum, ability) => sum + (abilityMods?.[ability] ?? 0), 0);
@@ -143,6 +142,7 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
             {numeric('Damage bonus', weapon.damageBonus, v => change({ ...weapon, damageBonus: v ?? 0 }))}
             <div><Label>Weapon category</Label><select aria-label="Weapon category" className="w-full min-h-[44px] rounded-md border bg-card" disabled={!editable} value={weapon.category ?? 'melee'} onChange={e => change({ ...weapon, category: e.target.value as Weapon['category'] })}><option value="melee">Melee</option><option value="ranged">Ranged</option><option value="thrown">Thrown</option><option value="composite">Composite</option></select></div>
             <div><Label>Hands</Label><select aria-label="Weapon hands" className="w-full min-h-[44px] rounded-md border border-input bg-card text-foreground" disabled={!editable} value={weapon.hands ?? 'one'} onChange={e => change({ ...weapon, hands: e.target.value === 'one' ? undefined : e.target.value as Weapon['hands'] })}><option value="one">One-handed (Str ×1)</option><option value="two">Two-handed (Str ×1½)</option><option value="off">Off-hand (Str ×½)</option></select></div>
+            <label className="flex items-center gap-2 text-sm text-foreground sm:col-span-2 min-h-[44px]"><input type="checkbox" aria-label="Scale die by size" className="h-4 w-4 accent-primary" disabled={!editable} checked={weapon.baseDie === 'medium'} onChange={e => { const { baseDie: _omit, ...rest } = weapon; void _omit; change(e.target.checked ? { ...rest, baseDie: 'medium' } : rest); }} />Scale die by size<span className="text-xs text-muted-foreground">(die is the Medium value)</span></label>
             {numeric('Range (ft)', weapon.range, v => change({ ...weapon, range: v ?? 0 }), false, 0, 100000)}
           </div>
           <p className="font-mono text-sm">Attack {formatMod(totals.attack)} · Damage {totals.damage}</p>

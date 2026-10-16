@@ -95,6 +95,7 @@ export interface Weapon extends SlotItem {
   range: number;            // ft, 0 = melee
   category?: 'melee' | 'ranged' | 'thrown' | 'composite'; // missing = melee
   hands?: WeaponHands;      // missing = one-handed (Str x1)
+  baseDie?: 'medium';       // set = damage is the Medium die and scales with creature size; missing = die used as typed
   type: string;             // e.g. "S", "P", "B/P"
 }
 
@@ -270,12 +271,17 @@ export function sizedDamage(damage: string, size: string | null | undefined): st
   return damage;
 }
 
-/** Ranged weapons add no Strength; see strengthDamage. Damage die is scaled from Medium by creature size. */
+/** Default for a newly added custom weapon (Medium die, scales with size). */
+export function newWeapon(): Weapon {
+  return { name: '', attackBonus: 0, ability: 'str', damage: '1d6', damageBonus: 0, crit: '20/x2', range: 0, type: '', baseDie: 'medium' };
+}
+
+/** Ranged weapons add no Strength; see strengthDamage. The die scales from Medium by creature size only when baseDie is 'medium'. */
 export function weaponTotals(weapon: Weapon, bab: number, strMod: number, dexMod: number, sizeMod = 0, extraAttack = 0, extraDamage = 0, size?: string | null) {
   const damageBonus = strengthDamage(strMod, weapon.category, weapon.hands) + weapon.damageBonus + extraDamage;
   return {
     attack: bab + (weapon.ability === 'dex' ? dexMod : strMod) + weapon.attackBonus + sizeMod + extraAttack,
-    damage: `${sizedDamage(weapon.damage, size)}${damageBonus === 0 ? '' : damageBonus > 0 ? `+${damageBonus}` : damageBonus}`,
+    damage: `${weapon.baseDie === 'medium' ? sizedDamage(weapon.damage, size) : weapon.damage}${damageBonus === 0 ? '' : damageBonus > 0 ? `+${damageBonus}` : damageBonus}`,
   };
 }
 

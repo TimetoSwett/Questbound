@@ -51,8 +51,23 @@ assert.equal(weaponTotals({ ...plain, hands: 'off' }, 0, -3, 0).damage, '1d8-3')
 assert.equal(weaponTotals({ ...plain, hands: 'two', category: 'thrown' }, 0, 4, 0).damage, '1d8+6');
 assert.equal(weaponTotals({ ...plain, hands: 'two', category: 'ranged' }, 0, 5, 0).damage, '1d8');
 // Size steps
-assert.equal(weaponTotals({ ...plain, damage: '1d4' }, 0, 0, 0, 0, 0, 0, 'Small').damage, '1d3');
-assert.equal(weaponTotals(plain, 0, 0, 0, 0, 0, 0, 'Large').damage, '2d6');
+const medium = { ...plain, baseDie: 'medium' };
+assert.equal(weaponTotals({ ...medium, damage: '1d4' }, 0, 0, 0, 0, 0, 0, 'Small').damage, '1d3');
+assert.equal(weaponTotals(medium, 0, 0, 0, 0, 0, 0, 'Large').damage, '2d6');
+// Legacy weapons (no baseDie) keep the die exactly as typed
+assert.equal(weaponTotals({ ...plain, damage: '1d4' }, 0, 0, 0, 0, 0, 0, 'Small').damage, '1d4');
+assert.equal(weaponTotals(plain, 0, 0, 0, 0, 0, 0, 'Large').damage, '1d8');
+assert.equal(equipment.formatWeaponDamage(plain, 0, 2, 0, 0, 0, 0, 'Large'), '1d8+2');
+assert.equal(equipment.formatWeaponDamage(medium, 0, 2, 0, 0, 0, 0, 'Large'), '2d6+2');
+// New and library weapons get the flag
+assert.equal(equipment.newWeapon().baseDie, 'medium');
+const catalog = load('lib/catalog.ts');
+assert.equal(catalog.weaponFromLibrary('Longsword', { damage: '1d8' }, {}).baseDie, 'medium');
+// Validator: only 'medium' or absent
+assert.equal(validation.equippedSchema.safeParse({ weapons: [{ ...weapon, baseDie: 'medium' }] }).success, true);
+assert.equal(validation.equippedSchema.safeParse({ weapons: [weapon] }).success, true);
+assert.equal(validation.equippedSchema.safeParse({ weapons: [{ ...weapon, baseDie: 'small' }] }).success, false);
+assert.equal(validation.equippedSchema.safeParse({ weapons: [{ ...weapon, baseDie: true }] }).success, false);
 assert.equal(sizedDamage('1d8', 'Medium'), '1d8');
 assert.equal(sizedDamage('1d8', 'Small'), '1d6');
 assert.equal(sizedDamage('2d6', 'Large'), '3d6');

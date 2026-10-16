@@ -38,6 +38,7 @@ const weapon = slot.extend({
   range: z.number().int().min(0).max(100000),
   category: z.enum(['melee', 'ranged', 'thrown', 'composite']).optional(),
   hands: z.enum(['one', 'two', 'off']).optional(),
+  baseDie: z.literal('medium').optional(),
   type: z.string().max(100),
 });
 const buff = z.object({
