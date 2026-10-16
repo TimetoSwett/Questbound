@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ABILITIES, AC_BONUSES, BODY_SLOTS, SAVE_BONUSES, STACKS, UNSLOTTED_SLOTS } from './equipment';
+import { ABILITIES, AC_BONUSES, BODY_SLOTS, SAVE_BONUSES, SHEET_PINS, STACKS, UNSLOTTED_SLOTS } from './equipment';
 
 const number = z.number().int().min(-1000).max(1000);
 const bonusAmount = z.number().int().min(-30).max(30);
@@ -69,6 +69,10 @@ const sheet = z.object({
   favoredNotes: z.string().max(500).optional(),
   dr: z.array(z.object({ amount: z.number().int().min(0).max(1000), bypass: z.string().max(80) }).strict()).max(20).optional(),
   resist: z.array(z.object({ energy: z.string().max(40), amount: z.number().int().min(0).max(1000) }).strict()).max(20).optional(),
+  pins: z.object({
+    left: z.array(z.enum(SHEET_PINS)).max(8).optional(),
+    right: z.array(z.enum(SHEET_PINS)).max(8).optional(),
+  }).strict().optional(),
 }).strict();
 export const equippedSchema = z.object({
   armor: armor.nullable().optional(),

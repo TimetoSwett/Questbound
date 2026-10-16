@@ -106,6 +106,9 @@ export interface CharacterBuff {
   sourceUrl?: string | null;
 }
 
+export const SHEET_PINS = ['hp', 'abilities', 'ac', 'saves', 'attacks', 'combat', 'effects'] as const;
+export type SheetPin = (typeof SHEET_PINS)[number];
+
 export interface SheetOptions {
   backstory?: string;
   senses?: { darkvision?: number; lowLight?: boolean; scent?: boolean; blindsense?: number; blindsight?: number; tremorsense?: number; custom?: string[] };
@@ -120,6 +123,7 @@ export interface SheetOptions {
   favoredNotes?: string;
   dr?: { amount: number; bypass: string }[];
   resist?: { energy: string; amount: number }[];
+  pins?: { left?: SheetPin[]; right?: SheetPin[] };
 }
 
 export interface Equipped {

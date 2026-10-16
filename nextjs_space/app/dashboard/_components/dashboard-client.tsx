@@ -194,7 +194,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
     return (
       <div className="min-h-screen bg-background">
         <SiteHeader userName={userName} current={navCurrent} />
-        <main className="max-w-6xl mx-auto px-4 py-4">
+        <main className="w-full px-4 py-4">
           <Button variant="ghost" size="sm" onClick={() => { setEditingId(null); fetchVault(); }} className="mb-4">
             <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to vault
           </Button>

@@ -115,7 +115,7 @@ export function NpcsTab({ campaignId }: { campaignId: string }) {
 
   if (selectedCharId) {
     return (
-      <div className="max-w-6xl mx-auto px-4 py-4">
+      <div className="w-full px-4 py-4">
         <Button variant="ghost" size="sm" onClick={() => { setSelectedCharId(null); load(); }} className="mb-4">
           <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to NPCs
         </Button>
