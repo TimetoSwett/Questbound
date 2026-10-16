@@ -341,7 +341,6 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
       if (res.ok) {
         const saved = await res.json();
         setData((previous: any) => ({ ...previous, armorBonus: saved.armorBonus, shieldBonus: saved.shieldBonus }));
-        toast.success('Saved!', { duration: 1500 });
       }
       else toast.error('Save failed');
     } catch { toast.error('Save error'); } finally { setSaving(false); }
