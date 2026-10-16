@@ -94,6 +94,7 @@ export interface Weapon extends SlotItem {
   crit: string;             // e.g. "19-20/x2"
   range: number;            // ft, 0 = melee
   category?: 'melee' | 'ranged' | 'thrown' | 'composite'; // missing = melee
+  hands?: WeaponHands;      // missing = one-handed (Str x1)
   type: string;             // e.g. "S", "P", "B/P"
 }
 
@@ -219,19 +220,65 @@ export function equipmentSkillPenalty(ability: string, checkPenalty: number) {
   return ['STR', 'DEX'].includes(ability.toUpperCase()) ? checkPenalty : 0;
 }
 
-/** Only melee, thrown and composite weapons add Strength to damage. */
-export function weaponTotals(weapon: Weapon, bab: number, strMod: number, dexMod: number, sizeMod = 0, extraAttack = 0, extraDamage = 0) {
-  const damageBonus = (weapon.category === 'ranged' ? 0 : strMod) + weapon.damageBonus + extraDamage;
+export const WEAPON_HANDS = ['one', 'two', 'off'] as const;
+export type WeaponHands = typeof WEAPON_HANDS[number];
+export const CREATURE_SIZES = ['Fine', 'Diminutive', 'Tiny', 'Small', 'Medium', 'Large', 'Huge', 'Gargantuan', 'Colossal'] as const;
+
+/** Strength to damage: ranged none; penalties always in full; melee/thrown x1 one-hand, x1.5 two-hand,
+ *  x0.5 off-hand (rounded down). Composite bows add Str x1 regardless of hands. */
+export function strengthDamage(strMod: number, category: Weapon['category'], hands: WeaponHands | undefined): number {
+  if (category === 'ranged') return 0;
+  if (strMod <= 0 || category === 'composite') return strMod;
+  if (hands === 'two') return Math.floor(strMod * 1.5);
+  if (hands === 'off') return Math.floor(strMod * 0.5);
+  return strMod;
+}
+
+// Pathfinder weapon damage by size, from the Medium die: [Fine, Diminutive, Tiny, Small, Large, Huge, Gargantuan, Colossal].
+const SIZE_DAMAGE: Record<string, string[]> = {
+  '1d2': ['1', '1', '1', '1', '1d3', '1d4', '1d6', '1d8'],
+  '1d3': ['1', '1', '1', '1d2', '1d4', '1d6', '1d8', '2d6'],
+  '1d4': ['1', '1', '1d2', '1d3', '1d6', '1d8', '2d6', '3d6'],
+  '1d6': ['1', '1d2', '1d3', '1d4', '1d8', '2d6', '3d6', '4d6'],
+  '1d8': ['1d2', '1d3', '1d4', '1d6', '2d6', '3d6', '4d6', '6d6'],
+  '1d10': ['1d3', '1d4', '1d6', '1d8', '2d8', '3d8', '4d8', '6d8'],
+  '1d12': ['1d4', '1d6', '1d8', '1d10', '3d6', '4d6', '6d6', '8d6'],
+  '2d4': ['1d2', '1d3', '1d4', '1d6', '2d6', '3d6', '4d6', '6d6'],
+  '2d6': ['1d4', '1d6', '1d8', '1d10', '3d6', '4d6', '6d6', '8d6'],
+  '2d8': ['1d6', '1d8', '1d10', '2d6', '3d8', '4d8', '6d8', '8d8'],
+  '2d10': ['1d8', '1d10', '2d6', '2d8', '4d8', '6d8', '8d8', '12d8'],
+};
+// Larger dice step along these progressions (one step per size category).
+const SIZE_CHAINS = [['1d6', '1d8', '2d6', '3d6', '4d6', '6d6', '8d6', '12d6'], ['1d8', '1d10', '2d8', '3d8', '4d8', '6d8', '8d8', '12d8']];
+
+/** Medium damage die scaled to a creature size; unknown dice or sizes are returned unchanged. */
+export function sizedDamage(damage: string, size: string | null | undefined): string {
+  const index = CREATURE_SIZES.findIndex(item => item.toLowerCase() === (size ?? '').trim().toLowerCase());
+  if (index < 0 || index === 4) return damage;
+  const die = damage.trim().toLowerCase().replace(/\s+/g, '');
+  const row = SIZE_DAMAGE[die];
+  if (row) return row[index < 4 ? index : index - 1];
+  for (const chain of SIZE_CHAINS) {
+    const at = chain.indexOf(die);
+    const next = chain[at + index - 4];
+    if (at >= 2 && next) return next;
+  }
+  return damage;
+}
+
+/** Ranged weapons add no Strength; see strengthDamage. Damage die is scaled from Medium by creature size. */
+export function weaponTotals(weapon: Weapon, bab: number, strMod: number, dexMod: number, sizeMod = 0, extraAttack = 0, extraDamage = 0, size?: string | null) {
+  const damageBonus = strengthDamage(strMod, weapon.category, weapon.hands) + weapon.damageBonus + extraDamage;
   return {
     attack: bab + (weapon.ability === 'dex' ? dexMod : strMod) + weapon.attackBonus + sizeMod + extraAttack,
-    damage: `${weapon.damage}${damageBonus === 0 ? '' : damageBonus > 0 ? `+${damageBonus}` : damageBonus}`,
+    damage: `${sizedDamage(weapon.damage, size)}${damageBonus === 0 ? '' : damageBonus > 0 ? `+${damageBonus}` : damageBonus}`,
   };
 }
 
 /** Damage cell text: the weaponTotals damage string, or an em dash when the weapon has no damage die. */
-export function formatWeaponDamage(weapon: Weapon, bab: number, strMod: number, dexMod: number, sizeMod = 0, extraAttack = 0, extraDamage = 0): string {
+export function formatWeaponDamage(weapon: Weapon, bab: number, strMod: number, dexMod: number, sizeMod = 0, extraAttack = 0, extraDamage = 0, size?: string | null): string {
   if (!weapon.damage?.trim()) return '\u2014';
-  return weaponTotals({ ...weapon, damage: weapon.damage.trim() }, bab, strMod, dexMod, sizeMod, extraAttack, extraDamage).damage;
+  return weaponTotals({ ...weapon, damage: weapon.damage.trim() }, bab, strMod, dexMod, sizeMod, extraAttack, extraDamage, size).damage;
 }
 
 /** Typographic crit text ("19-20/x2" -> "19\u201320/\u00d72"); empty string when no crit is stored. */

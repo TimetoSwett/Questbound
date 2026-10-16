@@ -72,9 +72,10 @@ export function BonusEditor({ bonuses, onChange, hint = 'This gives a bonus whil
     <Button variant="ghost" onClick={() => onChange([...bonuses, blankBonus('ability')])}>Add bonus</Button>
   </div>;
 }
-export function EquipmentEditor({ value, onChange, characterId, campaignId, editable, bab, strMod, dexMod, sizeMod, attackMod = 0, damageMod = 0, abilityMods }: {
+export function EquipmentEditor({ value, onChange, characterId, campaignId, editable, bab, strMod, dexMod, sizeMod, attackMod = 0, damageMod = 0, abilityMods, size }: {
   value: Equipped; onChange: (value: Equipped) => void; characterId: string; campaignId: string | null; editable: boolean; bab: number; strMod: number; dexMod: number; sizeMod: number; attackMod?: number; damageMod?: number;
   abilityMods?: Partial<Record<AbilityName, number>>;
+  size?: string | null;
 }) {
   const [items, setItems] = useState<Choice[]>([]);
   const [error, setError] = useState(false);
@@ -128,7 +129,7 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
       {(value.weapons ?? []).map((weapon, index) => {
         const change = (next: Weapon) => onChange({ ...value, weapons: value.weapons?.map((w, i) => i === index ? next : w) });
         const extra = (weapon.extraAbilities ?? []).reduce((sum, ability) => sum + (abilityMods?.[ability] ?? 0), 0);
-        const totals = weaponTotals(weapon, bab, strMod, dexMod, sizeMod, attackMod + extra, damageMod);
+        const totals = weaponTotals(weapon, bab, strMod, dexMod, sizeMod, attackMod + extra, damageMod, size);
         return <div key={index} className="rounded-md border p-3 space-y-3">
           {identity(weapon, change, `Weapon ${index + 1}`)}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -141,6 +142,7 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
             {(['damage', 'crit', 'type'] as const).map(field => <div key={field}><Label>{field === 'damage' ? 'Damage dice' : field === 'crit' ? 'Critical' : 'Damage type'}</Label><Input aria-label={field} maxLength={100} value={weapon[field]} disabled={!editable} onChange={e => change({ ...weapon, [field]: e.target.value })} /></div>)}
             {numeric('Damage bonus', weapon.damageBonus, v => change({ ...weapon, damageBonus: v ?? 0 }))}
             <div><Label>Weapon category</Label><select aria-label="Weapon category" className="w-full min-h-[44px] rounded-md border bg-card" disabled={!editable} value={weapon.category ?? 'melee'} onChange={e => change({ ...weapon, category: e.target.value as Weapon['category'] })}><option value="melee">Melee</option><option value="ranged">Ranged</option><option value="thrown">Thrown</option><option value="composite">Composite</option></select></div>
+            <div><Label>Hands</Label><select aria-label="Weapon hands" className="w-full min-h-[44px] rounded-md border border-input bg-card text-foreground" disabled={!editable} value={weapon.hands ?? 'one'} onChange={e => change({ ...weapon, hands: e.target.value === 'one' ? undefined : e.target.value as Weapon['hands'] })}><option value="one">One-handed (Str ×1)</option><option value="two">Two-handed (Str ×1½)</option><option value="off">Off-hand (Str ×½)</option></select></div>
             {numeric('Range (ft)', weapon.range, v => change({ ...weapon, range: v ?? 0 }), false, 0, 100000)}
           </div>
           <p className="font-mono text-sm">Attack {formatMod(totals.attack)} · Damage {totals.damage}</p>

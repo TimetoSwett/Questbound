@@ -683,14 +683,14 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                     </tr>
                   </thead>
                   <tbody>
-                    {(data?.equipped?.weapons ?? []).filter((weapon: { name?: string }) => weapon?.name?.trim()).map((weapon: { name: string; ability?: 'str' | 'dex'; extraAbilities?: AbilityName[]; attackBonus?: number; damage?: string; damageBonus?: number; crit?: string; range?: number; type?: string; category?: 'melee' | 'ranged' | 'thrown' | 'composite' }, index: number) => {
+                    {(data?.equipped?.weapons ?? []).filter((weapon: { name?: string }) => weapon?.name?.trim()).map((weapon: { name: string; ability?: 'str' | 'dex'; extraAbilities?: AbilityName[]; attackBonus?: number; damage?: string; damageBonus?: number; crit?: string; range?: number; type?: string; category?: 'melee' | 'ranged' | 'thrown' | 'composite'; hands?: 'one' | 'two' | 'off' }, index: number) => {
                       const ability: 'str' | 'dex' = weapon.ability === 'dex' ? 'dex' : 'str';
                       const extraAbilities = weapon.extraAbilities ?? [];
                       const stat = (stats?.mods?.[ability] ?? 0) + extraAbilities.reduce((sum, extra) => sum + (stats?.mods?.[extra] ?? 0), 0);
                       const bab = parseInt(data?.bab) || 0;
                       const misc = (weapon.attackBonus || 0) + (parseInt(data?.sizeMod) || 0) + (stats?.itemBonuses.attack ?? 0);
-                      const piece = { name: weapon.name, attackBonus: weapon.attackBonus || 0, ability, damage: weapon.damage || '1d6', damageBonus: weapon.damageBonus || 0, crit: weapon.crit || '20/x2', range: weapon.range || 0, type: weapon.type || '', category: weapon.category };
-                      const totalsArgs = [bab, stats?.strMod ?? 0, stats?.dexMod ?? 0, parseInt(data?.sizeMod) || 0, (stats?.itemBonuses.attack ?? 0) + extraAbilities.reduce((sum, extra) => sum + (stats?.mods?.[extra] ?? 0), 0), stats?.itemBonuses.damage ?? 0] as const;
+                      const piece = { name: weapon.name, attackBonus: weapon.attackBonus || 0, ability, damage: weapon.damage || '1d6', damageBonus: weapon.damageBonus || 0, crit: weapon.crit || '20/x2', range: weapon.range || 0, type: weapon.type || '', category: weapon.category, hands: weapon.hands };
+                      const totalsArgs = [bab, stats?.strMod ?? 0, stats?.dexMod ?? 0, parseInt(data?.sizeMod) || 0, (stats?.itemBonuses.attack ?? 0) + extraAbilities.reduce((sum, extra) => sum + (stats?.mods?.[extra] ?? 0), 0), stats?.itemBonuses.damage ?? 0, data?.size] as const;
                       const total = weaponTotals(piece, ...totalsArgs).attack;
                       const damageText = formatWeaponDamage({ ...piece, damage: weapon.damage ?? '' }, ...totalsArgs);
                       const critText = formatCrit(weapon.crit);
@@ -708,7 +708,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                 </table>
               </div>
             )}
-            <p className="text-xs text-muted-foreground mt-2">Damage uses the same totals as the Equipment tab (die + Str for melee/thrown + weapon and gear damage bonuses); crit shown when set. Total = ability + BAB + misc. Misc is the weapon's attack bonus, size, and attack bonuses from gear, feats, and conditions.</p>
+            <p className="text-xs text-muted-foreground mt-2">Damage uses the same totals as the Equipment tab (die scaled by size + Str x1 / x1.5 two-hand / x0.5 off-hand for melee/thrown + weapon and gear damage bonuses); crit shown when set. Total = ability + BAB + misc. Misc is the weapon's attack bonus, size, and attack bonuses from gear, feats, and conditions.</p>
           </div>
 
           {/* Saving Throws */}
@@ -811,7 +811,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
       )}
 
       {isSection('equipped') && <EquipmentEditor value={data.equipped ?? {}} characterId={characterId} campaignId={data.campaignId} editable={editable}
-        bab={Number(data.bab) || 0} strMod={stats?.strMod ?? 0} dexMod={stats?.dexMod ?? 0} sizeMod={Number(data.sizeMod) || 0} attackMod={stats?.itemBonuses.attack ?? 0} damageMod={stats?.itemBonuses.damage ?? 0} abilityMods={stats?.mods}
+        bab={Number(data.bab) || 0} strMod={stats?.strMod ?? 0} dexMod={stats?.dexMod ?? 0} sizeMod={Number(data.sizeMod) || 0} attackMod={stats?.itemBonuses.attack ?? 0} damageMod={stats?.itemBonuses.damage ?? 0} abilityMods={stats?.mods} size={data.size}
         onChange={value => {
           for (const key of ['armor', 'shield'] as const) {
             const field = key === 'armor' ? 'armorBonus' : 'shieldBonus';
