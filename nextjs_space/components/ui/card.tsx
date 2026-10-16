@@ -12,13 +12,13 @@ const cardVariants = cva(
         interactive:
           "transition-all duration-normal hover:shadow-md hover:-translate-y-0.5 hover:border-primary/20",
         "glass-dark":
-          "bg-card/80 backdrop-blur-xl border border-border shadow-md ",
+          "bg-foreground/85 backdrop-blur-xl border border-foreground/20 shadow-md text-background",
         "glass-dark-interactive":
-          "bg-card/80 backdrop-blur-xl border border-border shadow-md  transition-all duration-normal hover:bg-card/80 hover:border-border hover:shadow-lg hover:-translate-y-0.5",
+          "bg-foreground/85 backdrop-blur-xl border border-foreground/20 shadow-md text-background transition-all duration-normal hover:bg-foreground/95 hover:shadow-lg hover:-translate-y-0.5",
         "glass-light":
-          "bg-card/80 backdrop-blur-xl border border-border shadow-md  text-foreground",
+          "bg-card/80 backdrop-blur-xl border border-border shadow-md text-foreground",
         "glass-light-interactive":
-          "bg-card/80 backdrop-blur-xl border border-border shadow-md  text-foreground transition-all duration-normal hover:bg-card/80 hover:border-border hover:shadow-lg hover:-translate-y-0.5",
+          "bg-card/80 backdrop-blur-xl border border-border shadow-md text-foreground transition-all duration-normal hover:bg-card hover:border-primary/30 hover:shadow-lg hover:-translate-y-0.5",
         ghost:
           "border-transparent shadow-none bg-transparent",
       },

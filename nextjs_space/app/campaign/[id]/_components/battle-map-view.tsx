@@ -1429,7 +1429,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                   {t.creatureId && (
                     <button onClick={() => void openLinkedCreature(t)} className="text-muted-foreground hover:text-foreground" title="Open linked creature"><BookOpen className="w-3 h-3" /></button>
                   )}
-                  <button onClick={() => removeToken(t.id)} className="text-destructive hover:text-destructive"><Trash2 className="w-3 h-3" /></button>
+                  <button onClick={() => removeToken(t.id)} className="rounded text-destructive hover:text-destructive/80 hover:bg-destructive/15 transition-colors"><Trash2 className="w-3 h-3" /></button>
                 </div>
               ))}
             </div>
@@ -1540,7 +1540,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                       <span className="text-muted-foreground whitespace-nowrap">{enc.tokens.length} token{enc.tokens.length === 1 ? '' : 's'}</span>
                       <span className="ml-auto flex items-center gap-1">
                         <Button size="sm" variant="secondary" onClick={() => spawnEncounter(enc.id)}>Spawn</Button>
-                        <button onClick={() => deleteEncounter(enc.id)} className="text-destructive hover:text-destructive p-1" title="Delete encounter">
+                        <button onClick={() => deleteEncounter(enc.id)} className="rounded text-destructive hover:text-destructive/80 hover:bg-destructive/15 transition-colors p-1" title="Delete encounter">
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </span>
@@ -1595,7 +1595,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                         >
                           {confirmRestore === snap.id ? 'Confirm restore' : 'Restore'}
                         </Button>
-                        <button onClick={() => deleteSnapshot(snap.id)} className="text-destructive hover:text-destructive p-1" title="Delete snapshot">
+                        <button onClick={() => deleteSnapshot(snap.id)} className="rounded text-destructive hover:text-destructive/80 hover:bg-destructive/15 transition-colors p-1" title="Delete snapshot">
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </span>
@@ -1801,7 +1801,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                         <span className="font-mono w-8 text-center">{e.initiative}</span>
                         <span className="flex-1 truncate" title={e.label}>{e.label}</span>
                         {e.id === state?.activeId && <span className="text-[10px] uppercase tracking-wide text-primary">active</span>}
-                        <button onClick={() => removeEntry(e.id)} className="text-destructive hover:text-destructive" title="Remove"><Trash2 className="w-3 h-3" /></button>
+                        <button onClick={() => removeEntry(e.id)} className="rounded text-destructive hover:text-destructive/80 hover:bg-destructive/15 transition-colors" title="Remove"><Trash2 className="w-3 h-3" /></button>
                       </div>
                     ))}
                     {!sortedTurns.length && <p className="text-xs text-muted-foreground">No entries yet — add combatants above.</p>}
