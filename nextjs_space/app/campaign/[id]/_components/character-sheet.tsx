@@ -446,7 +446,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
   const leftPins = (pins.left ?? []).filter((id: string): id is SheetPin => pinChoices().some(choice => choice.id === id));
   const rightPins = (pins.right ?? []).filter((id: string): id is SheetPin => pinChoices().some(choice => choice.id === id));
   const pinned = leftPins.length + rightPins.length > 0;
-  const pin = (side: 'left' | 'right', id: SheetPin) => patchSheet({ pins: toggleSheetPin(pins, side, id) });
+  const pin = (side: 'left' | 'right', id: SheetPin) => { if (!editable) return; patchSheet({ pins: toggleSheetPin(pins, side, id) }); };
 
   return (
     <div className={`mx-auto w-full ${pinned ? 'max-w-[96rem] xl:grid xl:items-start xl:gap-4 ' + (leftPins.length && rightPins.length ? 'xl:grid-cols-[14rem_minmax(0,1fr)_14rem]' : leftPins.length ? 'xl:grid-cols-[14rem_minmax(0,1fr)]' : 'xl:grid-cols-[minmax(0,1fr)_14rem]') : 'max-w-6xl'}`}>
@@ -465,7 +465,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           </button>
         ))}
         <div className="ml-auto flex items-center gap-2">
-          <details className="relative">
+          {editable && <details className="relative">
             <summary className="cursor-pointer list-none rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">Pin columns</summary>
             <div className="absolute right-0 z-20 mt-1 w-64 rounded-lg border bg-card p-3 shadow-lg">
               <div className="grid grid-cols-[1fr_auto_auto] gap-x-2 gap-y-1 text-xs">
@@ -474,12 +474,12 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                 <span className="text-center text-muted-foreground">Right</span>
                 {pinChoices().map(choice => <div key={choice.id} className="contents">
                   <span>{choice.label}</span>
-                  <input aria-label={`Pin ${choice.label} left`} type="checkbox" className="justify-self-center" checked={leftPins.includes(choice.id)} onChange={() => pin('left', choice.id)} />
-                  <input aria-label={`Pin ${choice.label} right`} type="checkbox" className="justify-self-center" checked={rightPins.includes(choice.id)} onChange={() => pin('right', choice.id)} />
+                  <input aria-label={`Pin ${choice.label} left`} type="checkbox" className="justify-self-center" checked={leftPins.includes(choice.id)} disabled={!editable} onChange={() => pin('left', choice.id)} />
+                  <input aria-label={`Pin ${choice.label} right`} type="checkbox" className="justify-self-center" checked={rightPins.includes(choice.id)} disabled={!editable} onChange={() => pin('right', choice.id)} />
                 </div>)}
               </div>
             </div>
-          </details>
+          </details>}
           <Button size="sm" onClick={saveNow} loading={saving} disabled={!editable}>
             <Save className="w-4 h-4 mr-1" /> Save
           </Button>
