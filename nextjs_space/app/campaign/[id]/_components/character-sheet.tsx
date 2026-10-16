@@ -25,7 +25,7 @@ import { SensesSection } from './senses-section';
 import { NonlethalField } from './nonlethal-field';
 import { BackstoryTab } from './backstory-tab';
 import { sheetAdjustment, maneuverSize } from '@/lib/conditions';
-import { STACK_LABELS, bonusLabel, equipmentEffects, manualBonusAfterChange, weaponTotals, type AbilityName, type ItemBonus, type SheetOptions } from '@/lib/equipment';
+import { STACK_LABELS, bonusLabel, equipmentEffects, formatCrit, formatWeaponDamage, manualBonusAfterChange, weaponTotals, type AbilityName, type ItemBonus, type SheetOptions } from '@/lib/equipment';
 import { carryLimits, loadBracket } from '@/lib/carry';
 import { CoinsBox, useSharedPurse } from './coins-box';
 import { AddSpellToLibraryDialog } from './add-spell-dialog';
@@ -675,6 +675,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                   <thead>
                     <tr className="text-xs text-muted-foreground border-b border-border">
                       <th className="text-left py-1 px-1">Weapon</th>
+                      <th className="text-center py-1 px-1">Damage</th>
                       <th className="text-center py-1 px-1">Ability</th>
                       <th className="text-center py-1 px-1">BAB</th>
                       <th className="text-center py-1 px-1">Misc</th>
@@ -689,10 +690,14 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                       const bab = parseInt(data?.bab) || 0;
                       const misc = (weapon.attackBonus || 0) + (parseInt(data?.sizeMod) || 0) + (stats?.itemBonuses.attack ?? 0);
                       const piece = { name: weapon.name, attackBonus: weapon.attackBonus || 0, ability, damage: weapon.damage || '1d6', damageBonus: weapon.damageBonus || 0, crit: weapon.crit || '20/x2', range: weapon.range || 0, type: weapon.type || '', category: weapon.category };
-                      const total = weaponTotals(piece, bab, stats?.strMod ?? 0, stats?.dexMod ?? 0, parseInt(data?.sizeMod) || 0, (stats?.itemBonuses.attack ?? 0) + extraAbilities.reduce((sum, extra) => sum + (stats?.mods?.[extra] ?? 0), 0), stats?.itemBonuses.damage ?? 0).attack;
+                      const totalsArgs = [bab, stats?.strMod ?? 0, stats?.dexMod ?? 0, parseInt(data?.sizeMod) || 0, (stats?.itemBonuses.attack ?? 0) + extraAbilities.reduce((sum, extra) => sum + (stats?.mods?.[extra] ?? 0), 0), stats?.itemBonuses.damage ?? 0] as const;
+                      const total = weaponTotals(piece, ...totalsArgs).attack;
+                      const damageText = formatWeaponDamage({ ...piece, damage: weapon.damage ?? '' }, ...totalsArgs);
+                      const critText = formatCrit(weapon.crit);
                       const abilityLabel = [ability, ...extraAbilities].map(item => `${item.toUpperCase()} ${formatMod(stats?.mods?.[item] ?? 0)}`).join(' + ');
                       return <tr key={`${weapon.name}-${index}`} className="border-b border-border/50">
                         <td className="py-1 px-1">{weapon.name}</td>
+                        <td className="text-center font-mono whitespace-nowrap px-1">{damageText}{critText && damageText !== '\u2014' ? <span className="text-muted-foreground text-xs"> {critText}</span> : null}</td>
                         <td className="text-center font-mono">{abilityLabel || formatMod(stat)}</td>
                         <td className="text-center font-mono">{formatMod(bab)}</td>
                         <td className="text-center font-mono">{formatMod(misc)}</td>
@@ -703,7 +708,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                 </table>
               </div>
             )}
-            <p className="text-xs text-muted-foreground mt-2">Total = ability + BAB + misc. Misc is the weapon's attack bonus, size, and attack bonuses from gear, feats, and conditions.</p>
+            <p className="text-xs text-muted-foreground mt-2">Damage uses the same totals as the Equipment tab (die + Str for melee/thrown + weapon and gear damage bonuses); crit shown when set. Total = ability + BAB + misc. Misc is the weapon's attack bonus, size, and attack bonuses from gear, feats, and conditions.</p>
           </div>
 
           {/* Saving Throws */}

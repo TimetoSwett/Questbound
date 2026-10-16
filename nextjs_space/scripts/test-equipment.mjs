@@ -16,7 +16,7 @@ const psionics = load('lib/psionics.ts');
 const pathOfWar = load('lib/path-of-war.ts');
 const equipment = load('lib/equipment.ts');
 const validation = load('lib/equipment-validation.ts', { './equipment': equipment });
-const { equipmentEffects, equipmentSkillPenalty, weaponTotals } = equipment;
+const { equipmentEffects, equipmentSkillPenalty, weaponTotals, formatWeaponDamage, formatCrit } = equipment;
 const armor = { name: 'Mail', acBonus: 6, maxDex: 2, checkPenalty: -5, spellFailure: 30 };
 const shield = { name: 'Shield', acBonus: 2, maxDex: 1, checkPenalty: -2, spellFailure: 15 };
 const weapon = { name: 'Sword', attackBonus: 1, ability: 'str', damage: '1d8', damageBonus: 2, crit: '19-20/x2', range: 0, type: 'S' };
@@ -35,6 +35,11 @@ for (const ability of ['INT', 'WIS', 'CHA', 'CON']) assert.equal(equipmentSkillP
 assert.equal(weaponTotals(weapon, 6, 3, 5, -1).attack, 9);
 assert.equal(weaponTotals({ ...weapon, ability: 'dex' }, 6, 3, 5, 1).attack, 13);
 assert.equal(weaponTotals(weapon, 6, 3, 5).damage, '1d8+5');
+assert.equal(formatWeaponDamage({ ...weapon, damage: '1d4', damageBonus: 0 }, 6, 5, 0), '1d4+5');
+assert.equal(formatWeaponDamage({ ...weapon, damage: '' }, 6, 5, 0), '\u2014');
+assert.equal(formatCrit('19-20/x2'), '19\u201320/\u00d72');
+assert.equal(formatCrit('x3'), '\u00d73');
+assert.equal(formatCrit(''), '');
 assert.equal(weaponTotals({ ...weapon, damageBonus: 0 }, 0, -2, 0).damage, '1d8-2');
 assert.equal(weaponTotals({ ...weapon, damageBonus: 0 }, 0, 0, 0).damage, '1d8');
 for (const category of ['melee', 'thrown', 'composite']) {

@@ -228,6 +228,19 @@ export function weaponTotals(weapon: Weapon, bab: number, strMod: number, dexMod
   };
 }
 
+/** Damage cell text: the weaponTotals damage string, or an em dash when the weapon has no damage die. */
+export function formatWeaponDamage(weapon: Weapon, bab: number, strMod: number, dexMod: number, sizeMod = 0, extraAttack = 0, extraDamage = 0): string {
+  if (!weapon.damage?.trim()) return '\u2014';
+  return weaponTotals({ ...weapon, damage: weapon.damage.trim() }, bab, strMod, dexMod, sizeMod, extraAttack, extraDamage).damage;
+}
+
+/** Typographic crit text ("19-20/x2" -> "19\u201320/\u00d72"); empty string when no crit is stored. */
+export function formatCrit(crit: string | null | undefined): string {
+  const text = crit?.trim();
+  if (!text) return '';
+  return text.replace(/(\d)\s*-\s*(\d)/g, '$1\u2013$2').replace(/[x\u00d7]\s*(\d)/gi, '\u00d7$1');
+}
+
 /** True when a named armor/shield piece is equipped (blank names are placeholders). */
 export function hasPiece(equipped: Equipped | null | undefined, key: 'armor' | 'shield'): boolean {
   return !!equipped?.[key]?.name?.trim();
