@@ -19,7 +19,8 @@
     "test:aon": "tsx scripts/test-aon-spells.mjs",
     "test:terms": "node scripts/test-term-match.mjs",
     "test:psionics": "node scripts/test-psionics.mjs",
-    "test:pathofwar": "node scripts/test-pathofwar.mjs"
+    "test:pathofwar": "node scripts/test-pathofwar.mjs",
+    "test:battle-visibility": "tsx scripts/test-battle-visibility.mjs"
   },
   "prisma": {
     "seed": "tsx --require dotenv/config scripts/safe-seed.ts"
