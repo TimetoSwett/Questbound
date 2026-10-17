@@ -1,5 +1,7 @@
 'use client';
 
+import { AbilityEntryFields } from '@/components/library/ability-entry-fields';
+import { ABILITY_TAG_LABELS, buildAbilityData, emptyAbilityForm } from '@/lib/library-ability-form';
 import { GearEntryFields } from '@/components/library/gear-entry-fields';
 import { buildGearData, emptyGearForm, GEAR_SLOT_LABELS } from '@/lib/library-gear-form';
 import { FeatEntryFields } from '@/components/library/feat-entry-fields';
@@ -22,7 +24,7 @@ const DETAIL: Record<string, [string, string][]> = {
   armor: [['slot', 'Slot'], ['acBonus', 'AC bonus'], ['maxDex', 'Max Dex'], ['checkPenalty', 'Check penalty'], ['spellFailure', 'Spell failure'], ['cost', 'Cost'], ['weight', 'Weight']],
   gear: [['slot', 'Slot'], ['aura', 'Aura'], ['cl', 'Caster level'], ['cost', 'Cost'], ['weight', 'Weight']],
   feat: [['featType', 'Type'], ['prerequisites', 'Prerequisites'], ['benefit', 'Benefit']],
-  ability: [],
+  ability: [['tag', 'Type'], ['uses', 'Uses']],
 };
 
 function Pages({ page, pages, onPage }: { page: number; pages: number; onPage: (page: number) => void }) {
@@ -107,7 +109,7 @@ export function HallClient({ hall, userName }: { hall: HallId; userName: string 
       <DialogContent className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto">
         <DialogHeader><DialogTitle>{selected?.name}</DialogTitle><DialogDescription>{selected?.summary}</DialogDescription></DialogHeader>
         {!detail ? <p>Loading…</p> : <>
-          <dl className="grid gap-3 sm:grid-cols-2">{(DETAIL[detail.kind] ?? []).map(([key, label]) => <div key={key}><dt className="text-sm font-semibold">{label}</dt><dd className="text-sm text-muted-foreground">{key === 'slot' && detail.kind === 'gear' && detail.data?.[key] ? GEAR_SLOT_LABELS[detail.data[key] as keyof typeof GEAR_SLOT_LABELS] ?? String(detail.data[key]) : key === 'maxDex' && detail.data?.[key] === null ? 'No limit' : key === 'hands' && detail.data?.[key] ? HAND_LABELS[String(detail.data[key])] ?? String(detail.data[key]) : detail.data?.[key] === null || detail.data?.[key] === undefined || detail.data?.[key] === '' ? '—' : String(detail.data[key])}</dd></div>)}</dl>
+          <dl className="grid gap-3 sm:grid-cols-2">{(DETAIL[detail.kind] ?? []).map(([key, label]) => <div key={key}><dt className="text-sm font-semibold">{label}</dt><dd className="text-sm text-muted-foreground">{key === 'tag' && detail.kind === 'ability' && detail.data?.[key] ? ABILITY_TAG_LABELS[detail.data[key] as keyof typeof ABILITY_TAG_LABELS] ?? String(detail.data[key]) : key === 'slot' && detail.kind === 'gear' && detail.data?.[key] ? GEAR_SLOT_LABELS[detail.data[key] as keyof typeof GEAR_SLOT_LABELS] ?? String(detail.data[key]) : key === 'maxDex' && detail.data?.[key] === null ? 'No limit' : key === 'hands' && detail.data?.[key] ? HAND_LABELS[String(detail.data[key])] ?? String(detail.data[key]) : detail.data?.[key] === null || detail.data?.[key] === undefined || detail.data?.[key] === '' ? '—' : String(detail.data[key])}</dd></div>)}</dl>
           <p className="whitespace-pre-wrap text-sm">{String(detail.data?.description || '—')}</p>
           {rulesUrl(detail.sourceUrl) && <a href={rulesUrl(detail.sourceUrl)} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline">See full rules</a>}
         </>}
@@ -167,6 +169,7 @@ export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: stri
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [gearForm, setGearForm] = useState(emptyGearForm());
+  const [abilityForm, setAbilityForm] = useState(emptyAbilityForm());
   const [featForm, setFeatForm] = useState(emptyFeatForm());
   const [handForm, setHandForm] = useState<HandForm>({});
   const [busy, setBusy] = useState(false);
@@ -232,6 +235,12 @@ export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: stri
         </div>}
       </div> : <form noValidate className="space-y-3" onSubmit={(event) => {
         event.preventDefault();
+        if (filter.kind === 'ability') {
+          const result = buildAbilityData({ ...abilityForm, description });
+          if (!result.ok) { setError(result.error); return; }
+          void save({ kind: 'ability', name, data: result.data });
+          return;
+        }
         if (filter.kind === 'feat') {
           const result = buildFeatData({ ...featForm, description });
           if (!result.ok) { setError(result.error); return; }
@@ -249,6 +258,7 @@ export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: stri
         void save({ kind: filter.kind, name, data: { ...stats.data, description } });
       }}>
         <div><Label htmlFor="hand-name">Name</Label><Input id="hand-name" value={name} maxLength={120} onChange={(event) => setName(event.target.value)} required /></div>
+        {filter.kind === 'ability' && <AbilityEntryFields form={abilityForm} onChange={setAbilityForm} />}
         {filter.kind === 'gear' && <GearEntryFields form={gearForm} onChange={setGearForm} />}
         {filter.kind === 'feat' && <FeatEntryFields form={featForm} onChange={setFeatForm} />}
         <HandStats kind={filter.kind} slot={'slot' in filter ? filter.slot : undefined} form={handForm} onChange={setHandForm} />

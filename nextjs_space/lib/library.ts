@@ -125,7 +125,11 @@ export const featDataSchema = z.object({
 }).strict();
 export type FeatData = z.infer<typeof featDataSchema>;
 
+export const ABILITY_TAG_KEYS = ['ex', 'su', 'sp'] as const;
+
 export const abilityDataSchema = z.object({
+  tag: z.enum(ABILITY_TAG_KEYS).optional(),
+  uses: z.string().trim().max(60).optional(),
   description: str(20_000),
 }).strict();
 export type AbilityData = z.infer<typeof abilityDataSchema>;

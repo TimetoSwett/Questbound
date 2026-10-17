@@ -44,7 +44,7 @@ type DrRow = NonNullable<SheetOptions['dr']>[number];
 type ResistRow = NonNullable<SheetOptions['resist']>[number];
 
 interface EquipItem { slot?: string; aura?: string; cl?: number; name: string; weight: number; quantity: number; value: string; notes: string; summary?: string; libraryEntryId?: string; sourceUrl?: string | null; }
-interface FeatEntry { featType?: string; prerequisites?: string; benefit?: string; name: string; description: string; summary?: string; kind?: 'feat' | 'ability'; tag?: AbilityTag; libraryEntryId?: string; sourceUrl?: string | null; bonuses?: ItemBonus[]; }
+interface FeatEntry { uses?: string; featType?: string; prerequisites?: string; benefit?: string; name: string; description: string; summary?: string; kind?: 'feat' | 'ability'; tag?: AbilityTag; libraryEntryId?: string; sourceUrl?: string | null; bonuses?: ItemBonus[]; }
 interface ClassEntry { name: string; level: number; }
 
 function groupFeats(feats: FeatEntry[]) {
@@ -1285,7 +1285,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           onPick={(entry) => {
             const made = featFromLibrary(entry.name, (entry.data ?? {}) as FeatData, { libraryEntryId: entry.id, sourceUrl: entry.sourceUrl });
             const kind = entry.kind === 'ability' ? 'ability' as const : 'feat' as const;
-            const feat = { ...made, summary: entry.summary ?? '', kind, tag: kind === 'ability' ? abilityTag(entry.name, `${entry.summary ?? ''}\n${made.description}`) : undefined };
+            const feat = { ...made, summary: entry.summary ?? '', kind, tag: kind === 'ability' ? made.tag ?? abilityTag(entry.name, `${entry.summary ?? ''}\n${made.description}`) : undefined };
             setData((prev: any) => ({ ...prev, feats: [...(prev?.feats ?? []), feat] }));
             autoSave();
           }}

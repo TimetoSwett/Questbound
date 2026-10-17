@@ -1,6 +1,6 @@
 // Map a library entry onto the character sheet. The sheet keeps its own copy.
 import type { ArmorPiece, SlotItem, Weapon } from './equipment';
-import type { ArmorData, FeatData, GearData, WeaponData } from './library';
+import type { AbilityData, ArmorData, FeatData, GearData, WeaponData } from './library';
 
 type Linked = { libraryEntryId?: string; sourceUrl?: string | null };
 
@@ -56,10 +56,12 @@ export function abilityTag(name: string, body = ''): AbilityTag | undefined {
   return tag === 'ex' || tag === 'su' || tag === 'sp' ? tag : undefined;
 }
 
-export function featFromLibrary(name: string, data: FeatData & { description?: string }, link: Linked) {
+export function featFromLibrary(name: string, data: Partial<FeatData & AbilityData>, link: Linked) {
   const featType = data.featType?.trim();
   const prerequisites = data.prerequisites?.trim();
   const benefit = data.benefit?.trim();
+  const uses = data.uses?.trim();
+  const tag = data.tag === 'ex' || data.tag === 'su' || data.tag === 'sp' ? data.tag : undefined;
   const body = data.description || '';
   const description = !prerequisites && !benefit ? body : [
     prerequisites ? `Prerequisites: ${prerequisites}` : '',
@@ -72,6 +74,7 @@ export function featFromLibrary(name: string, data: FeatData & { description?: s
     ...(featType ? { featType } : {}),
     ...(prerequisites ? { prerequisites } : {}),
     ...(benefit ? { benefit } : {}),
-    tag: abilityTag(name, description), libraryEntryId: link.libraryEntryId, sourceUrl: link.sourceUrl ?? null,
+    ...(uses ? { uses } : {}),
+    tag: tag ?? abilityTag(name, description), libraryEntryId: link.libraryEntryId, sourceUrl: link.sourceUrl ?? null,
   };
 }

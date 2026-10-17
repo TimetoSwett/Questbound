@@ -113,6 +113,12 @@ delete noHandsData.hands;
 const noHands = weaponFromLibrary('Sword', noHandsData, {});
 assert.equal('hands' in noHands, false);
 assert.equal(noHands.baseDie, 'medium');
+const storedAbility = featFromLibrary('X', { tag: 'su', uses: ' 3/day ', description: 'Text (Ex)' }, {});
+assert.equal(storedAbility.tag, 'su');
+assert.equal(storedAbility.uses, '3/day');
+assert.equal(featFromLibrary('X', { description: 'Text (Ex)' }, {}).tag, 'ex');
+assert.equal(featFromLibrary('X', { tag: 'xx', description: 'Text (Ex)' }, {}).tag, 'ex');
+assert.equal('uses' in featFromLibrary('X', { uses: ' ', description: 'd' }, {}), false);
 const mappedFeat = featFromLibrary('Power Attack', {
   featType: ' Combat ', prerequisites: ' Str 13 ', benefit: ' Extra damage. ', description: 'Separate text (Ex).',
 }, { libraryEntryId: 'feat-id', sourceUrl: 'https://example.com/feat' });

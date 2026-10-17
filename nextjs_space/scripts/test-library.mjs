@@ -21,6 +21,24 @@ const deq = (a, b, m) => assert.deepEqual(JSON.parse(JSON.stringify(a)), JSON.pa
 const lib = load('lib/library.ts');
 const { escapeLike, normalizeNameKey, sanitizeSummary, summaryFromDescription, parseCreateInput, parsePatchInput, canEditEntry, canDeleteEntry, canCreateEntry, presentEntry, orderSearchResults, searchQuerySchema } = lib;
 
+// Ability form conversion and legacy data compatibility.
+const { buildAbilityData, emptyAbilityForm } = load('lib/library-ability-form.ts', { './library': lib });
+const builtAbility = buildAbilityData(emptyAbilityForm({ tag: 'su', uses: ' 3/day ', description: ' d ' }));
+assert.equal(builtAbility.ok, true);
+deq(builtAbility.data, { tag: 'su', uses: '3/day', description: 'd' });
+const blankAbility = buildAbilityData(emptyAbilityForm({ tag: ' ', uses: ' ' }));
+assert.equal(blankAbility.ok, true);
+assert.equal('tag' in blankAbility.data, false);
+assert.equal('uses' in blankAbility.data, false);
+assert.equal(buildAbilityData(emptyAbilityForm({ tag: 'xx' })).ok, false);
+const longUses = buildAbilityData(emptyAbilityForm({ uses: 'x'.repeat(61) }));
+assert.equal(longUses.ok, false);
+assert.equal(longUses.error, 'Uses must be at most 60 characters.');
+assert.equal(parseCreateInput({ kind: 'ability', name: 'X', data: { tag: 'sp', uses: 'at will', description: 'd' } }).ok, true);
+assert.equal(parseCreateInput({ kind: 'ability', name: 'X', data: { description: 'd' } }).ok, true);
+assert.equal(parseCreateInput({ kind: 'ability', name: 'X', data: { tag: 'xx', description: 'd' } }).ok, false);
+console.log('ok   ability form & legacy validation');
+
 // Gear form conversion and legacy data compatibility.
 const { buildGearData, emptyGearForm } = load('lib/library-gear-form.ts', { './library': lib });
 const gearForm = emptyGearForm({ cl: '8', aura: ' moderate transmutation ', cost: '4,000 gp', weight: '1' });
