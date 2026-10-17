@@ -5,6 +5,7 @@ import { htmlToText, parseLevels, parseSchool } from './aon-spell-parser';
 import type { CatalogDraft } from './aon-catalog-parser';
 import { sanitizeSummary, summaryFromDescription } from './library';
 import { magicItemCategory, parseD20pfsrdMagicItem } from './d20pfsrd/magic-items';
+import { weaponPath, parseD20pfsrdWeapon } from './d20pfsrd/weapons';
 
 export const D20PFSRD_UNSUPPORTED = 'd20pfsrd import currently supports spells, feats, and magic items (wondrous items, rings, rods, staves) only.';
 export const HINT = ' Open a single spell (/magic/all-spells/…), feat (/feats/…), or magic item (/magic-items/…) page.';
@@ -25,11 +26,12 @@ export function isD20pfsrdUrl(raw: string): boolean {
 }
 
 /** Spell, feat, and magic item (wondrous/ring/rod/staff) page URLs only; indexes, categories and everything else return null. */
-export function d20pfsrdKindForUrl(raw: string): 'spell' | 'feat' | 'gear' | null {
+export function d20pfsrdKindForUrl(raw: string): 'spell' | 'feat' | 'gear' | 'weapon' | null {
   const u = parseUrl(raw);
   if (!u) return null;
   const seg = u.pathname.split('/').filter(Boolean).map((s) => s.toLowerCase());
   if (seg[0] === 'magic-items') return magicItemCategory(seg) ? 'gear' : null;
+  if (weaponPath(seg)) return 'weapon';
   if (seg[0] === 'magic' && (seg[1] === 'all-spells' || seg[1] === '3rd-party-spells')) return seg.length === 4 ? 'spell' : null;
   if (seg[0] === 'feats') {
     if (seg[1] === '3rd-party-feats') return seg.length >= 4 && seg.length <= 5 ? 'feat' : null;
@@ -66,7 +68,7 @@ function stripDivs(html: string, cls: RegExp): string {
 }
 
 /** The entry's title and the blocks (p / lists / tables / headings) after it, minus chrome and extras. */
-function entryBlocks(page: string, kind: 'spell' | 'feat' | 'gear'): { title: string; blocks: Block[] } {
+function entryBlocks(page: string, kind: 'spell' | 'feat' | 'gear' | 'weapon'): { title: string; blocks: Block[] } {
   let h = page.replace(/<!--[\s\S]*?-->/g, '').replace(/<(script|style|noscript)\b[\s\S]*?<\/\1>/gi, '');
   const start = h.search(/<div\b[^>]*\bid=["']article-content["'][^>]*>/i);
   if (start >= 0) h = h.slice(start);
@@ -207,5 +209,6 @@ export function parseD20pfsrdPage(html: string, sourceUrl: string): D20pfsrdDraf
   if (!kind) throw new Error(`${D20PFSRD_UNSUPPORTED}${HINT}`);
   const { title, blocks } = entryBlocks(html, kind);
   if (kind === 'gear') return parseD20pfsrdMagicItem(title, blocks, sourceUrl);
+  if (kind === 'weapon') return parseD20pfsrdWeapon(title, blocks, sourceUrl);
   return kind === 'spell' ? parseSpell(title, blocks, sourceUrl) : parseFeat(title, blocks, sourceUrl);
 }
