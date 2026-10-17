@@ -54,7 +54,21 @@ export function abilityTag(name: string, body = ''): AbilityTag | undefined {
 }
 
 export function featFromLibrary(name: string, data: FeatData & { description?: string }, link: Linked) {
-  const parts = [data.prerequisites ? `Prerequisites: ${data.prerequisites}` : '', data.benefit || data.description || ''].filter(Boolean);
-  const description = parts.join('\n\n');
-  return { name, description, tag: abilityTag(name, description), libraryEntryId: link.libraryEntryId, sourceUrl: link.sourceUrl ?? null };
+  const featType = data.featType?.trim();
+  const prerequisites = data.prerequisites?.trim();
+  const benefit = data.benefit?.trim();
+  const body = data.description || '';
+  const description = !prerequisites && !benefit ? body : [
+    prerequisites ? `Prerequisites: ${prerequisites}` : '',
+    benefit ? `Benefit: ${benefit}` : '',
+    // Skip the full text when it already contains the benefit (AoN imports carry both).
+    body.trim() && !(benefit && body.includes(benefit)) ? body : '',
+  ].filter(Boolean).join('\n\n');
+  return {
+    name, description,
+    ...(featType ? { featType } : {}),
+    ...(prerequisites ? { prerequisites } : {}),
+    ...(benefit ? { benefit } : {}),
+    tag: abilityTag(name, description), libraryEntryId: link.libraryEntryId, sourceUrl: link.sourceUrl ?? null,
+  };
 }

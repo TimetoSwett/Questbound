@@ -86,7 +86,7 @@ lib.stripMissingLibraryIds(sheet, new Set(['keep']));
 assert.equal(sheet.feats[0].libraryEntryId, 'keep');
 assert.equal('libraryEntryId' in sheet.feats[1], false);
 assert.equal('libraryEntryId' in sheet.equipment[0], false);
-const { weaponFromLibrary } = load('lib/catalog.ts');
+const { weaponFromLibrary, featFromLibrary } = load('lib/catalog.ts');
 const twoHanded = weaponFromLibrary('Sword', { ...weapon.data, hands: 'two' }, {});
 assert.equal(twoHanded.hands, 'two');
 assert.equal(twoHanded.baseDie, 'medium');
@@ -95,4 +95,26 @@ delete noHandsData.hands;
 const noHands = weaponFromLibrary('Sword', noHandsData, {});
 assert.equal('hands' in noHands, false);
 assert.equal(noHands.baseDie, 'medium');
+const mappedFeat = featFromLibrary('Power Attack', {
+  featType: ' Combat ', prerequisites: ' Str 13 ', benefit: ' Extra damage. ', description: 'Separate text (Ex).',
+}, { libraryEntryId: 'feat-id', sourceUrl: 'https://example.com/feat' });
+assert.equal(mappedFeat.featType, 'Combat');
+assert.equal(mappedFeat.prerequisites, 'Str 13');
+assert.equal(mappedFeat.benefit, 'Extra damage.');
+assert.equal(mappedFeat.description, 'Prerequisites: Str 13\n\nBenefit: Extra damage.\n\nSeparate text (Ex).');
+assert.equal(mappedFeat.tag, 'ex');
+assert.equal(mappedFeat.libraryEntryId, 'feat-id');
+assert.equal(mappedFeat.sourceUrl, 'https://example.com/feat');
+const sameBenefit = featFromLibrary('X', { featType: '', prerequisites: '', benefit: ' Bonus ', description: 'Bonus' }, {});
+assert.equal(sameBenefit.description, 'Benefit: Bonus');
+const emptyFields = featFromLibrary('X', { featType: ' ', prerequisites: ' ', benefit: ' ', description: ' Original text ' }, {});
+for (const key of ['featType', 'prerequisites', 'benefit']) assert.equal(key in emptyFields, false);
+assert.equal(emptyFields.description, ' Original text ');
+assert.equal(featFromLibrary('X', { description: 'x'.repeat(6000) }, {}).description.length, 6000);
 console.log('CATALOG TESTS: PASS');
+
+{
+  const f = featFromLibrary('Power Attack', { featType: 'Combat', prerequisites: 'Str 13', benefit: 'Take a penalty.', description: 'You can make deadly attacks. Benefit: Take a penalty.' }, {});
+  assert.equal((f.description.match(/Take a penalty/g) ?? []).length, 1);
+}
+console.log('CATALOG FEAT DEDUPE: PASS');

@@ -44,7 +44,7 @@ type DrRow = NonNullable<SheetOptions['dr']>[number];
 type ResistRow = NonNullable<SheetOptions['resist']>[number];
 
 interface EquipItem { name: string; weight: number; quantity: number; value: string; notes: string; summary?: string; libraryEntryId?: string; sourceUrl?: string | null; }
-interface FeatEntry { name: string; description: string; summary?: string; kind?: 'feat' | 'ability'; tag?: AbilityTag; libraryEntryId?: string; sourceUrl?: string | null; bonuses?: ItemBonus[]; }
+interface FeatEntry { featType?: string; prerequisites?: string; benefit?: string; name: string; description: string; summary?: string; kind?: 'feat' | 'ability'; tag?: AbilityTag; libraryEntryId?: string; sourceUrl?: string | null; bonuses?: ItemBonus[]; }
 interface ClassEntry { name: string; level: number; }
 
 function groupFeats(feats: FeatEntry[]) {

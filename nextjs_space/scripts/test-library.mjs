@@ -110,6 +110,29 @@ assert.equal(buildHandData('weapon', undefined, { category: 'ranged' }).data.abi
 assert.equal(buildHandData('weapon', undefined, { category: 'ranged', ability: 'str' }).data.ability, 'str');
 console.log('ok   armor/weapon validation & hand forms');
 
+// Shared feat form conversion and validation.
+const { buildFeatData, emptyFeatForm } = load('lib/library-feat-form.ts', { './library': lib });
+deq(emptyFeatForm({ featType: 'Custom', benefit: 'Bonus' }), {
+  featType: 'Custom', prerequisites: '', benefit: 'Bonus', description: '',
+});
+const fullFeat = buildFeatData(emptyFeatForm({
+  featType: ' Combat ', prerequisites: ' Str 13 ', benefit: ' Extra damage. ', description: ' Separate text. ',
+}));
+assert.equal(fullFeat.ok, true);
+deq(fullFeat.data, { featType: 'Combat', prerequisites: 'Str 13', benefit: 'Extra damage.', description: 'Separate text.' });
+assert.equal(parseCreateInput({ kind: 'feat', name: 'X', data: fullFeat.data }).ok, true);
+for (const [key, length, label] of [
+  ['featType', 80, 'Feat type'], ['prerequisites', 500, 'Prerequisites'],
+  ['benefit', 4000, 'Benefit'], ['description', 20000, 'Description'],
+]) {
+  assert.equal(buildFeatData(emptyFeatForm({ [key]: 'x'.repeat(length) })).ok, true);
+  const result = buildFeatData(emptyFeatForm({ [key]: 'x'.repeat(length + 1) }));
+  assert.equal(result.ok, false);
+  assert.equal(result.error, `${label} must be at most ${length} characters.`);
+}
+assert.equal(buildFeatData(emptyFeatForm({ featType: 'Homebrew' })).ok, true);
+console.log('ok   shared feat form');
+
 // Shared spell form conversion and validation.
 const { buildSpellBody, emptySpellForm, spellSaveError } = load('lib/library-spell-form.ts', { './library': lib });
 const spellForm = {

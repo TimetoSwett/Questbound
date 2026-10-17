@@ -1,5 +1,7 @@
 'use client';
 
+import { FeatEntryFields } from '@/components/library/feat-entry-fields';
+import { buildFeatData, emptyFeatForm } from '@/lib/library-feat-form';
 import { SpellEntryForm } from '@/components/library/spell-entry-form';
 import { buildHandData, type HandForm } from '@/lib/library-hand-form';
 import { useEffect, useState } from 'react';
@@ -162,6 +164,7 @@ export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: stri
   const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [featForm, setFeatForm] = useState(emptyFeatForm());
   const [handForm, setHandForm] = useState<HandForm>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -226,11 +229,18 @@ export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: stri
         </div>}
       </div> : <form noValidate className="space-y-3" onSubmit={(event) => {
         event.preventDefault();
+        if (filter.kind === 'feat') {
+          const result = buildFeatData({ ...featForm, description });
+          if (!result.ok) { setError(result.error); return; }
+          void save({ kind: 'feat', name, data: result.data });
+          return;
+        }
         const stats = buildHandData(filter.kind, 'slot' in filter ? filter.slot : undefined, handForm);
         if (!stats.ok) { setError(stats.error); return; }
         void save({ kind: filter.kind, name, data: { ...stats.data, description } });
       }}>
         <div><Label htmlFor="hand-name">Name</Label><Input id="hand-name" value={name} maxLength={120} onChange={(event) => setName(event.target.value)} required /></div>
+        {filter.kind === 'feat' && <FeatEntryFields form={featForm} onChange={setFeatForm} />}
         <HandStats kind={filter.kind} slot={'slot' in filter ? filter.slot : undefined} form={handForm} onChange={setHandForm} />
         <div><Label htmlFor="hand-body">Description</Label><textarea id="hand-body" value={description} maxLength={20000} onChange={(event) => setDescription(event.target.value)} className="min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" /></div>
         <Button type="submit" disabled={busy || !name.trim()}>Save {handLabel}</Button>
