@@ -110,6 +110,46 @@ assert.equal(buildHandData('weapon', undefined, { category: 'ranged' }).data.abi
 assert.equal(buildHandData('weapon', undefined, { category: 'ranged', ability: 'str' }).data.ability, 'str');
 console.log('ok   armor/weapon validation & hand forms');
 
+// Shared spell form conversion and validation.
+const { buildSpellBody, emptySpellForm, spellSaveError } = load('lib/library-spell-form.ts', { './library': lib });
+const spellForm = {
+  ...emptySpellForm(), name: ' Fireball ', school: ' Evocation ', subschool: ' Fire ',
+  descriptors: ' fire, force, , ', castingTime: ' 1 standard action ', components: ' V, S ',
+  range: ' Long ', areaTargetEffect: ' 20-ft. spread ', duration: ' Instantaneous ',
+  savingThrow: ' Reflex half ', spellResistance: ' Yes ', description: ' Spell text. ',
+  levels: [{ cls: ' Wizard ', level: '3' }, { cls: ' ', level: ' ' }],
+};
+const spellBody = buildSpellBody(spellForm);
+assert.equal(spellBody.ok, true);
+deq(spellBody.body, {
+  kind: 'spell', name: 'Fireball', data: {
+    school: 'Evocation', subschool: 'Fire', descriptors: ['fire', 'force'], castingTime: '1 standard action',
+    components: 'V, S', range: 'Long', areaTargetEffect: '20-ft. spread', duration: 'Instantaneous',
+    savingThrow: 'Reflex half', spellResistance: 'Yes', description: 'Spell text.',
+  }, spellLevels: [{ cls: 'wizard', level: 3 }],
+});
+for (const [change, message] of [
+  [{ name: ' ' }, /Name is required/],
+  [{ levels: [{ cls: 'wizard', level: '10' }] }, /integer between 0 and 9/],
+  [{ levels: [{ cls: 'Wizard', level: '3' }, { cls: 'wizard', level: '4' }] }, /Duplicate class/],
+  [{ levels: [{ cls: 'wizard', level: '' }] }, /integer between 0 and 9/],
+  [{ levels: [{ cls: '', level: '3' }] }, /class name/],
+  [{ levels: [{ cls: 'wizard', level: '3.5' }] }, /integer between 0 and 9/],
+  [{ school: 'x'.repeat(41) }, /^school: /],
+  [{ levels: [{ cls: '@', level: '3' }] }, /^0.cls: /],
+]) {
+  const result = buildSpellBody({ ...spellForm, ...change });
+  assert.equal(result.ok, false);
+  assert.match(result.error, message);
+}
+const prefilledSpell = emptySpellForm({ name: 'Light', school: 'evocation', description: 'Glow.', level: 0 });
+assert.equal(prefilledSpell.name, 'Light');
+assert.equal(prefilledSpell.school, 'evocation');
+assert.equal(prefilledSpell.description, 'Glow.');
+deq(prefilledSpell.levels, [{ cls: '', level: '0' }]);
+assert.equal(spellSaveError(409, { error: 'x' }), 'x');
+console.log('ok   shared spell form');
+
 // permissions
 const alice = { id: 'alice', isAdmin: false }, bob = { id: 'bob', isAdmin: false }, admin = { id: 'root', isAdmin: true };
 const userEntry = { createdById: 'alice', source: 'user' }, aonEntry = { createdById: null, source: 'aon' }, orphan = { createdById: null, source: 'user' };

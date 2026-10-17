@@ -1,5 +1,6 @@
 'use client';
 
+import { SpellEntryForm } from '@/components/library/spell-entry-form';
 import { buildHandData, type HandForm } from '@/lib/library-hand-form';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -155,8 +156,8 @@ function HandStats({ kind, slot, form, onChange }: {
   </div>;
 }
 
-function ImportDialog({ filter, onClose, onSaved }: { filter: HallFilter; onClose: () => void; onSaved: () => void }) {
-  const [mode, setMode] = useState<'link' | 'hand'>('link');
+export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: string; kind: string; slot?: string; label?: string }; onClose: () => void; onSaved: () => void }) {
+  const [mode, setMode] = useState<'link' | 'hand'>(filter.kind === 'spell' ? 'hand' : 'link');
   const [url, setUrl] = useState('');
   const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
   const [name, setName] = useState('');
@@ -209,13 +210,13 @@ function ImportDialog({ filter, onClose, onSaved }: { filter: HallFilter; onClos
     <DialogContent className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto">
       <DialogHeader>
         <DialogTitle>Add to the catalog</DialogTitle>
-        <DialogDescription>One Archives of Nethys display link, or a short entry of your own. This does not import a whole list.</DialogDescription>
+        <DialogDescription>{filter.kind === 'spell' ? 'Add a spell to the library by hand.' : 'One Archives of Nethys display link, or a short entry of your own. This does not import a whole list.'}</DialogDescription>
       </DialogHeader>
       <div className="flex gap-1">
-        <button type="button" className={`rounded px-3 py-1 text-sm ${mode === 'link' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`} onClick={() => setMode('link')}>From a link</button>
+        {filter.kind !== 'spell' && <button type="button" className={`rounded px-3 py-1 text-sm ${mode === 'link' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`} onClick={() => setMode('link')}>From a link</button>}
         <button type="button" className={`rounded px-3 py-1 text-sm ${mode === 'hand' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`} onClick={() => setMode('hand')}>By hand</button>
       </div>
-      {mode === 'link' ? <div className="space-y-3">
+      {filter.kind === 'spell' ? <SpellEntryForm onCreated={() => onSaved()} /> : mode === 'link' ? <div className="space-y-3">
         <div><Label htmlFor="import-url">Archives of Nethys link</Label><Input id="import-url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://www.aonprd.com/FeatDisplay.aspx?ItemName=Power%20Attack" /></div>
         <Button type="button" disabled={busy || !url.trim()} onClick={() => void loadLink()}>{busy ? 'Reading…' : 'Read link'}</Button>
         {draft && <div className="rounded-md border p-3 text-sm">

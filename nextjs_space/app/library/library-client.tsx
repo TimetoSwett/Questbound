@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { classLabel, type LibrarySpell, rulesUrl, SPELL_CLASSES, SPELL_DESCRIPTORS, SPELL_SCHOOLS, SPELL_SUBSCHOOLS, spellLevelLabel } from '@/components/library/types';
+import { ImportDialog } from '@/components/library/hall-client';
 import { SiteHeader } from '@/components/site-header';
 
 const fields = [
@@ -41,6 +42,7 @@ export function LibraryClient({ userName }: { userName: string }) {
   const [search, setSearch] = useState<{ results: LibrarySpell[]; total: number; loading: boolean; error: string }>({ results: [], total: 0, loading: true, error: '' });
   const [selected, setSelected] = useState<LibrarySpell | null>(null);
   const [detail, setDetail] = useState<{ entry?: LibrarySpell; error?: string }>({});
+  const [importOpen, setImportOpen] = useState(false);
   const [retry, setRetry] = useState(0);
   const topRef = useRef<HTMLDivElement>(null);
   const filterKey = [q, cls, level, school, subschool, descriptor, duration, range, limit].join('\0');
@@ -89,7 +91,7 @@ export function LibraryClient({ userName }: { userName: string }) {
   return <div className="min-h-screen bg-background">
     <SiteHeader userName={userName} current="/library" />
     <main className="mx-auto max-w-5xl space-y-6 px-4 py-6">
-      <h1 className="flex items-center gap-2 font-display text-3xl font-bold"><BookOpen className="h-7 w-7" /> Spell Library</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="flex items-center gap-2 font-display text-3xl font-bold"><BookOpen className="h-7 w-7" /> Spell Library</h1><Button type="button" onClick={() => setImportOpen(true)}>Add spell</Button></div>
       <div className="grid gap-3 sm:grid-cols-[2fr_1fr_1fr_1fr]">
         <div><Label htmlFor="library-search">Search spells</Label><Input id="library-search" value={q} maxLength={120} onChange={(event) => setQ(event.target.value)} placeholder="Spell name…" /></div>
         <div><Label htmlFor="library-class">Class</Label><select id="library-class" value={cls} onChange={(event) => setCls(event.target.value)} className={selectStyle}><option value="">All classes</option>{SPELL_CLASSES.map((name) => <option key={name} value={name}>{classLabel(name)}</option>)}</select></div>
@@ -117,6 +119,7 @@ export function LibraryClient({ userName }: { userName: string }) {
       </button></li>)}</ul>
       <SpellPages page={page} pages={pages} onPage={goToPage} />
     </main>
+    {importOpen && <ImportDialog filter={{ id: 'spell', kind: 'spell', label: 'Spells' }} onClose={() => setImportOpen(false)} onSaved={() => { setImportOpen(false); setRetry((value) => value + 1); }} />}
     <Dialog open={Boolean(selected)} onOpenChange={(open) => { if (!open) setSelected(null); }}>
       <DialogContent className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto rounded-lg">
         <DialogHeader><DialogTitle>{selected?.name}</DialogTitle><DialogDescription>{selected ? spellLevelLabel(selected) : ''}</DialogDescription></DialogHeader>
