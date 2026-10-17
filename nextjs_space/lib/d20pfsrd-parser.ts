@@ -7,6 +7,7 @@ import { sanitizeSummary, summaryFromDescription } from './library';
 import { magicItemCategory, parseD20pfsrdMagicItem } from './d20pfsrd/magic-items';
 import { weaponPath, parseD20pfsrdWeapon } from './d20pfsrd/weapons';
 import { parseD20pfsrdGearPage } from './d20pfsrd/gear';
+import { isArmorItemPath, parseD20pfsrdArmor } from './d20pfsrd/armor';
 
 export const D20PFSRD_UNSUPPORTED = 'd20pfsrd import currently supports spells, feats, magic items and mundane gear only.';
 export const HINT = ' Open a single spell (/magic/all-spells/…), feat (/feats/…), magic item (/magic-items/…) or gear (/equipment/goods-and-services/…#item) page.';
@@ -27,12 +28,13 @@ export function isD20pfsrdUrl(raw: string): boolean {
 }
 
 /** Spell, feat, and magic item (wondrous/ring/rod/staff) page URLs only; indexes, categories and everything else return null. */
-export function d20pfsrdKindForUrl(raw: string): 'spell' | 'feat' | 'gear' | 'weapon' | null {
+export function d20pfsrdKindForUrl(raw: string): 'spell' | 'feat' | 'gear' | 'weapon' | 'armor' | null {
   const u = parseUrl(raw);
   if (!u) return null;
   const seg = u.pathname.split('/').filter(Boolean).map((s) => s.toLowerCase());
   if (seg[0] === 'magic-items') return magicItemCategory(seg) ? 'gear' : null;
   if (weaponPath(seg)) return 'weapon';
+  if (seg[0] === 'equipment' && seg[1] === 'armor') return isArmorItemPath(seg) ? 'armor' : null;
   if (seg[0] === 'magic' && (seg[1] === 'all-spells' || seg[1] === '3rd-party-spells')) return seg.length === 4 ? 'spell' : null;
   if (seg[0] === 'equipment' && seg[1] === 'goods-and-services') return seg.length >= 3 ? 'gear' : null;
   if (seg[0] === 'feats') {
@@ -70,7 +72,7 @@ function stripDivs(html: string, cls: RegExp): string {
 }
 
 /** The entry's title and the blocks (p / lists / tables / headings) after it, minus chrome and extras. */
-function entryBlocks(page: string, kind: 'spell' | 'feat' | 'gear' | 'weapon'): { title: string; blocks: Block[] } {
+function entryBlocks(page: string, kind: 'spell' | 'feat' | 'gear' | 'weapon' | 'armor'): { title: string; blocks: Block[] } {
   let h = page.replace(/<!--[\s\S]*?-->/g, '').replace(/<(script|style|noscript)\b[\s\S]*?<\/\1>/gi, '');
   const start = h.search(/<div\b[^>]*\bid=["']article-content["'][^>]*>/i);
   if (start >= 0) h = h.slice(start);
@@ -206,7 +208,7 @@ function parseFeat(title: string, blocks: Block[], sourceUrl: string): D20pfsrdD
 }
 
 /** Parse one d20pfsrd spell, feat, or magic item page into a library create body (not yet schema-checked). */
-export function parseD20pfsrdPage(html: string, sourceUrl: string): D20pfsrdDraft {
+export function parseD20pfsrdPage(html: string, sourceUrl: string, indexPages: string[] = []): D20pfsrdDraft {
   const kind = d20pfsrdKindForUrl(sourceUrl);
   if (!kind) throw new Error(`${D20PFSRD_UNSUPPORTED}${HINT}`);
   const { title, blocks } = entryBlocks(html, kind);
@@ -214,5 +216,6 @@ export function parseD20pfsrdPage(html: string, sourceUrl: string): D20pfsrdDraf
     ? parseD20pfsrdGearPage(html, sourceUrl)
     : parseD20pfsrdMagicItem(title, blocks, sourceUrl);
   if (kind === 'weapon') return parseD20pfsrdWeapon(title, blocks, sourceUrl);
+  if (kind === 'armor') return parseD20pfsrdArmor(title, blocks, sourceUrl, indexPages);
   return kind === 'spell' ? parseSpell(title, blocks, sourceUrl) : parseFeat(title, blocks, sourceUrl);
 }
