@@ -7,7 +7,7 @@ import { readBoundedJson, requireActor } from '@/lib/library-api';
 import { importRateLimited } from '@/lib/statblock-rate-limit';
 import { fetchStatblockHtml } from '@/lib/statblock-fetch';
 
-// POST /api/library/import { url } — one Archives of Nethys or d20pfsrd (spells and feats only) page, returned as a draft. Nothing is saved.
+// POST /api/library/import { url } — one Archives of Nethys or d20pfsrd (spells, feats, magic items) page, returned as a draft. Nothing is saved.
 export async function POST(request: Request) {
   const a = await requireActor();
   if ('res' in a) return a.res;
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   if (typeof url !== 'string' || !url.trim() || url.length > 2048) return NextResponse.json({ error: 'Provide one HTTPS Archives of Nethys or d20pfsrd link.' }, { status: 400 });
   const link = url.trim();
   const d20 = isD20pfsrdUrl(link);
-  if (d20 && !d20pfsrdKindForUrl(link)) return NextResponse.json({ error: `${D20PFSRD_UNSUPPORTED} Open a single spell or feat page.` }, { status: 400 });
+  if (d20 && !d20pfsrdKindForUrl(link)) return NextResponse.json({ error: `${D20PFSRD_UNSUPPORTED} Open a single spell, feat, or magic item page.` }, { status: 400 });
   try {
     const source = await fetchStatblockHtml(link);
     const parsed = parseCreateInput(d20 ? parseD20pfsrdPage(source.html, link) : parseAonCatalogPage(source.html, link));

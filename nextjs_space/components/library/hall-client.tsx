@@ -219,7 +219,7 @@ export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: stri
     <DialogContent className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto">
       <DialogHeader>
         <DialogTitle>Add to the catalog</DialogTitle>
-        <DialogDescription>{filter.kind === 'spell' ? 'One d20pfsrd spell link, or a spell of your own.' : 'One Archives of Nethys or d20pfsrd (spells and feats) link, or a short entry of your own. This does not import a whole list.'}</DialogDescription>
+        <DialogDescription>{filter.kind === 'spell' ? 'One d20pfsrd spell link, or a spell of your own.' : 'One Archives of Nethys or d20pfsrd (spells, feats, magic items) link, or a short entry of your own. This does not import a whole list.'}</DialogDescription>
       </DialogHeader>
       <div className="flex gap-1">
         <button type="button" className={`rounded px-3 py-1 text-sm ${mode === 'link' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`} onClick={() => setMode('link')}>From a link</button>
