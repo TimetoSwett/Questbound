@@ -1,5 +1,6 @@
 'use client';
 
+import { buildHandData, type HandForm } from '@/lib/library-hand-form';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -12,7 +13,7 @@ import { HALLS, type HallFilter, type HallId } from './halls';
 type Hit = { id: string; kind: string; name: string; summary: string; sourceUrl: string | null; data?: Record<string, string | number | null> };
 
 const DETAIL: Record<string, [string, string][]> = {
-  weapon: [['category', 'Category'], ['damage', 'Damage'], ['crit', 'Critical'], ['range', 'Range'], ['type', 'Type'], ['cost', 'Cost'], ['weight', 'Weight']],
+  weapon: [['category', 'Category'], ['hands', 'Hands'], ['damage', 'Damage'], ['crit', 'Critical'], ['range', 'Range'], ['type', 'Type'], ['cost', 'Cost'], ['weight', 'Weight']],
   armor: [['slot', 'Slot'], ['acBonus', 'AC bonus'], ['maxDex', 'Max Dex'], ['checkPenalty', 'Check penalty'], ['spellFailure', 'Spell failure'], ['cost', 'Cost'], ['weight', 'Weight']],
   gear: [['cost', 'Cost'], ['weight', 'Weight']],
   feat: [['featType', 'Type'], ['prerequisites', 'Prerequisites'], ['benefit', 'Benefit']],
@@ -101,7 +102,7 @@ export function HallClient({ hall, userName }: { hall: HallId; userName: string 
       <DialogContent className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto">
         <DialogHeader><DialogTitle>{selected?.name}</DialogTitle><DialogDescription>{selected?.summary}</DialogDescription></DialogHeader>
         {!detail ? <p>Loading…</p> : <>
-          <dl className="grid gap-3 sm:grid-cols-2">{(DETAIL[detail.kind] ?? []).map(([key, label]) => <div key={key}><dt className="text-sm font-semibold">{label}</dt><dd className="text-sm text-muted-foreground">{detail.data?.[key] === null || detail.data?.[key] === undefined || detail.data?.[key] === '' ? '—' : String(detail.data[key])}</dd></div>)}</dl>
+          <dl className="grid gap-3 sm:grid-cols-2">{(DETAIL[detail.kind] ?? []).map(([key, label]) => <div key={key}><dt className="text-sm font-semibold">{label}</dt><dd className="text-sm text-muted-foreground">{key === 'maxDex' && detail.data?.[key] === null ? 'No limit' : key === 'hands' && detail.data?.[key] ? HAND_LABELS[String(detail.data[key])] ?? String(detail.data[key]) : detail.data?.[key] === null || detail.data?.[key] === undefined || detail.data?.[key] === '' ? '—' : String(detail.data[key])}</dd></div>)}</dl>
           <p className="whitespace-pre-wrap text-sm">{String(detail.data?.description || '—')}</p>
           {rulesUrl(detail.sourceUrl) && <a href={rulesUrl(detail.sourceUrl)} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline">See full rules</a>}
         </>}
@@ -111,12 +112,56 @@ export function HallClient({ hall, userName }: { hall: HallId; userName: string 
   </div>;
 }
 
+const HAND_LABELS: Record<string, string> = { one: 'One-handed', two: 'Two-handed', off: 'Off-hand' };
+
+function HandStats({ kind, slot, form, onChange }: {
+  kind: string; slot?: string; form: HandForm; onChange: (form: HandForm) => void;
+}) {
+  if (kind !== 'armor' && kind !== 'weapon') return null;
+  const update = (key: string, value: string) => {
+    onChange({ ...form, [key]: value, ...(key === 'category' ? { ability: value === 'ranged' ? 'dex' : 'str' } : {}) });
+  };
+  const label = (key: string) => DETAIL[kind].find(([field]) => field === key)?.[1] ?? key;
+  const select = (key: string, title: string, value: string, options: [string, string][]) => <div key={key}>
+    <Label htmlFor={`hand-${key}`}>{title}</Label>
+    <select id={`hand-${key}`} value={value} onChange={(event) => update(key, event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground">
+      {options.map(([value, title]) => <option key={value} value={value}>{title}</option>)}
+    </select>
+  </div>;
+  const input = (key: string, title = label(key), numeric?: [number, number, boolean], placeholder?: string) => <div key={key}>
+    <Label htmlFor={`hand-${key}`}>{title}</Label>
+    <Input id={`hand-${key}`} type={numeric ? 'number' : 'text'} min={numeric?.[0]} max={numeric?.[1]} step={numeric ? numeric[2] ? 1 : 'any' : undefined}
+      maxLength={numeric ? undefined : key === 'cost' ? 120 : 40} placeholder={placeholder}
+      value={form[key] ?? (numeric && key !== 'maxDex' ? '0' : '')} onChange={(event) => update(key, event.target.value)} />
+  </div>;
+  return <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    {kind === 'armor' ? <>
+      {select('slot', label('slot'), form.slot ?? slot ?? 'armor', [['armor', 'Armor'], ['shield', 'Shield']])}
+      {input('acBonus', label('acBonus'), [-100, 100, true])}
+      {input('maxDex', label('maxDex'), [-100, 100, true], 'No limit')}
+      {input('checkPenalty', label('checkPenalty'), [-100, 0, true])}
+      {input('spellFailure', 'Spell failure %', [0, 100, true])}
+    </> : <>
+      {select('category', label('category'), form.category ?? 'melee', [['melee', 'Melee'], ['ranged', 'Ranged'], ['thrown', 'Thrown'], ['composite', 'Composite']])}
+      {select('ability', 'Attack ability', form.ability ?? (form.category === 'ranged' ? 'dex' : 'str'), [['str', 'STR'], ['dex', 'DEX']])}
+      {input('damage', 'Damage die (Medium)', undefined, '1d8')}
+      {input('crit', label('crit'), undefined, '19-20/x2')}
+      {input('range', 'Range ft', [0, 100000, true])}
+      {input('type', 'Damage type', undefined, 'S, P, B/P')}
+      {select('hands', label('hands'), form.hands ?? '', [['', 'Not set'], ...Object.entries(HAND_LABELS)])}
+    </>}
+    {input('cost')}
+    {input('weight', 'Weight lb', [0, 100000, false])}
+  </div>;
+}
+
 function ImportDialog({ filter, onClose, onSaved }: { filter: HallFilter; onClose: () => void; onSaved: () => void }) {
   const [mode, setMode] = useState<'link' | 'hand'>('link');
   const [url, setUrl] = useState('');
   const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [handForm, setHandForm] = useState<HandForm>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -178,8 +223,14 @@ function ImportDialog({ filter, onClose, onSaved }: { filter: HallFilter; onClos
           <p className="text-muted-foreground">{String(draft.kind)} — {String(draft.summary || '')}</p>
           <Button type="button" className="mt-2" disabled={busy} onClick={() => void saveDraft()}>Save to catalog</Button>
         </div>}
-      </div> : <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void save({ kind: filter.kind, name, data: { ...( 'slot' in filter && filter.slot ? { slot: filter.slot } : {}), description } }); }}>
+      </div> : <form noValidate className="space-y-3" onSubmit={(event) => {
+        event.preventDefault();
+        const stats = buildHandData(filter.kind, 'slot' in filter ? filter.slot : undefined, handForm);
+        if (!stats.ok) { setError(stats.error); return; }
+        void save({ kind: filter.kind, name, data: { ...stats.data, description } });
+      }}>
         <div><Label htmlFor="hand-name">Name</Label><Input id="hand-name" value={name} maxLength={120} onChange={(event) => setName(event.target.value)} required /></div>
+        <HandStats kind={filter.kind} slot={'slot' in filter ? filter.slot : undefined} form={handForm} onChange={setHandForm} />
         <div><Label htmlFor="hand-body">Description</Label><textarea id="hand-body" value={description} maxLength={20000} onChange={(event) => setDescription(event.target.value)} className="min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" /></div>
         <Button type="submit" disabled={busy || !name.trim()}>Save {handLabel}</Button>
       </form>}

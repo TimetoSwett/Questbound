@@ -78,6 +78,38 @@ assert.equal(lib.searchWhere(searchQuerySchema.parse({ q: 'fire' })).base.AND, u
 assert.equal(lib.searchWhere(searchQuerySchema.parse({ kind: 'rule', school: 'evocation' })).base.AND, undefined);
 console.log('ok   validation');
 
+// Armor/weapon schemas and hand-entry conversion.
+const armorData = { slot: 'shield', acBonus: 2, maxDex: null, checkPenalty: -1, spellFailure: 15, cost: '20 gp', weight: 5, description: 'Shield.' };
+const weaponData = { category: 'melee', ability: 'str', damage: '1d8', crit: '19-20/x2', range: 0, type: 'S', hands: 'two', cost: '15 gp', weight: 4, description: 'Sword.' };
+assert.equal(parseCreateInput({ kind: 'armor', name: 'Shield', data: armorData }).ok, true);
+assert.equal(parseCreateInput({ kind: 'weapon', name: 'Sword', data: weaponData }).ok, true);
+for (const data of [{ ...armorData, checkPenalty: 1 }, { ...armorData, spellFailure: 101 }]) {
+  assert.equal(parseCreateInput({ kind: 'armor', name: 'Shield', data }).ok, false);
+}
+assert.equal(parseCreateInput({ kind: 'weapon', name: 'Sword', data: { ...weaponData, hands: 'three' } }).ok, false);
+const weaponPatch = parsePatchInput('weapon', { data: { ...weaponData, hands: 'two' } });
+assert.equal(weaponPatch.ok, true);
+assert.equal(weaponPatch.value.data.hands, 'two');
+const { buildHandData } = load('lib/library-hand-form.ts', { './library': lib });
+const handArmor = buildHandData('armor', 'shield', { acBonus: '2', maxDex: '', checkPenalty: '-1', spellFailure: '15', weight: '5', cost: '20 gp' });
+assert.equal(handArmor.ok, true);
+assert.equal(handArmor.data.maxDex, null);
+assert.equal(handArmor.data.slot, 'shield');
+assert.equal(handArmor.data.acBonus, 2);
+assert.equal(buildHandData('armor', 'armor', { spellFailure: '101' }).ok, false);
+const handWeapon = buildHandData('weapon', undefined, { damage: '1d8', hands: '' });
+assert.equal(handWeapon.ok, true);
+assert.equal('hands' in handWeapon.data, false);
+assert.equal(buildHandData('weapon', undefined, { damage: 'bad' }).ok, false);
+for (const [kind, form] of [
+  ['armor', { acBonus: '1.5' }], ['armor', { maxDex: '-101' }],
+  ['armor', { checkPenalty: '1' }], ['weapon', { range: '0.5' }],
+  ['weapon', { weight: '-1' }], ['weapon', { weight: 'NaN' }],
+]) assert.equal(buildHandData(kind, undefined, form).ok, false);
+assert.equal(buildHandData('weapon', undefined, { category: 'ranged' }).data.ability, 'dex');
+assert.equal(buildHandData('weapon', undefined, { category: 'ranged', ability: 'str' }).data.ability, 'str');
+console.log('ok   armor/weapon validation & hand forms');
+
 // permissions
 const alice = { id: 'alice', isAdmin: false }, bob = { id: 'bob', isAdmin: false }, admin = { id: 'root', isAdmin: true };
 const userEntry = { createdById: 'alice', source: 'user' }, aonEntry = { createdById: null, source: 'aon' }, orphan = { createdById: null, source: 'user' };

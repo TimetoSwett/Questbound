@@ -13,6 +13,7 @@ export function weaponFromLibrary(name: string, data: WeaponData, link: Linked):
     name, attackBonus: 0, ability: data.ability === 'dex' ? 'dex' : 'str',
     damage: data.damage || '1d6', damageBonus: 0, crit: data.crit || '20/x2',
     range: data.range || 0, category: data.category || 'melee', type: data.type || '', baseDie: 'medium',
+    ...(data.hands ? { hands: data.hands } : {}),
     notes: sheetNotes(data.description || ''), libraryEntryId: link.libraryEntryId, sourceUrl: link.sourceUrl ?? null,
   };
 }
