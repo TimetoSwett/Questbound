@@ -6,10 +6,12 @@ import type { CatalogDraft } from './aon-catalog-parser';
 import { sanitizeSummary, summaryFromDescription } from './library';
 import { isMetamagicRodUrl, magicItemCategory, parseD20pfsrdMagicItem, parseD20pfsrdMetamagicRod } from './d20pfsrd/magic-items';
 import { weaponPath, parseD20pfsrdWeapon } from './d20pfsrd/weapons';
+import { parseD20pfsrdGearPage } from './d20pfsrd/gear';
 import { isArmorItemPath, parseD20pfsrdArmor } from './d20pfsrd/armor';
 
-export const D20PFSRD_UNSUPPORTED = 'd20pfsrd import currently supports spells, feats, and magic items (wondrous items, rings, rods, staves) only.';
-export const HINT = ' Open a single spell (/magic/all-spells/…), feat (/feats/…), or magic item (/magic-items/…) page.';
+import { D20PFSRD_UNSUPPORTED, HINT } from './d20pfsrd/messages';
+// Re-exported: route.ts, the armor/weapon/magic-item parsers and tests import them from here.
+export { D20PFSRD_UNSUPPORTED, HINT };
 
 export type D20pfsrdDraft = CatalogDraft & { spellLevels?: Array<{ cls: string; level: number }> };
 
@@ -35,6 +37,9 @@ export function d20pfsrdKindForUrl(raw: string): 'spell' | 'feat' | 'gear' | 'we
   if (weaponPath(seg)) return 'weapon';
   if (seg[0] === 'equipment' && seg[1] === 'armor') return isArmorItemPath(seg) ? 'armor' : null;
   if (seg[0] === 'magic' && (seg[1] === 'all-spells' || seg[1] === '3rd-party-spells')) return seg.length === 4 ? 'spell' : null;
+  if (seg[0] === 'equipment' && seg[1] === 'goods-and-services' && seg.length === 3) return 'gear';
+  // 3rd-party goods are one item per page under a publisher: …/3rd-party-goods-and-services/<publisher>/<item>/
+  if (seg[0] === 'equipment' && seg[1] === '3rd-party-equipment' && seg[2] === '3rd-party-goods-and-services' && seg.length === 5) return 'gear';
   if (seg[0] === 'feats') {
     if (seg[1] === '3rd-party-feats') return seg.length >= 4 && seg.length <= 5 ? 'feat' : null;
     return seg.length === 3 ? 'feat' : null;
@@ -209,6 +214,11 @@ function parseFeat(title: string, blocks: Block[], sourceUrl: string): D20pfsrdD
 export function parseD20pfsrdPage(html: string, sourceUrl: string, indexPages: string[] = []): D20pfsrdDraft {
   const kind = d20pfsrdKindForUrl(sourceUrl);
   if (!kind) throw new Error(`${D20PFSRD_UNSUPPORTED}${HINT}`);
+  // Mundane gear pages are split into h4 item sections by the gear parser itself.
+  const gearPath = new URL(sourceUrl).pathname.toLowerCase();
+  if (kind === 'gear' && (gearPath.startsWith('/equipment/goods-and-services/') || gearPath.startsWith('/equipment/3rd-party-equipment/3rd-party-goods-and-services/'))) {
+    return parseD20pfsrdGearPage(html, sourceUrl);
+  }
   const { title, blocks } = entryBlocks(html, kind);
   if (kind === 'gear') return isMetamagicRodUrl(sourceUrl) ? parseD20pfsrdMetamagicRod(title, blocks, sourceUrl)[0] : parseD20pfsrdMagicItem(title, blocks, sourceUrl);
   if (kind === 'weapon') return parseD20pfsrdWeapon(title, blocks, sourceUrl);
