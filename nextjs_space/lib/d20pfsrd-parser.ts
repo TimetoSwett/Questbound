@@ -36,7 +36,8 @@ export function d20pfsrdKindForUrl(raw: string): 'spell' | 'feat' | 'gear' | 'we
   if (weaponPath(seg)) return 'weapon';
   if (seg[0] === 'equipment' && seg[1] === 'armor') return isArmorItemPath(seg) ? 'armor' : null;
   if (seg[0] === 'magic' && (seg[1] === 'all-spells' || seg[1] === '3rd-party-spells')) return seg.length === 4 ? 'spell' : null;
-  if (seg[0] === 'equipment' && seg[1] === 'goods-and-services') return seg.length >= 3 ? 'gear' : null;
+  if (seg[0] === 'equipment' && seg[1] === 'goods-and-services' && seg.length === 3) return 'gear';
+  if (seg[0] === 'equipment' && seg[1] === '3rd-party-equipment' && seg[2] === '3rd-party-goods-and-services' && seg.length === 3) return 'gear';
   if (seg[0] === 'feats') {
     if (seg[1] === '3rd-party-feats') return seg.length >= 4 && seg.length <= 5 ? 'feat' : null;
     return seg.length === 3 ? 'feat' : null;
@@ -212,7 +213,8 @@ export function parseD20pfsrdPage(html: string, sourceUrl: string, indexPages: s
   const kind = d20pfsrdKindForUrl(sourceUrl);
   if (!kind) throw new Error(`${D20PFSRD_UNSUPPORTED}${HINT}`);
   // Mundane gear pages are split into h4 item sections by the gear parser itself.
-  if (kind === 'gear' && new URL(sourceUrl).pathname.toLowerCase().startsWith('/equipment/goods-and-services/')) {
+  const gearPath = new URL(sourceUrl).pathname.toLowerCase();
+  if (kind === 'gear' && (gearPath.startsWith('/equipment/goods-and-services/') || gearPath.startsWith('/equipment/3rd-party-equipment/3rd-party-goods-and-services/'))) {
     return parseD20pfsrdGearPage(html, sourceUrl);
   }
   const { title, blocks } = entryBlocks(html, kind);
