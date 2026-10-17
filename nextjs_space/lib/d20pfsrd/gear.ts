@@ -430,7 +430,7 @@ export function parseD20pfsrdGearPage(html: string, sourceUrl: string): CatalogD
       // Mundane gear is slotless and non-magical: no aura or CL.
       slot: 'slotless',
       weight,
-      cost: price,
+      cost: price || '0 gp',
       description: clip(desc, 20_000),
     },
   };

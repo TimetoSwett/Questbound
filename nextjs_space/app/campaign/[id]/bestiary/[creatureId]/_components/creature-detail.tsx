@@ -14,9 +14,6 @@ import type { ImportDraft } from '@/lib/statblock-import';
 import { FadeIn } from '@/components/ui/animate';
 import { AutoLinkText } from '@/components/library/auto-link-text';
 
-// Only the stat block's Special Attacks / SQ lines get library auto-links.
-const isSaSqLine = (name: unknown) => typeof name === 'string' && /^(special attacks|sq|special qualities)$/i.test(name.trim());
-
 // Keys the PUT endpoint accepts (creatureInputSchema, strict). Never send anything else.
 const SAVE_KEYS = [
   'name', 'type', 'subtype', 'cr', 'alignment', 'size', 'isNpc', 'portraitPath',
@@ -819,7 +816,7 @@ function EntryEditor({ items, columns, onEdit, onAdd, onRemove, addLabel, notesK
 
 // GM view: read-only Special Attacks / SQ lines with library auto-links, shown below the editors (never inside inputs).
 function SaSqRulesPreview({ items }: { items: any[] }) {
-  const lines = (items ?? []).filter((a: any) => isSaSqLine(a?.name) && typeof a?.description === 'string' && a.description.trim());
+  const lines = (items ?? []).filter((a: any) => typeof a?.description === 'string' && a.description.trim());
   if (lines.length === 0) return null;
   return (
     <div className="mt-3 rounded-md border border-dashed p-2 text-sm" aria-label="Rule links for special attacks and qualities">
