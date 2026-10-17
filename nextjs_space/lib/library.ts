@@ -277,7 +277,8 @@ export const searchQuerySchema = z.object({
   q: z.string().max(NAME_MAX).optional().default(''),
   cls: z.string().trim().toLowerCase().max(40).optional(),
   level: z.coerce.number().int().min(0).max(9).optional(),
-  slot: z.enum(['armor', 'shield']).optional(),
+  slot: z.enum([...GEAR_SLOTS, 'shield']).optional(),
+  itemType: z.enum(['mundane', 'wondrous']).optional(),
   school: facet(40),
   subschool: facet(60),
   descriptor: facet(40),
@@ -339,9 +340,19 @@ export function searchWhere(query: SearchQuery) {
       query.duration ? { data: { path: ['duration'], string_contains: query.duration } } : null,
       query.range ? { data: { path: ['range'], string_contains: query.range } } : null,
     ] : []),
-    query.kind === 'armor' && query.slot ? { data: { path: ['slot'], equals: query.slot } } : null,
+    (query.kind === 'armor' || query.kind === 'gear') && query.slot ? { data: { path: ['slot'], equals: query.slot } } : null,
   ].filter((filter): filter is NonNullable<typeof filter> => filter !== null);
   return { key, base: { kind: query.kind, system: query.system, ...levelFilter, ...(dataFilters.length ? { AND: dataFilters } : {}) } };
+}
+
+/** Legacy gear has no type column. Magic imports carry slots, aura/CL, or a magic-item source URL. */
+export function gearItemType(entry: { data?: unknown; sourceUrl?: string | null }): 'mundane' | 'wondrous' {
+  const data = (entry.data && typeof entry.data === 'object' ? entry.data : {}) as Record<string, unknown>;
+  const magic = (typeof data.slot === 'string' && GEAR_SLOTS.some((slot) => slot === data.slot))
+    || (typeof data.aura === 'string' && Boolean(data.aura.trim()))
+    || (typeof data.cl === 'number' && data.cl > 0)
+    || /(?:\/magic-items\/|\/Magic(?:Wondrous|Rings|Rods|Staves)Display\.aspx)/i.test(entry.sourceUrl ?? '');
+  return magic ? 'wondrous' : 'mundane';
 }
 
 export async function searchLibrary(db: Db, query: SearchQuery) {
@@ -350,7 +361,14 @@ export async function searchLibrary(db: Db, query: SearchQuery) {
 
 /** One page of matches, in the same order as searchLibrary, plus the total match count. */
 export async function searchLibraryPage(db: Db, query: SearchQuery): Promise<{ results: LibraryEntryRow[]; total: number }> {
-  const { key, base } = searchWhere(query);
+  const { key, base: untypedBase } = searchWhere(query);
+  // Resolve legacy JSON metadata before counting/paging, so totals and every page agree.
+  const typedIds = query.kind === 'gear' && query.itemType
+    ? (await db.libraryEntry.findMany({ where: untypedBase, select: { id: true, data: true, sourceUrl: true } }))
+      .filter((entry: { data: unknown; sourceUrl: string | null }) => gearItemType(entry) === query.itemType)
+      .map((entry: { id: string }) => entry.id)
+    : null;
+  const base = { ...untypedBase, ...(typedIds ? { id: { in: typedIds } } : {}) };
   const keys = [key, numeralAltKey(key)].filter((k): k is string => k !== null);
   const likes = keys.map(escapeLike);
   const anyOf = (op: 'startsWith' | 'contains') => (likes.length === 1 ? { nameKey: { [op]: likes[0] } } : { OR: likes.map((l) => ({ nameKey: { [op]: l } })) });

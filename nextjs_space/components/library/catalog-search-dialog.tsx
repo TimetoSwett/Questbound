@@ -1,5 +1,6 @@
 'use client';
 
+import { ItemFilters } from './item-filters';
 import { useEffect, useId, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -32,6 +33,8 @@ export function CatalogSearchDialog({ title, description, queries, knownIds, onC
   const inputId = useId();
   const [filter, setFilter] = useState(queries[0]?.kind + (queries[0]?.slot ?? ''));
   const [query, setQuery] = useState('');
+  const [itemType, setItemType] = useState('');
+  const [slot, setSlot] = useState('');
   const [results, setResults] = useState<CatalogHit[]>([]);
   const [status, setStatus] = useState('');
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -54,6 +57,10 @@ export function CatalogSearchDialog({ title, description, queries, knownIds, onC
         const lists = await Promise.all(items.map(async (item) => {
           const params = new URLSearchParams({ kind: item.kind, system: 'pf1e', q: typed.slice(0, 120), limit: '15' });
           if (item.slot) params.set('slot', item.slot);
+          if (item.kind === 'gear') {
+            if (itemType) params.set('itemType', itemType);
+            if (slot) params.set('slot', slot);
+          }
           const response = await fetch(`/api/library?${params}`, { signal: controller.signal });
           if (!response.ok) throw new Error();
           return (await response.json()).results as CatalogHit[];
@@ -67,7 +74,7 @@ export function CatalogSearchDialog({ title, description, queries, knownIds, onC
       }
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [typed, activeKey]);
+  }, [typed, activeKey, itemType, slot]);
 
   async function choose(entry: CatalogHit) {
     if (added.has(entry.id) || pendingId) return;
@@ -105,6 +112,7 @@ export function CatalogSearchDialog({ title, description, queries, knownIds, onC
             </div>
           )}
         </div>
+        {active.some((item) => item.kind === 'gear') && <div className="grid grid-cols-2 gap-3"><ItemFilters itemType={itemType} slot={slot} onTypeChange={setItemType} onSlotChange={setSlot} /></div>}
         <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
           {!typed && <p className="px-1 py-6 text-center text-xs text-muted-foreground">Type a name. The catalog only has what you have added. <Link href={browse} className="text-primary hover:underline">Open it</Link> to import one.</p>}
           {typed && results.map((entry) => {

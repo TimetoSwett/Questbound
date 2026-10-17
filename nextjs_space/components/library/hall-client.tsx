@@ -1,5 +1,6 @@
 'use client';
 
+import { ItemFilters } from './item-filters';
 import { AbilityEntryFields } from '@/components/library/ability-entry-fields';
 import { ABILITY_TAG_LABELS, buildAbilityData, emptyAbilityForm } from '@/lib/library-ability-form';
 import { GearEntryFields } from '@/components/library/gear-entry-fields';
@@ -40,13 +41,15 @@ export function HallClient({ hall, userName }: { hall: HallId; userName: string 
   const [filterId, setFilterId] = useState<HallFilter['id']>(config.filters[0].id);
   const filter = config.filters.find((item) => item.id === filterId) ?? config.filters[0];
   const [q, setQ] = useState('');
+  const [itemType, setItemType] = useState('');
+  const [slot, setSlot] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState('20');
   const [search, setSearch] = useState<{ results: Hit[]; total: number; loading: boolean; error: string }>({ results: [], total: 0, loading: true, error: '' });
   const [selected, setSelected] = useState<Hit | null>(null);
   const [detail, setDetail] = useState<Hit | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const filterKey = `${filter.id}|${q}|${limit}`;
+  const filterKey = `${filter.id}|${q}|${limit}|${itemType}|${slot}`;
   const [seen, setSeen] = useState(filterKey);
   if (filterKey !== seen) { setSeen(filterKey); setPage(1); }
   const pageSize = Number(limit) || 20;
@@ -57,6 +60,10 @@ export function HallClient({ hall, userName }: { hall: HallId; userName: string 
     const timer = setTimeout(async () => {
       setSearch((current) => ({ ...current, loading: true, error: '' }));
       const params = new URLSearchParams({ kind: filter.kind, system: 'pf1e', q, limit, page: String(page) });
+      if (filter.kind === 'gear') {
+        if (itemType) params.set('itemType', itemType);
+        if (slot) params.set('slot', slot);
+      }
       if ('slot' in filter && filter.slot) params.set('slot', filter.slot);
       try {
         const response = await fetch(`/api/library?${params}`, { signal: controller.signal });
@@ -66,7 +73,7 @@ export function HallClient({ hall, userName }: { hall: HallId; userName: string 
       } catch { if (!controller.signal.aborted) setSearch({ results: [], total: 0, loading: false, error: 'Could not load the catalog.' }); }
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [filter, q, limit, page, importOpen]);
+  }, [filter, q, limit, page, importOpen, itemType, slot]);
 
   useEffect(() => {
     if (!selected) return;
@@ -94,11 +101,12 @@ export function HallClient({ hall, userName }: { hall: HallId; userName: string 
         {config.filters.length > 1 && <div className="flex flex-wrap gap-1">{config.filters.map((item) => (
           <button key={item.id} type="button" onClick={() => setFilterId(item.id)} className={`rounded-md px-3 py-2 text-sm ${item.id === filter.id ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>{item.label}</button>
         ))}</div>}
+        {filter.kind === 'gear' && <ItemFilters itemType={itemType} slot={slot} onTypeChange={setItemType} onSlotChange={setSlot} />}
         <div><Label htmlFor="hall-limit">Per page</Label><select id="hall-limit" value={limit} onChange={(event) => setLimit(event.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm"><option value="20">20</option><option value="50">50</option></select></div>
       </div>
       <Pages page={page} pages={pages} onPage={setPage} />
       <div aria-live="polite">{search.loading ? <p className="text-muted-foreground">Searching…</p> : search.error ? <p role="alert">{search.error}</p> : <p className="text-sm text-muted-foreground">{search.total} {search.total === 1 ? 'entry' : 'entries'}{pages > 1 ? ` — page ${page} of ${pages}` : ''}</p>}</div>
-      {!search.loading && !search.error && search.results.length === 0 && <p>Nothing here yet. Import one from an Archives of Nethys or d20pfsrd link, or add it by hand.</p>}
+      {!search.loading && !search.error && search.results.length === 0 && <p>No entries match these filters.</p>}
       <ul className="space-y-2">{search.results.map((entry) => <li key={entry.id}><button type="button" onClick={() => { setDetail(null); setSelected(entry); }} className="w-full rounded-lg border bg-card p-4 text-left hover:bg-accent">
         <h2 className="font-display font-semibold">{entry.name}</h2>
         {entry.summary && <p className="mt-1 text-sm text-muted-foreground">{entry.summary}</p>}

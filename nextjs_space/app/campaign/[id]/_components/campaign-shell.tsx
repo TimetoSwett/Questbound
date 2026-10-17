@@ -107,24 +107,24 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
       {/* Top navbar */}
       <header className="sticky top-0 z-50 bg-card/80 backdrop-blur-md border-b border-border">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 px-4 py-2">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 max-w-full items-center gap-2">
             <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard')}>
               <ChevronLeft className="w-4 h-4 mr-1" /> Back
             </Button>
             <div className="h-5 w-px bg-border" />
             <Shield className="w-5 h-5 text-primary" />
-            <span className="font-display text-lg font-bold tracking-tight">{campaignName}</span>
+            <span className="min-w-0 truncate font-display text-lg font-bold tracking-tight">{campaignName}</span>
             <button onClick={copyCode} className="flex items-center gap-1 text-xs font-mono bg-muted px-2 py-1 rounded hover:bg-muted/80 transition-colors" title="Copy invite code">
               {inviteCode}
               {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3 text-muted-foreground" />}
             </button>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <BrightnessControl />
             <HallNav />
             <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${role === 'dm' ? 'bg-primary/20 text-primary' : 'bg-secondary text-secondary-foreground'}`}>{role === 'dm' ? 'Dungeon Master' : 'Player'}</span>
             <Button variant="ghost" size="sm" onClick={() => setLogOpen((o) => !o)} title={logOpen ? 'Hide roll log' : 'Show roll log'} aria-label={logOpen ? 'Hide roll log' : 'Show roll log'} aria-expanded={logOpen} aria-controls="campaign-roll-log">
-              <Dices className="w-4 h-4" />
+              <Dices className="w-4 h-4 mr-1" /> Roll log
             </Button>
             <Button variant="ghost" size="sm" onClick={async () => { await signOut({ redirect: false }); window.location.href = '/login'; }}>
               <LogOut className="w-4 h-4" />
@@ -166,7 +166,7 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
         {logOpen && (
           <aside id="campaign-roll-log" aria-label="Roll log" className="fixed inset-x-0 bottom-0 z-40 h-[min(70dvh,32rem)] overscroll-contain border-t border-border bg-card shadow-2xl lg:static lg:z-auto lg:h-auto lg:w-80 lg:shrink-0 lg:border-t-0 lg:border-l lg:bg-card/40 lg:shadow-none">
             <div className="h-full lg:sticky lg:top-[100px] lg:h-[calc(100vh-100px)]">
-              <RollLog campaignId={campaignId} role={role} />
+              <RollLog campaignId={campaignId} role={role} onClose={isDesktop ? undefined : () => setMobileLogOpen(false)} />
             </div>
           </aside>
         )}

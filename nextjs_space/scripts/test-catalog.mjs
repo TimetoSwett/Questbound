@@ -303,3 +303,39 @@ const invalidDraft = forms.nextDraft(localDraft, lastSword, shieldForm, false);
 assert.equal(invalidDraft.draft, localDraft);
 assert.equal(invalidDraft.lastSynced, lastSword);
 assert.equal(forms.nextDraft(invalidDraft.draft, invalidDraft.lastSynced, shieldForm, true).draft, shieldForm);
+
+// Existing gear metadata drives independent type and slot filters without a migration.
+assert.equal(lib.gearItemType({ data: {} }), 'mundane');
+assert.equal(lib.gearItemType({ data: { aura: '', cl: 0 } }), 'mundane');
+assert.equal(lib.gearItemType({ data: { slot: 'slotless' } }), 'wondrous');
+assert.equal(lib.gearItemType({ data: { slot: 'ring' } }), 'wondrous');
+assert.equal(lib.gearItemType({ data: { cl: 5 } }), 'wondrous');
+assert.equal(lib.gearItemType({ sourceUrl: 'https://www.d20pfsrd.com/magic-items/wondrous-items/test/' }), 'wondrous');
+assert.equal(lib.gearItemType({ sourceUrl: 'https://aonprd.com/MagicWondrousDisplay.aspx?FinalName=Test' }), 'wondrous');
+assert.equal(lib.searchQuerySchema.safeParse({ kind: 'gear', slot: 'tail' }).success, false);
+assert.equal(lib.searchQuerySchema.safeParse({ kind: 'gear', itemType: 'invalid' }).success, false);
+const filteredQuery = lib.searchQuerySchema.parse({ kind: 'gear', itemType: 'wondrous', slot: 'head', page: 2, limit: 1 });
+assert.equal(lib.searchWhere(filteredQuery).base.AND[0].data.equals, 'head');
+let counted = false;
+const filteredPage = await lib.searchLibraryPage({ libraryEntry: {
+  findMany: async (args) => {
+    if (args.select.data) return [
+      { id: 'mundane', data: {} },
+      { id: 'first', data: { slot: 'head' } },
+      { id: 'second', data: { slot: 'head' } },
+    ];
+    assert.equal(counted, true);
+    assert.equal(args.skip, 1);
+    assert.equal(args.take, 1);
+    assert.equal(JSON.stringify(args.where.AND[0].id.in), JSON.stringify(['first', 'second']));
+    return [{ id: 'second', nameKey: 'second' }];
+  },
+  count: async (args) => {
+    counted = true;
+    assert.equal(JSON.stringify(args.where.AND[0].id.in), JSON.stringify(['first', 'second']));
+    return 2;
+  },
+} }, filteredQuery);
+assert.equal(filteredPage.total, 2);
+assert.equal(filteredPage.results[0].id, 'second');
+console.log('Item type/slot filtering and pagination passed.');
