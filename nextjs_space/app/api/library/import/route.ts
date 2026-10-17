@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { parseAonCatalogPage } from '@/lib/aon-catalog-parser';
 import { D20PFSRD_UNSUPPORTED, d20pfsrdKindForUrl, isD20pfsrdUrl, parseD20pfsrdPage } from '@/lib/d20pfsrd-parser';
+import { d20pfsrdArmorIndexPages } from '@/lib/d20pfsrd/armor';
 import { parseCreateInput } from '@/lib/library';
 import { readBoundedJson, requireActor } from '@/lib/library-api';
 import { importRateLimited } from '@/lib/statblock-rate-limit';
@@ -21,7 +22,8 @@ export async function POST(request: Request) {
   if (d20 && !d20pfsrdKindForUrl(link)) return NextResponse.json({ error: `${D20PFSRD_UNSUPPORTED} Open a single spell, feat, or magic item page.` }, { status: 400 });
   try {
     const source = await fetchStatblockHtml(link);
-    const parsed = parseCreateInput(d20 ? parseD20pfsrdPage(source.html, link) : parseAonCatalogPage(source.html, link));
+    const indexPages = d20 ? await d20pfsrdArmorIndexPages(link, source.html, (u) => fetchStatblockHtml(u)) : [];
+    const parsed = parseCreateInput(d20 ? parseD20pfsrdPage(source.html, link, indexPages) : parseAonCatalogPage(source.html, link));
     if (!parsed.ok) return NextResponse.json({ error: parsed.error, issues: parsed.issues }, { status: 400 });
     const v = parsed.value;
     return NextResponse.json({ draft: { kind: v.kind, system: v.system, name: v.name, summary: v.summary, sourceUrl: v.sourceUrl, data: v.data, ...(v.kind === 'spell' ? { spellLevels: v.spellLevels } : {}) } });
