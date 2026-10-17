@@ -62,6 +62,25 @@ export function abilityTag(name: string, body = ''): AbilityTag | undefined {
   return tag === 'ex' || tag === 'su' || tag === 'sp' ? tag : undefined;
 }
 
+export function featBodyRemainder(body: string, benefit?: string | null): string | null {
+  if (!benefit?.trim()) return body;
+  const normalise = (text: string) => text.toLowerCase()
+    .replace(/^\s*benefit:\s*/, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ').trim();
+  const escapedBenefit = benefit.trim().split(/\s+/)
+    .map(word => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+');
+  const labelledBenefit = new RegExp(`\\bBenefit\\b\\s*:?\\s+${escapedBenefit}`, 'i');
+  const removed = labelledBenefit.test(body);
+  const rest = body.replace(labelledBenefit, '').trim().replace(/\n{3,}/g, '\n\n');
+  const normalisedRest = normalise(rest);
+  if (normalise(body) === normalise(benefit)) return null;
+  // Only a leftover from a stripped labelled benefit is dropped for being short.
+  if (removed && normalisedRest.length < 20) return null;
+  if (!normalisedRest) return null;
+  return removed ? rest : body;
+}
+
 export function featDescription(data: Partial<Pick<FeatData, 'prerequisites' | 'benefit' | 'description'>>) {
   const prerequisites = data.prerequisites?.trim();
   const benefit = data.benefit?.trim();
@@ -69,8 +88,7 @@ export function featDescription(data: Partial<Pick<FeatData, 'prerequisites' | '
   return !prerequisites && !benefit ? body : [
     prerequisites ? `Prerequisites: ${prerequisites}` : '',
     benefit ? `Benefit: ${benefit}` : '',
-    // Skip the full text when it already contains the benefit (AoN imports carry both).
-    body.trim() && !(benefit && body.includes(benefit)) ? body : '',
+    featBodyRemainder(body, benefit) ?? '',
   ].filter(Boolean).join('\n\n');
 }
 

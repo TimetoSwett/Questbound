@@ -98,7 +98,7 @@ lib.stripMissingLibraryIds(sheet, new Set(['keep']));
 assert.equal(sheet.feats[0].libraryEntryId, 'keep');
 assert.equal('libraryEntryId' in sheet.feats[1], false);
 assert.equal('libraryEntryId' in sheet.equipment[0], false);
-const { weaponFromLibrary, featFromLibrary, gearFromLibrary } = load('lib/catalog.ts');
+const { weaponFromLibrary, featFromLibrary, gearFromLibrary, featBodyRemainder } = load('lib/catalog.ts');
 const mappedGear = gearFromLibrary(wondrous.name, wondrous.data, {});
 assert.equal(mappedGear.slot, 'headband');
 assert.equal(mappedGear.aura, 'moderate transmutation');
@@ -141,6 +141,29 @@ console.log('CATALOG TESTS: PASS');
 {
   const f = featFromLibrary('Power Attack', { featType: 'Combat', prerequisites: 'Str 13', benefit: 'Take a penalty.', description: 'You can make deadly attacks. Benefit: Take a penalty.' }, {});
   assert.equal((f.description.match(/Take a penalty/g) ?? []).length, 1);
+  assert.match(f.description, /You can make deadly attacks/);
+  const darkvisionBody = 'You gain darkvision 60 ft. You also get +2 Perception.';
+  const darkvision = featFromLibrary('Darkvision', { benefit: 'darkvision 60 ft', description: darkvisionBody }, {});
+  assert.match(darkvision.description, /Perception/);
+  assert.match(darkvision.description, /You gain darkvision/);
+  assert.equal(featFromLibrary('X', { benefit: 'bonus', description: 'Benefit: Bonus.' }, {}).description, 'Benefit: bonus');
+  assert.equal(featFromLibrary('X', { benefit: 'Take a penalty.', description: 'Benefit: Take a penalty. See text.' }, {}).description, 'Benefit: Take a penalty.');
+
+  assert.equal(featBodyRemainder(' Original text '), ' Original text ');
+  assert.equal(featBodyRemainder(' Short ', ''), ' Short ');
+  assert.equal(featBodyRemainder(' Short ', '  '), ' Short ');
+  assert.equal(featBodyRemainder('', null), '');
+  assert.equal(featBodyRemainder(darkvisionBody, 'darkvision 60 ft'), darkvisionBody);
+  assert.equal(featBodyRemainder('Benefit: Bonus.', 'bonus'), null);
+  assert.equal(featBodyRemainder('Bonus', ' Bonus '), null);
+  assert.equal(featBodyRemainder('Benefit: Take a penalty. See text.', 'Take a penalty.'), null);
+  assert.equal(featBodyRemainder('!!!', 'bonus'), null);
+  assert.equal(featBodyRemainder('Short text.', 'Bonus'), 'Short text.');
+  const longRemainder = 'You can make deadly attacks.';
+  assert.equal(featBodyRemainder(`${longRemainder} BENEFIT: Take\n a   penalty.`, 'Take a penalty.'), longRemainder);
+  assert.equal(featBodyRemainder(`Benefit Take a penalty.\n\n\n\n${longRemainder}`, 'Take a penalty.'), longRemainder);
+  assert.equal(featBodyRemainder(`Benefit: +2 (Perception).\n\n\n${longRemainder}\n\n\nMore details.`, '+2 (Perception).'), `${longRemainder}\n\nMore details.`);
+  assert.equal(featBodyRemainder(`Unlabelled Bonus appears here.`, 'Bonus'), 'Unlabelled Bonus appears here.');
 }
 console.log('CATALOG FEAT DEDUPE: PASS');
 
