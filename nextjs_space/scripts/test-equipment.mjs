@@ -21,6 +21,17 @@ const armor = { name: 'Mail', acBonus: 6, maxDex: 2, checkPenalty: -5, spellFail
 const shield = { name: 'Shield', acBonus: 2, maxDex: 1, checkPenalty: -2, spellFailure: 15 };
 const weapon = { name: 'Sword', attackBonus: 1, ability: 'str', damage: '1d8', damageBonus: 2, crit: '19-20/x2', range: 0, type: 'S' };
 const effects = equipmentEffects({ armor, shield }, 99, 99, 4);
+for (const pieces of [{ armor }, { shield }, { armor, shield }]) {
+  const linkedPieces = Object.fromEntries(Object.entries(pieces).map(([slot, piece]) => [slot, { ...piece, inventoryItemId: 'item' }]));
+  const unlinkedEffects = equipmentEffects(pieces, 99, 99, 4);
+  const linkedEffects = equipmentEffects(linkedPieces, 99, 99, 4);
+  for (const field of ['armorBonus', 'shieldBonus', 'dexToAC', 'checkPenalty', 'spellFailure', 'maxDex']) {
+    assert.equal(linkedEffects[field], unlinkedEffects[field]);
+  }
+}
+const parsedLinkedArmor = validation.equippedSchema.safeParse({ armor: { ...armor, inventoryItemId: 'item' } });
+assert.equal(parsedLinkedArmor.success, true);
+assert.equal(parsedLinkedArmor.data.armor.inventoryItemId, 'item');
 assert.equal(effects.armorBonus, 6); assert.equal(effects.shieldBonus, 2);
 assert.equal(effects.dexToAC, 1); assert.equal(effects.checkPenalty, -7); assert.equal(effects.spellFailure, 45);
 assert.equal(equipmentEffects({ armor, shield }, 0, 0, -3).dexToAC, -3);

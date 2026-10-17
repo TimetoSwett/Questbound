@@ -91,17 +91,18 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
     }).catch(() => { if (active) setError(true); });
     return () => { active = false; };
   }, [campaignId, characterId]);
-  const identity = <T extends SlotItem,>(item: T, change: (item: T) => void, label: string) => <div className="space-y-2">
+  const identity = <T extends SlotItem,>(item: T, change: (item: T) => void, label: string, { inventoryPicker = true }: { inventoryPicker?: boolean } = {}) => <div className="space-y-2">
     <Label>{label}</Label>
     <Input aria-label={`${label} name`} maxLength={200} value={item.name} disabled={!editable} placeholder="Type item name" onChange={e => change({ ...item, name: e.target.value, inventoryItemId: null, libraryEntryId: undefined, sourceUrl: null })} />
+    {!inventoryPicker && item.inventoryItemId && <p className="text-xs text-muted-foreground">Linked to a carried item. Renaming unlinks it.</p>}
     {rulesUrl(item.sourceUrl) && <a href={rulesUrl(item.sourceUrl)} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline">See full rules</a>}
-    <select aria-label={`${label} inventory item`} className="w-full min-h-[44px] rounded-md border bg-card px-2 text-sm" value={item.inventoryItemId ?? ''} disabled={!editable || !campaignId} onChange={e => {
+    {inventoryPicker && <select aria-label={`${label} inventory item`} className="w-full min-h-[44px] rounded-md border bg-card px-2 text-sm" value={item.inventoryItemId ?? ''} disabled={!editable || !campaignId} onChange={e => {
       const selected = items.find(i => i.id === e.target.value);
       change({ ...item, ...(selected ? { name: selected.name, inventoryItemId: selected.id, libraryEntryId: undefined, sourceUrl: null } : { inventoryItemId: null }) });
     }}><option value="">Manual entry / choose carried item</option>
       {item.inventoryItemId && !items.some(i => i.id === item.inventoryItemId) && <option value={item.inventoryItemId}>Unavailable: {item.name}</option>}
       {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
-    </select>
+    </select>}
     <Input aria-label={`${label} notes`} maxLength={5000} value={item.notes ?? ''} disabled={!editable} placeholder="Notes" onChange={e => change({ ...item, notes: e.target.value })} />
   </div>;
   const numeric = (label: string, current: number | null | undefined, change: (v: number | null) => void, nullable = false, min = -1000, max = 1000) => <div key={label}><Label className="text-xs">{label}</Label><Input aria-label={label} type="number" min={min} max={max} value={current ?? ''} placeholder={nullable ? 'Unlimited' : '0'} disabled={!editable} onChange={e => change(nullable && e.target.value === '' ? null : Math.max(min, Math.min(max, Number(e.target.value) || 0)))} /></div>;
@@ -113,7 +114,7 @@ export function EquipmentEditor({ value, onChange, characterId, campaignId, edit
       const item = value[key] ?? emptyArmor;
       const change = (next: ArmorPiece) => onChange({ ...value, [key]: next });
       return <div key={key} className="rounded-lg border bg-card p-4 space-y-3">
-        {identity(item, change, key === 'armor' ? 'Armor' : 'Shield')}
+        {identity(item, change, key === 'armor' ? 'Armor' : 'Shield', { inventoryPicker: false })}
         <div className="grid grid-cols-2 gap-3">
           {numeric('AC bonus', item.acBonus, v => change({ ...item, acBonus: v ?? 0 }))}
           {numeric('Max Dex', item.maxDex, v => change({ ...item, maxDex: v }), true)}
