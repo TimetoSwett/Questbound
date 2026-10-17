@@ -1,6 +1,7 @@
 // Player view of battle-map tokens linked to bestiary creatures.
 import assert from 'node:assert/strict';
-import { sanitizeForPlayer, applyCreatureCardsForPlayer } from '../lib/battle-map.ts';
+// Dynamic import so named exports resolve under tsx on Node 26 (static named imports of .ts from .mjs come through as CJS there).
+const { sanitizeForPlayer, applyCreatureCardsForPlayer } = await import('../lib/battle-map.ts');
 
 const state = {
   fog: ['5,5'],
