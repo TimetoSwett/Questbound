@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { parseAonCatalogPage } from '@/lib/aon-catalog-parser';
-import { D20PFSRD_UNSUPPORTED, d20pfsrdKindForUrl, isD20pfsrdUrl, parseD20pfsrdPage } from '@/lib/d20pfsrd-parser';
+import { D20PFSRD_UNSUPPORTED, d20pfsrdKindForUrl, isD20pfsrdUrl, parseD20pfsrdDrafts } from '@/lib/d20pfsrd-parser';
 import { d20pfsrdArmorIndexPages } from '@/lib/d20pfsrd/armor';
 import { parseCreateInput } from '@/lib/library';
 import { readBoundedJson, requireActor } from '@/lib/library-api';
@@ -23,10 +23,14 @@ export async function POST(request: Request) {
   try {
     const source = await fetchStatblockHtml(link);
     const indexPages = d20 ? await d20pfsrdArmorIndexPages(link, source.html, (u) => fetchStatblockHtml(u)) : [];
-    const parsed = parseCreateInput(d20 ? parseD20pfsrdPage(source.html, link, indexPages) : parseAonCatalogPage(source.html, link));
-    if (!parsed.ok) return NextResponse.json({ error: parsed.error, issues: parsed.issues }, { status: 400 });
-    const v = parsed.value;
-    return NextResponse.json({ draft: { kind: v.kind, system: v.system, name: v.name, summary: v.summary, sourceUrl: v.sourceUrl, data: v.data, ...(v.kind === 'spell' ? { spellLevels: v.spellLevels } : {}) } });
+    const drafts = [];
+    for (const raw of d20 ? parseD20pfsrdDrafts(source.html, link, indexPages) : [parseAonCatalogPage(source.html, link)]) {
+      const parsed = parseCreateInput(raw);
+      if (!parsed.ok) return NextResponse.json({ error: parsed.error, issues: parsed.issues }, { status: 400 });
+      const v = parsed.value;
+      drafts.push({ kind: v.kind, system: v.system, name: v.name, summary: v.summary, sourceUrl: v.sourceUrl, data: v.data, ...(v.kind === 'spell' ? { spellLevels: v.spellLevels } : {}) });
+    }
+    return NextResponse.json({ draft: drafts[0], ...(drafts.length > 1 ? { drafts } : {}) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Import failed.' }, { status: 400 });
   }
