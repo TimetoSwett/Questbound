@@ -10,7 +10,7 @@ import { htmlToText } from '../aon-spell-parser';
 import type { CatalogDraft } from '../aon-catalog-parser';
 import { sanitizeSummary, summaryFromDescription } from '../library';
 
-const UNSUPPORTED = 'd20pfsrd import currently supports spells, feats and mundane gear only.';
+const UNSUPPORTED = 'd20pfsrd import currently supports spells, feats, magic items and mundane gear only.';
 const HINT = ' Open a goods-and-services page (/equipment/goods-and-services/…) and copy the link with the #item anchor, e.g. …/hunting-camping-survival-gear/#bedroll.';
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);

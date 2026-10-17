@@ -214,7 +214,7 @@ ok('url routing (www / bare host; http and other hosts rejected)');
 
 // rejections
 const NO = /supports spells, feats, magic items and mundane gear only/;
-assert.equal(D.D20PFSRD_UNSUPPORTED, 'd20pfsrd import currently supports spells, feats, and magic items (wondrous items, rings, rods, staves) only.');
+assert.equal(D.D20PFSRD_UNSUPPORTED, 'd20pfsrd import currently supports spells, feats, magic items and mundane gear only.');
 for (const u of [
   'https://www.d20pfsrd.com/bestiary/monster-listings/dragons/dragon-true/red-dragon/',
   'https://www.d20pfsrd.com/bestiary/monster-listings/humanoids/goblin/',
