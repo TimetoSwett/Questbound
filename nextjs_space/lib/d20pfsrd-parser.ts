@@ -4,9 +4,10 @@
 import { htmlToText, parseLevels, parseSchool } from './aon-spell-parser';
 import type { CatalogDraft } from './aon-catalog-parser';
 import { sanitizeSummary, summaryFromDescription } from './library';
+import { magicItemCategory, parseD20pfsrdMagicItem } from './d20pfsrd/magic-items';
 
-export const D20PFSRD_UNSUPPORTED = 'd20pfsrd import currently supports spells and feats only.';
-const HINT = ' Open a single spell (/magic/all-spells/…) or feat (/feats/…) page.';
+export const D20PFSRD_UNSUPPORTED = 'd20pfsrd import currently supports spells, feats, and magic items (wondrous items, rings, rods, staves) only.';
+export const HINT = ' Open a single spell (/magic/all-spells/…), feat (/feats/…), or magic item (/magic-items/…) page.';
 
 export type D20pfsrdDraft = CatalogDraft & { spellLevels?: Array<{ cls: string; level: number }> };
 
@@ -23,11 +24,12 @@ export function isD20pfsrdUrl(raw: string): boolean {
   return parseUrl(raw) !== null;
 }
 
-/** Spell and feat page URLs only; indexes, categories and everything else return null. */
-export function d20pfsrdKindForUrl(raw: string): 'spell' | 'feat' | null {
+/** Spell, feat, and magic item (wondrous/ring/rod/staff) page URLs only; indexes, categories and everything else return null. */
+export function d20pfsrdKindForUrl(raw: string): 'spell' | 'feat' | 'gear' | null {
   const u = parseUrl(raw);
   if (!u) return null;
   const seg = u.pathname.split('/').filter(Boolean).map((s) => s.toLowerCase());
+  if (seg[0] === 'magic-items') return magicItemCategory(seg) ? 'gear' : null;
   if (seg[0] === 'magic' && (seg[1] === 'all-spells' || seg[1] === '3rd-party-spells')) return seg.length === 4 ? 'spell' : null;
   if (seg[0] === 'feats') {
     if (seg[1] === '3rd-party-feats') return seg.length >= 4 && seg.length <= 5 ? 'feat' : null;
@@ -36,13 +38,35 @@ export function d20pfsrdKindForUrl(raw: string): 'spell' | 'feat' | null {
   return null;
 }
 
-const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);
-const oneLine = (html: string) => htmlToText(html).replace(/\s+/g, ' ').trim();
+export const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);
+export const oneLine = (html: string) => htmlToText(html).replace(/\s+/g, ' ').trim();
 
-type Block = { tag: string; cls: string; html: string };
+export type Block = { tag: string; cls: string; html: string };
+
+/** Remove whole <div class="…match…">…</div> elements, nested divs included. */
+function stripDivs(html: string, cls: RegExp): string {
+  let out = html;
+  for (;;) {
+    const open = /<div\b[^>]*\bclass=["']([^"']*)["'][^>]*>/gi;
+    let start = -1;
+    let m: RegExpExecArray | null;
+    while ((m = open.exec(out))) if (cls.test(m[1])) { start = m.index; break; }
+    if (start < 0) return out;
+    const tag = /<(\/?)div\b[^>]*>/gi;
+    tag.lastIndex = start;
+    let depth = 0;
+    let end = out.length;
+    let t: RegExpExecArray | null;
+    while ((t = tag.exec(out))) {
+      depth += t[1] ? -1 : 1;
+      if (depth === 0) { end = t.index + t[0].length; break; }
+    }
+    out = out.slice(0, start) + out.slice(end);
+  }
+}
 
 /** The entry's title and the blocks (p / lists / tables / headings) after it, minus chrome and extras. */
-function entryBlocks(page: string, kind: 'spell' | 'feat'): { title: string; blocks: Block[] } {
+function entryBlocks(page: string, kind: 'spell' | 'feat' | 'gear'): { title: string; blocks: Block[] } {
   let h = page.replace(/<!--[\s\S]*?-->/g, '').replace(/<(script|style|noscript)\b[\s\S]*?<\/\1>/gi, '');
   const start = h.search(/<div\b[^>]*\bid=["']article-content["'][^>]*>/i);
   if (start >= 0) h = h.slice(start);
@@ -56,11 +80,13 @@ function entryBlocks(page: string, kind: 'spell' | 'feat'): { title: string; blo
     .replace(/<div\b[^>]*shopify[^>]*>[\s\S]*?<\/div>/gi, '');
   // Everything from the first "extra" marker on is dropped: editor's notes, mythic text, and
   // (for spells) any sub-heading, which on d20pfsrd starts a related spell such as "Cure Light Wounds, Mass".
+  // Magic items keep text after an editor's note (construction), so notes and FAQ boxes are removed instead of cutting there.
+  if (kind === 'gear') body = stripDivs(body, /\b(ed-note-outer|faq)\b/i);
   const cuts = [
-    body.search(/<div\b[^>]*class=["'][^"']*\bed-note-outer\b/i),
+    kind === 'gear' ? -1 : body.search(/<div\b[^>]*class=["'][^"']*\bed-note-outer\b/i),
     body.search(/<[a-z][^>]*\b(?:id|name)=["'](?:TOC-)?Mythic[_-]/i),
     body.search(/<h[2-6]\b[^>]*>(?:\s*<[^>]+>)*\s*Mythic\b/i),
-    kind === 'spell' ? body.search(/<h4\b/i) : -1,
+    kind !== 'feat' ? body.search(/<h4\b/i) : -1, // a sub-heading starts a related entry (e.g. "Bag of Holding, Minor")
   ].filter((i) => i >= 0);
   if (cuts.length) body = body.slice(0, Math.min(...cuts));
   const blocks: Block[] = [];
@@ -70,7 +96,7 @@ function entryBlocks(page: string, kind: 'spell' | 'feat'): { title: string; blo
   return { title, blocks };
 }
 
-function blockText(b: Block): string {
+export function blockText(b: Block): string {
   if (b.tag === 'table') {
     const rows = [...b.html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map((r) => [...r[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((c) => oneLine(c[1])).join(' | '));
     const caption = oneLine(/<caption\b[^>]*>([\s\S]*?)<\/caption>/i.exec(b.html)?.[1] ?? '');
@@ -80,7 +106,7 @@ function blockText(b: Block): string {
   return htmlToText(b.html);
 }
 
-const isSkippable = (b: Block) => /\b(divider|toc_title)\b/.test(b.cls);
+export const isSkippable = (b: Block) => /\b(divider|toc_title)\b/.test(b.cls);
 
 /** Leading <b>/<strong> label of a paragraph and the rest of it as text. */
 function leadingLabel(html: string): { label: string; value: string } | null {
@@ -175,10 +201,11 @@ function parseFeat(title: string, blocks: Block[], sourceUrl: string): D20pfsrdD
   };
 }
 
-/** Parse one d20pfsrd spell or feat page into a library create body (not yet schema-checked). */
+/** Parse one d20pfsrd spell, feat, or magic item page into a library create body (not yet schema-checked). */
 export function parseD20pfsrdPage(html: string, sourceUrl: string): D20pfsrdDraft {
   const kind = d20pfsrdKindForUrl(sourceUrl);
   if (!kind) throw new Error(`${D20PFSRD_UNSUPPORTED}${HINT}`);
   const { title, blocks } = entryBlocks(html, kind);
+  if (kind === 'gear') return parseD20pfsrdMagicItem(title, blocks, sourceUrl);
   return kind === 'spell' ? parseSpell(title, blocks, sourceUrl) : parseFeat(title, blocks, sourceUrl);
 }
