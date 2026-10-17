@@ -46,9 +46,9 @@ export function LootTab({ campaignId, role, userId }: { campaignId: string; role
   const [loading, setLoading] = useState(true);
   const isDM = role === 'dm';
   const campaignRef = useRef(campaignId);
-  campaignRef.current = campaignId;
   // Bumped when the DM flips the purse so an in-flight loot GET from before the write can't snap it back.
   const purseGen = useRef(0);
+  useEffect(() => { campaignRef.current = campaignId; }, [campaignId]);
 
   const load = useCallback(async () => {
     const id = campaignId;
@@ -57,10 +57,19 @@ export function LootTab({ campaignId, role, userId }: { campaignId: string; role
       const res = await fetch(`/api/loot?campaignId=${id}`, { cache: 'no-store' });
       if (!res.ok || campaignRef.current !== id || purseGen.current !== gen) return;
       setData(await res.json());
-    } catch { /* ignore */ } finally { if (campaignRef.current === id) setLoading(false); }
+    } catch { /* ignore */ }
   }, [campaignId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    const gen = purseGen.current;
+    fetch(`/api/loot?campaignId=${campaignId}`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (active && d && purseGen.current === gen) setData(d); })
+      .catch(() => { /* ignore */ })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [campaignId]);
   // DM purse toggles publish `loot`. Refetch on that invalidation (and poll if the stream drops)
   // so every open loot tab updates without a reload.
   const onLive = useCallback(() => { void load(); }, [load]);

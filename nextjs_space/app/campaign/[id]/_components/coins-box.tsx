@@ -15,7 +15,7 @@ export function useSharedPurse(campaignId?: string | null) {
   const [purse, setPurse] = useState<{ campaignId: string; sharedPurse: boolean; partyCp: number } | null>(null);
   const events = useCampaignEventsAvailable();
   const idRef = useRef(campaignId);
-  idRef.current = campaignId;
+  useEffect(() => { idRef.current = campaignId; }, [campaignId]);
   const load = useCallback(async () => {
     if (!campaignId) return;
     const id = campaignId;
@@ -27,7 +27,18 @@ export function useSharedPurse(campaignId?: string | null) {
       setPurse({ campaignId: id, sharedPurse: data.sharedPurse === true, partyCp: safeCoinInt(data.partyCp) });
     } catch { /* ignore */ }
   }, [campaignId]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!campaignId) return;
+    let cancelled = false;
+    fetch(`/api/loot?campaignId=${encodeURIComponent(campaignId)}`, { cache: 'no-store' })
+      .then(async res => {
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (!cancelled) setPurse({ campaignId, sharedPurse: data.sharedPurse === true, partyCp: safeCoinInt(data.partyCp) });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [campaignId]);
   // The shared-purse toggle publishes `loot`. Polling covers a dropped stream.
   // Outside the campaign shell there is no stream, so don't poll the dashboard.
   const onLive = useCallback(() => { void load(); }, [load]);
