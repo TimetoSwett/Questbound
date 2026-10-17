@@ -13,6 +13,7 @@ function load(path) {
   const local = (name) => {
     if (name === './aon-spell-parser' || name.endsWith('/aon-spell-parser')) return load('lib/aon-spell-parser.ts');
     if (name === './library' || name.endsWith('/library')) return load('lib/library.ts');
+    if (['./library-feat-form', './library-ability-form', './library-gear-form', './catalog'].includes(name)) return load(`lib/${name.slice(2)}.ts`);
     if (name === 'zod') return require('zod');
     return require(name);
   };
@@ -142,3 +143,61 @@ console.log('CATALOG TESTS: PASS');
   assert.equal((f.description.match(/Take a penalty/g) ?? []).length, 1);
 }
 console.log('CATALOG FEAT DEDUPE: PASS');
+
+const forms = load('lib/sheet-entry-forms.ts');
+const { featDescription, gearItemFields } = load('lib/catalog.ts');
+const featData = { featType: 'Combat', prerequisites: 'Str 13', benefit: 'Extra damage.', description: 'Separate text.' };
+assert.equal(featDescription(featData), featFromLibrary('X', featData, {}).description);
+const featPatch = forms.featPatchFromForm(featData);
+assert.equal(featPatch.ok, true);
+assert.equal(forms.featCardBody(featPatch.patch), featFromLibrary('X', featData, {}).description);
+assert.equal(forms.featFormFromEntry(mappedFeat).description, mappedFeat.description);
+assert.equal(forms.featCardBody({ ...mappedFeat, summary: 'Summary' }), 'Summary');
+const clearedFeat = forms.featPatchFromForm({ featType: '', prerequisites: '', benefit: '', description: '' });
+assert.equal(clearedFeat.ok, true);
+for (const key of ['featType', 'prerequisites', 'benefit', 'summary']) {
+  assert.equal(Object.hasOwn(clearedFeat.patch, key), true);
+  assert.equal(clearedFeat.patch[key], undefined);
+}
+assert.equal(forms.featPatchFromForm({ ...featData, featType: 'x'.repeat(81) }).ok, false);
+const abilityPatch = forms.abilityPatchFromForm({ tag: 'su', uses: ' 3/day ', description: ' Magic ' });
+assert.equal(abilityPatch.ok, true);
+assert.equal(abilityPatch.patch.tag, 'su');
+assert.equal(abilityPatch.patch.uses, '3/day');
+assert.equal(abilityPatch.patch.description, 'Magic');
+assert.equal(forms.abilityMeta(abilityPatch.patch), 'Supernatural (Su) · 3/day');
+assert.equal(forms.abilityMeta({}), 'Special ability');
+const clearedAbility = forms.abilityPatchFromForm({ tag: '', uses: '', description: '' });
+assert.equal(clearedAbility.patch.tag, undefined);
+assert.equal(clearedAbility.patch.uses, undefined);
+assert.equal(forms.abilityFormFromEntry(abilityPatch.patch).uses, '3/day');
+const gearForm = { slot: 'headband', aura: 'moderate transmutation', cl: '8', cost: '4000 gp', weight: '1', description: 'Wisdom.' };
+const gearPatch = forms.gearPatchFromForm(gearForm);
+assert.equal(gearPatch.ok, true);
+assert.equal(gearPatch.patch.value, '4000 gp');
+assert.equal(gearPatch.patch.notes, 'Wisdom.');
+assert.equal(gearPatch.patch.cl, 8);
+assert.equal(forms.gearPatchFromForm({ ...gearForm, cl: '31' }).ok, false);
+const gearData = { ...gearForm, weight: 1, cl: 8 };
+const gearMapped = gearFromLibrary('Headband', gearData, {});
+for (const key of ['weight', 'value', 'notes', 'slot', 'aura', 'cl']) {
+  assert.equal(gearPatch.patch[key], gearMapped[key]);
+  assert.equal(gearItemFields(gearData)[key], gearMapped[key]);
+}
+assert.equal(forms.gearMetaExtras(gearPatch.patch), 'Headband · moderate transmutation · CL 8');
+assert.equal(forms.gearMetaExtras({ cl: 0 }), 'CL 0');
+assert.equal(forms.gearMetaExtras({}), '');
+assert.equal(forms.gearFormFromItem(gearPatch.patch).cost, '4000 gp');
+const clearedGear = forms.gearPatchFromForm({ slot: '', aura: '', cl: '', cost: '', weight: '', description: '' });
+for (const key of ['slot', 'aura', 'cl']) {
+  assert.equal(Object.hasOwn(clearedGear.patch, key), true);
+  assert.equal(clearedGear.patch[key], undefined);
+}
+console.log('SHEET ENTRY FORMS: PASS');
+{
+  // A library feat whose link was cleared (name edited) keeps its already-built text instead of repeating prerequisites.
+  const unlinked = { ...featFromLibrary('Power Attack', { featType: 'Combat', prerequisites: 'Str 13', benefit: '', description: 'Trade accuracy for damage.' }, {}), libraryEntryId: undefined };
+  assert.equal(forms.featCardBody(unlinked), unlinked.description);
+  assert.equal((forms.featCardBody(unlinked).match(/Prerequisites/g) ?? []).length, 1);
+}
+console.log('SHEET FEAT BODY: PASS');

@@ -35,6 +35,8 @@ import { CatalogSearchDialog } from '@/components/library/catalog-search-dialog'
 import { CompanionSwitcher } from '@/components/characters/companion-switcher';
 import { CompanionPanel } from '@/components/characters/companion-panel';
 import { ABILITY_TAGS, abilityTag, featFromLibrary, gearFromLibrary } from '@/lib/catalog';
+import { abilityMeta, featCardBody, gearMetaExtras } from '@/lib/sheet-entry-forms';
+import { SheetFeatEditor, SheetAbilityEditor, SheetGearEditor } from './sheet-entry-editors';
 import type { AbilityTag } from '@/lib/catalog';
 import type { FeatData, GearData } from '@/lib/library';
 
@@ -61,7 +63,8 @@ function groupFeats(feats: FeatEntry[]) {
 function itemMeta(item: EquipItem) {
   const weight = Number(item?.weight) || 0;
   const weightLabel = Number.isInteger(weight) ? String(weight) : String(Math.round(weight * 100) / 100);
-  return `${weightLabel} lb · qty ${item?.quantity ?? 1}${item?.value ? ` · ${item.value}` : ''}`;
+  const extras = gearMetaExtras(item);
+  return `${weightLabel} lb · qty ${item?.quantity ?? 1}${item?.value ? ` · ${item.value}` : ''}${extras ? ` · ${extras}` : ''}`;
 }
 
 function groupSpells(known: SpellEntry[]) {
@@ -821,12 +824,8 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                 return <EntryCard key={i} name={item?.name ?? ''} unnamed="Unnamed item" meta={itemMeta(item)} body={item?.summary || item?.notes} libraryEntryId={item?.libraryEntryId} sourceUrl={item?.sourceUrl} editable={editable}
                   onDelete={() => { const arr = [...(data?.equipment ?? [])]; arr.splice(i, 1); update('equipment', arr); autoSave(); }}>
                   <Input value={item?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ name: e.target.value, libraryEntryId: undefined, sourceUrl: null, summary: undefined })} className="h-7 text-xs" placeholder="Item name" />
-                  <div className="grid grid-cols-3 gap-2">
-                    <label className="text-xs text-muted-foreground">Weight<Input type="number" value={item?.weight ?? 0} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ weight: parseFloat(e.target.value) || 0 })} className="h-7 text-xs text-center font-mono" /></label>
-                    <label className="text-xs text-muted-foreground">Qty<Input type="number" value={item?.quantity ?? 1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ quantity: parseInt(e.target.value) || 1 })} className="h-7 text-xs text-center font-mono" /></label>
-                    <label className="text-xs text-muted-foreground">Value<Input value={item?.value ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ value: e.target.value })} className="h-7 text-xs" placeholder="gp" /></label>
-                  </div>
-                  <label className="block text-xs text-muted-foreground">Notes<textarea value={item?.notes ?? ''} onChange={(e) => patch({ notes: e.target.value, summary: undefined })} className="w-full bg-transparent text-xs text-muted-foreground resize-y min-h-[60px] mt-1" placeholder="Description..." /></label>
+                  <label className="text-xs text-muted-foreground">Qty<Input type="number" value={item?.quantity ?? 1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ quantity: parseInt(e.target.value) || 1 })} className="h-7 text-xs text-center font-mono" /></label>
+                  <SheetGearEditor item={item} onPatch={(partial) => patch({ ...partial, summary: undefined })} idPrefix={`sheet-gear-${i}`} />
                 </EntryCard>;
               })}
             </div>
@@ -925,8 +924,8 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                         autoSave();
                       };
                       const tag = group.kind === 'ability' && feat?.tag && feat.tag in ABILITY_TAGS ? ABILITY_TAGS[feat.tag] : undefined;
-                      const meta = [tag?.label ?? (group.kind === 'ability' ? 'Special ability' : 'Feat'), ...(feat?.bonuses ?? []).map(bonusLabel)].filter(Boolean).join(' · ');
-                      return <EntryCard key={index} name={feat?.name ?? ''} unnamed={group.kind === 'ability' ? 'Unnamed ability' : 'Unnamed feat'} meta={meta} note={tag?.text} body={feat?.summary || feat?.description} libraryEntryId={feat?.libraryEntryId} sourceUrl={feat?.sourceUrl} editable={editable}
+                      const meta = [group.kind === 'ability' ? abilityMeta(feat) : feat.featType || 'Feat', ...(feat?.bonuses ?? []).map(bonusLabel)].filter(Boolean).join(' · ');
+                      return <EntryCard key={index} name={feat?.name ?? ''} unnamed={group.kind === 'ability' ? 'Unnamed ability' : 'Unnamed feat'} meta={meta} note={tag?.text} body={group.kind === 'feat' ? featCardBody(feat) : feat?.summary || feat?.description} libraryEntryId={feat?.libraryEntryId} sourceUrl={feat?.sourceUrl} editable={editable}
                         onDelete={() => { const arr = [...(data?.feats ?? [])]; arr.splice(index, 1); update('feats', arr); autoSave(); }}>
                         <Input value={feat?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ name: e.target.value, libraryEntryId: undefined, sourceUrl: null, summary: undefined })} className="h-7 text-sm font-semibold" placeholder="Name" />
                         <label className="text-xs text-muted-foreground">Type
@@ -935,17 +934,12 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                             <option value="ability">Special ability</option>
                           </select>
                         </label>
-                        {group.kind === 'ability' && <label className="text-xs text-muted-foreground">Tag
-                          <select value={feat?.tag ?? ''} onChange={(e) => patch({ tag: e.target.value === 'ex' || e.target.value === 'su' || e.target.value === 'sp' ? e.target.value : undefined })} className="mt-1 h-7 w-full rounded-md border border-input bg-background px-2 text-xs">
-                            <option value="">No tag</option>
-                            <option value="ex">Extraordinary (Ex)</option>
-                            <option value="su">Supernatural (Su)</option>
-                            <option value="sp">Spell-like (Sp)</option>
-                          </select>
-                          {tag && <span className="mt-1 block">{tag.text}</span>}
-                        </label>}
+                        {group.kind === 'ability' ? <>
+                          <SheetAbilityEditor key={`${index}-${group.kind}`} entry={feat} onPatch={(partial) => patch({ ...partial, summary: undefined })} idPrefix={`sheet-ability-${index}`} />
+                          {tag && <p className="text-xs text-muted-foreground">{tag.text}</p>}
+                        </> : <SheetFeatEditor key={`${index}-${group.kind}`} entry={feat} onPatch={patch} idPrefix={`sheet-feat-${index}`} />}
                         <BonusEditor bonuses={feat?.bonuses ?? []} hint={group.kind === 'ability' ? 'This ability counts while it is on the sheet.' : 'This feat counts while it is on the sheet.'} onChange={bonuses => patch({ bonuses })} />
-                        <label className="block text-xs text-muted-foreground">Description<textarea value={feat?.description ?? ''} onChange={(e) => patch({ description: e.target.value, summary: undefined })} className="w-full bg-transparent text-xs text-muted-foreground resize-y min-h-[60px] mt-1" placeholder="Description..." /></label>
+
                       </EntryCard>;
                     })}
                   </div>

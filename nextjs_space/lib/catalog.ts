@@ -33,12 +33,18 @@ export function slotFromLibrary(name: string, data: { description?: string }, li
   };
 }
 
-export function gearFromLibrary(name: string, data: GearData, link: Linked) {
+export function gearItemFields(data: GearData) {
   return {
-    name, weight: data.weight || 0, quantity: 1, value: data.cost || '', notes: sheetNotes(data.description || ''),
+    weight: data.weight || 0, value: data.cost || '', notes: sheetNotes(data.description || ''),
     ...(data.slot !== undefined ? { slot: data.slot } : {}),
     ...(data.aura !== undefined ? { aura: data.aura } : {}),
     ...(data.cl !== undefined ? { cl: data.cl } : {}),
+  };
+}
+
+export function gearFromLibrary(name: string, data: GearData, link: Linked) {
+  return {
+    name, ...gearItemFields(data), quantity: 1,
     libraryEntryId: link.libraryEntryId, sourceUrl: link.sourceUrl ?? null,
   };
 }
@@ -56,19 +62,25 @@ export function abilityTag(name: string, body = ''): AbilityTag | undefined {
   return tag === 'ex' || tag === 'su' || tag === 'sp' ? tag : undefined;
 }
 
+export function featDescription(data: Partial<Pick<FeatData, 'prerequisites' | 'benefit' | 'description'>>) {
+  const prerequisites = data.prerequisites?.trim();
+  const benefit = data.benefit?.trim();
+  const body = data.description || '';
+  return !prerequisites && !benefit ? body : [
+    prerequisites ? `Prerequisites: ${prerequisites}` : '',
+    benefit ? `Benefit: ${benefit}` : '',
+    // Skip the full text when it already contains the benefit (AoN imports carry both).
+    body.trim() && !(benefit && body.includes(benefit)) ? body : '',
+  ].filter(Boolean).join('\n\n');
+}
+
 export function featFromLibrary(name: string, data: Partial<FeatData & AbilityData>, link: Linked) {
   const featType = data.featType?.trim();
   const prerequisites = data.prerequisites?.trim();
   const benefit = data.benefit?.trim();
   const uses = data.uses?.trim();
   const tag = data.tag === 'ex' || data.tag === 'su' || data.tag === 'sp' ? data.tag : undefined;
-  const body = data.description || '';
-  const description = !prerequisites && !benefit ? body : [
-    prerequisites ? `Prerequisites: ${prerequisites}` : '',
-    benefit ? `Benefit: ${benefit}` : '',
-    // Skip the full text when it already contains the benefit (AoN imports carry both).
-    body.trim() && !(benefit && body.includes(benefit)) ? body : '',
-  ].filter(Boolean).join('\n\n');
+  const description = featDescription(data);
   return {
     name, description,
     ...(featType ? { featType } : {}),
