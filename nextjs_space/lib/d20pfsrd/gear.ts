@@ -18,9 +18,7 @@
 import { htmlToText } from '../aon-spell-parser';
 import type { CatalogDraft } from '../aon-catalog-parser';
 import { sanitizeSummary, summaryFromDescription } from '../library';
-import { D20PFSRD_UNSUPPORTED } from '../d20pfsrd-parser';
-
-const HINT = ' Open a goods-and-services page (/equipment/goods-and-services/…) and copy the link with the #item anchor, e.g. …/hunting-camping-survival-gear/#bedroll.';
+import { D20PFSRD_UNSUPPORTED, GEAR_HINT as HINT } from './messages';
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);
 const oneLine = (html: string) => htmlToText(html).replace(/\s+/g, ' ').trim();
@@ -150,7 +148,8 @@ function parsePrice(raw: string): string {
   const t = raw.trim().replace(/[.;,\s]+$/, '').replace(/^[:\s]+/, '');
   // Dashes, n/a, and bare multipliers ("×2" barding cost relative to armor) are not prices.
   if (!t || /^[—–-]+$/.test(t) || /^(n\/a|none)$/i.test(t) || /^[×x]\s*\d+$/i.test(t)) return '';
-  return clip(t, 120);
+  // Coin units like core pages: "25gp" -> "25 gp", "5 GP" -> "5 gp".
+  return clip(t.replace(/(\d)\s*(cp|sp|gp|pp)\b/gi, (_, d: string, u: string) => `${d} ${u.toLowerCase()}`), 120);
 }
 
 /**
@@ -199,7 +198,10 @@ function sectionPriceLine(html: string): PriceWeight | null {
       const para = paraOf(m.index!);
       if (l === 'cost' && /<(b|strong)\b[^>]*>\s*craft\s*<\/\1>/i.test(para)) continue;
       const price = parsePrice(oneLine(m[2]));
-      const wm = /<(b|strong)\b[^>]*>\s*weight\s*:?\s*<\/\1>\s*:?\s*([^<;]+)/i.exec(para);
+      // Weight in the price paragraph, else a Weight label elsewhere in the item's own text
+      // (3rd-party single-item pages put it on its own line).
+      const wm = /<(b|strong)\b[^>]*>\s*weight\s*:?\s*<\/\1>\s*:?\s*([^<;]+)/i.exec(para)
+        ?? /<(b|strong)\b[^>]*>\s*weight\s*:?\s*<\/\1>\s*:?\s*([^<;]+)/i.exec(h);
       const weight = wm ? parseWeight(oneLine(wm[2])) : 0;
       if (price || weight) return { price, weight };
     }
@@ -224,11 +226,36 @@ function sectionVariantTable(html: string): PriceWeight | null {
   return null;
 }
 
+const stripParen = (n: string) => n.replace(/\s*\([^)]*\)\s*$/, '');
+const ambiguous = (item: ItemSection, rows: PriceEntry[]) => new Error(
+  `${D20PFSRD_UNSUPPORTED} "${item.name}" has ${rows.length} different price rows on that page (${rows.slice(0, 4).map((r) => `${r.name}: ${r.price || '—'}`).join('; ')}${rows.length > 4 ? '; …' : ''}), so the price is ambiguous. Add it by hand.${HINT}`);
+
+/**
+ * One row, or several that agree. Rows agree when they have the same price and at most one
+ * distinct non-zero weight (a training-cost table repeats "Woolly mammoth 3,000 gp" without a
+ * weight). Different prices or weights are ambiguous and throw (Ale 2 sp / 4 cp).
+ */
+function single(item: ItemSection, rows: PriceEntry[], withName = false): PriceWeight | null {
+  if (!rows.length) return null;
+  const prices = new Set(rows.map((r) => r.price));
+  const weights = new Set(rows.map((r) => r.weight).filter((w) => w > 0));
+  if (prices.size > 1 || weights.size > 1) {
+    throw ambiguous(item, rows.filter((r, i) => rows.findIndex((o) => o.price === r.price && o.weight === r.weight) === i));
+  }
+  const best = rows.find((r) => r.weight > 0) ?? rows[0];
+  return withName ? best : { price: best.price, weight: best.weight };
+}
+
 /**
  * Page-level table row for this item: by anchor first, then by exact name
- * (with and without a trailing parenthetical). When several rows share the
- * anchor, the one whose name equals the heading wins, else the first row, and
- * its row name is returned so "Tent" imports as "Tent, small" (honest about which row).
+ * (with and without a trailing parenthetical), then by order-free words.
+ * Several rows can share one anchor. Resolution:
+ *  1. rows named exactly like the heading (all must agree, else ambiguous -> throw: Ale, Luglurch 1 gp / 4 sp);
+ *  2. rows that are the heading plus a parenthetical ("Chain (10 ft.)" for "Chain"); the row name is used;
+ *  3. a single row;
+ *  4. a variant family where EVERY row is "<heading>, <variant>" (Tent, small/medium/large/…):
+ *     the first (base) row is used and its name is kept, so it imports as "Tent, small";
+ *  5. anything else (rows for unrelated items, e.g. #TOC-Hirelings -> Chronicler, Laborer…) throws.
  */
 function pageTableRow(item: ItemSection, map: Map<string, PriceEntry[]>): PriceWeight | null {
   const want = normAnchor(item.name);
@@ -236,13 +263,18 @@ function pageTableRow(item: ItemSection, map: Map<string, PriceEntry[]>): PriceW
   for (const k of anchors) {
     const rows = map.get(k);
     if (!rows?.length) continue;
-    const exact = rows.find((r) => normAnchor(r.name) === want);
-    if (exact) return { price: exact.price, weight: exact.weight };
-    return rows.length > 1 ? rows[0] : { price: rows[0].price, weight: rows[0].weight };
+    const exact = rows.filter((r) => normAnchor(r.name) === want);
+    if (exact.length) return single(item, exact);
+    const base = rows.filter((r) => normAnchor(stripParen(r.name)) === want);
+    // Row name only when it disambiguates a shared anchor ("Chain (10 ft.)" vs "Chains, breakaway").
+    if (base.length) return single(item, base, rows.length > 1);
+    if (rows.length === 1) return single(item, rows);
+    if (rows.every((r) => normAnchor(r.name).startsWith(`${want}-`) && /,/.test(r.name))) return rows[0];
+    throw ambiguous(item, rows);
   }
-  for (const k of [`name:${want}`, `name:${normAnchor(item.name.replace(/\s*\([^)]*\)\s*$/, ''))}`, `words:${wordKey(item.name)}`]) {
+  for (const k of [`name:${want}`, `name:${normAnchor(stripParen(item.name))}`, `words:${wordKey(item.name)}`]) {
     const rows = map.get(k);
-    if (rows?.length) return { price: rows[0].price, weight: rows[0].weight };
+    if (rows?.length) return single(item, rows);
   }
   return null;
 }
@@ -286,7 +318,23 @@ function isSingleItemUrl(sourceUrl: string): boolean {
 }
 
 /** Parse one d20pfsrd mundane gear item into a library create body (not yet schema-checked). */
+/**
+ * Goods-and-services pages that list services, not carriable gear. Rejected outright:
+ * /equipment/goods-and-services/hirelings-servants-services/ (hirelings, inn stays, baths,
+ * messengers, tolls, spellcasting). Kept generic so a renamed/added services page is caught too.
+ */
+export function isServicesGearPath(sourceUrl: string): boolean {
+  try {
+    const seg = new URL(sourceUrl).pathname.split('/').filter(Boolean).map((s) => s.toLowerCase());
+    return seg[0] === 'equipment' && seg[1] === 'goods-and-services' && !!seg[2] && /(^|-)(hirelings?|servants?|services?|lodging)(-|$)/.test(seg[2]);
+  } catch { return false; }
+}
+export const NOT_GEAR = 'That page lists services (hirelings, lodging, spellcasting and the like), not gear, so it cannot be imported as a gear item.';
+/** Service rows that sit on otherwise-gear pages (Food & Lodging on hunting-camping-survival-gear). */
+const SERVICE_HEADING = /\b(cost of living|lodging|hirelings?|servants?)\b/i;
+
 export function parseD20pfsrdGearPage(html: string, sourceUrl: string): CatalogDraft {
+  if (isServicesGearPath(sourceUrl)) throw new Error(`${D20PFSRD_UNSUPPORTED} ${NOT_GEAR}`);
   let fragment = '';
   try { fragment = decodeURIComponent(new URL(sourceUrl).hash.replace(/^#/, '')).toLowerCase(); }
   catch { fragment = ''; }
@@ -308,14 +356,21 @@ export function parseD20pfsrdGearPage(html: string, sourceUrl: string): CatalogD
       throw new Error(`${D20PFSRD_UNSUPPORTED} That page lists ${sections.length} items. Copy the link with the #item anchor for the one you want.${HINT}`);
     }
   }
+  if (SERVICE_HEADING.test(item.name)) throw new Error(`${D20PFSRD_UNSUPPORTED} "${item.name}" is a service, not gear.${HINT}`);
   // Order: the item's own Price line, its own variant table, then the page-level table row.
+  // The page table is only consulted when the section itself has nothing, so an
+  // ambiguous table (several rows for one anchor) never blocks an item whose own text is clear.
   const pageMap = pagePriceMap(html);
-  const row = pageTableRow(item, pageMap);
-  const pw: PriceWeight = sectionPriceLine(item.html) ?? sectionVariantTable(item.html) ?? row ?? { price: '', weight: 0 };
+  const own = sectionPriceLine(item.html) ?? sectionVariantTable(item.html);
+  const pw: PriceWeight = own ?? pageTableRow(item, pageMap) ?? { price: '', weight: 0 };
   const price = pw.price;
   let weight = pw.weight;
-  // Own line without a weight: take the table weight only when that row has the same price.
-  if (price && !weight && row && row !== pw && row.price === price) weight = row.weight;
+  // Own line without a weight: take the table weight only when an unambiguous row has the same price.
+  if (own && price && !weight) {
+    let row: PriceWeight | null = null;
+    try { row = pageTableRow(item, pageMap); } catch { row = null; }
+    if (row && row.price === price) weight = row.weight;
+  }
   if (!price && !weight) {
     throw new Error(`${D20PFSRD_UNSUPPORTED} Could not read a price or weight for "${item.name}".${HINT}`);
   }

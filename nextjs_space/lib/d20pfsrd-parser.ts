@@ -9,8 +9,9 @@ import { weaponPath, parseD20pfsrdWeapon } from './d20pfsrd/weapons';
 import { parseD20pfsrdGearPage } from './d20pfsrd/gear';
 import { isArmorItemPath, parseD20pfsrdArmor } from './d20pfsrd/armor';
 
-export const D20PFSRD_UNSUPPORTED = 'd20pfsrd import currently supports spells, feats, magic items and mundane gear only.';
-export const HINT = ' Open a single spell (/magic/all-spells/…), feat (/feats/…), magic item (/magic-items/…) or gear (/equipment/goods-and-services/…#item) page.';
+import { D20PFSRD_UNSUPPORTED, HINT } from './d20pfsrd/messages';
+// Re-exported: route.ts, the armor/weapon/magic-item parsers and tests import them from here.
+export { D20PFSRD_UNSUPPORTED, HINT };
 
 export type D20pfsrdDraft = CatalogDraft & { spellLevels?: Array<{ cls: string; level: number }> };
 

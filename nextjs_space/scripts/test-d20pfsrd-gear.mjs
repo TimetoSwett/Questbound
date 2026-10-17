@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 const D = await import('../lib/d20pfsrd-parser.ts');
 const G = await import('../lib/d20pfsrd/gear.ts');
 const L = await import('../lib/library.ts');
+const M = await import('../lib/d20pfsrd/messages.ts');
 const fx = (f) => readFileSync(new URL(`./fixtures/d20pfsrd/${f}`, import.meta.url), 'utf8');
 const U = {
   bedroll: 'https://www.d20pfsrd.com/equipment/goods-and-services/hunting-camping-survival-gear/#bedroll',
@@ -102,10 +103,28 @@ ok('Barding "×2" multiplier is not a price (throws)');
 // 3rd-party goods: one item per page under a publisher
 const straw = D.parseD20pfsrdPage(fx('3pp-goods-backpack-straw.html'), U.straw); check(straw);
 assert.equal(straw.name, 'Backpack, Straw'); assert.equal(straw.data.cost, '2 cp');
+assert.equal(straw.data.weight, 0, 'page lists no weight; "20 lbs. worth of material" is capacity, not weight');
 assert.ok(straw.data.description.includes('woven straw basket'));
 const deo = D.parseD20pfsrdPage(fx('3pp-goods-deodorizer.html'), U.deodorizer); check(deo);
-assert.equal(deo.name, 'Deodorizer'); assert.equal(deo.data.cost, '25gp');
-ok('3pp goods: Backpack, Straw = 2 cp; Deodorizer = 25gp (full pages)');
+assert.equal(deo.name, 'Deodorizer'); assert.equal(deo.data.cost, '25 gp', '"25gp" normalized');
+ok('3pp goods: Backpack, Straw = 2 cp, no weight; Deodorizer = 25 gp (full pages)');
+
+const pp = G.parseD20pfsrdGearPage(
+  '<html><body><div id="article-content"><h1>Widget, Folding</h1><p>A folding widget.</p><p><b>Cost</b>: 12GP<br><b>Weight</b> 3 lbs.</p></div></body></html>',
+  'https://www.d20pfsrd.com/equipment/3rd-party-equipment/3rd-party-goods-and-services/some-publisher/widget-folding/');
+check(pp); assert.equal(pp.data.cost, '12 gp'); assert.equal(pp.data.weight, 3);
+ok('3pp single page: Weight line after the Cost line is parsed; "12GP" -> "12 gp"');
+
+// Shared anchors: ambiguous rows throw instead of taking the first row
+assert.throws(() => G.parseD20pfsrdGearPage(fx('hunting-camping-survival-gear.html'),
+  'https://www.d20pfsrd.com/equipment/goods-and-services/hunting-camping-survival-gear/#ale_luglurch'), /"Ale, Luglurch" has 2 different price rows .*1 gp.*4 sp.*ambiguous/);
+ok('Ale, Luglurch (two rows: 1 gp / 4 sp) throws ambiguous');
+assert.throws(() => G.parseD20pfsrdGearPage(fx('hunting-camping-survival-gear.html'),
+  'https://www.d20pfsrd.com/equipment/goods-and-services/hunting-camping-survival-gear/#food_lodging_aka_monthly_cost_of_living'), /is a service, not gear/);
+ok('Food & Lodging heading on a gear page is rejected as a service');
+const mam = gear('animals-animal-gear.html', 'https://www.d20pfsrd.com/equipment/goods-and-services/animals-animal-gear/#woolly_mammoth');
+assert.equal(mam.data.cost, '3,000 gp'); assert.equal(mam.data.weight, 12000);
+ok('Woolly Mammoth: training-table repeat with no weight agrees with the main row');
 
 // ---- Synthetic Widget probes ----
 const widgetPage = (body) => `<html><body><div id="article-content">${body}</div></body></html>`;
@@ -240,6 +259,18 @@ w = widget(sec('widget', 'Widget', '<p>A widget.</p><ul><li><i>Fancy</i>: <b>Pri
 assert.equal(w.data.cost, '5 gp'); assert.equal(w.data.weight, 2);
 ok('Widget: variant Price line inside <ul> does not win');
 
+const shared = (rows) => `<table><tr><th>Item</th><th>Price</th><th>Weight</th></tr>${rows.map(([n, p]) => `<tr><td><a href="#TOC-Widget">${n}</a></td><td>${p}</td><td>1 lb.</td></tr>`).join('')}</table>`;
+assert.throws(() => widget(shared([['Gizmo', '1 gp'], ['Doohickey', '2 gp']]) + sec('widget', 'Widget', '<p>A widget.</p>'), 'widget'), /2 different price rows .*ambiguous/);
+ok('Widget: shared anchor, rows for other items -> throws (no first-row guess)');
+w = widget(shared([['Widget, small', '1 gp'], ['Widget, large', '2 gp']]) + sec('widget', 'Widget', '<p>A widget.</p>'), 'widget');
+assert.equal(w.name, 'Widget, small'); assert.equal(w.data.cost, '1 gp');
+ok('Widget: variant family "Widget, small/large" -> base row, named for it (Tent, small)');
+assert.throws(() => widget(shared([['Widget', '1 gp'], ['Widget', '2 gp']]) + sec('widget', 'Widget', '<p>A widget.</p>'), 'widget'), /ambiguous/);
+ok('Widget: two exact-name rows with different prices -> throws');
+w = widget(sec('widget', 'Widget', '<p><b>Price</b> 5 GP; <b>Weight</b> 1 lb.</p><p>A widget.</p>'), 'widget');
+assert.equal(w.data.cost, '5 gp');
+ok('Widget: coin units normalized ("5 GP" -> "5 gp")');
+
 // Anchors
 w = widget(sec('widget', 'Widget', '<p><b>Price</b> 5 gp</p><p>A widget.</p>'), 'TOC-Widget');
 assert.equal(w.data.cost, '5 gp');
@@ -272,6 +303,27 @@ assert.equal(K('https://www.d20pfsrd.com/equipment/goods-and-services/'), null, 
 assert.equal(K('https://www.d20pfsrd.com/equipment/goods-and-services/hirelings-servants-services/extra/'), null, '4 segments rejected');
 assert.equal(K('https://www.d20pfsrd.com/equipment/weapons/'), null, 'weapons not gear');
 ok('url routing');
+
+// ---- Services pages: not gear ----
+for (const u of [
+  'https://www.d20pfsrd.com/equipment/goods-and-services/hirelings-servants-services/#hirelings',
+  'https://www.d20pfsrd.com/equipment/goods-and-services/hirelings-servants-services/#valet',
+  'https://www.d20pfsrd.com/equipment/goods-and-services/hirelings-servants-services/',
+]) {
+  assert.equal(G.isServicesGearPath(u), true);
+  assert.throws(() => D.parseD20pfsrdPage(fx('hunting-camping-survival-gear.html'), u), /lists services .*not gear/);
+}
+assert.equal(G.isServicesGearPath(U.chain), false);
+assert.equal(G.isServicesGearPath('https://www.d20pfsrd.com/equipment/goods-and-services/hunting-camping-survival-gear/#bedroll'), false);
+ok('hirelings-servants-services rejected as not gear (#hirelings, #valet, page)');
+
+// ---- Messages module: shared texts, no import cycle ----
+assert.equal(D.D20PFSRD_UNSUPPORTED, M.D20PFSRD_UNSUPPORTED); assert.equal(D.HINT, M.HINT);
+const gearSrc = readFileSync(new URL('../lib/d20pfsrd/gear.ts', import.meta.url), 'utf8');
+const msgSrc = readFileSync(new URL('../lib/d20pfsrd/messages.ts', import.meta.url), 'utf8');
+assert.ok(!/from ['"]\.\.\/d20pfsrd-parser['"]/.test(gearSrc), 'gear.ts must not import d20pfsrd-parser');
+assert.ok(!/^\s*import\b/m.test(msgSrc), 'messages.ts is a leaf module');
+ok('messages.ts shared by parser and gear.ts; no cycle');
 
 // ---- Rejections ----
 assert.throws(() => G.parseD20pfsrdGearPage(fx('hunting-camping-survival-gear.html'), U.multi), /lists .* items/, 'multi-item without fragment');
