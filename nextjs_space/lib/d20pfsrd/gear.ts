@@ -24,7 +24,7 @@ const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd
 const oneLine = (html: string) => htmlToText(html).replace(/\s+/g, ' ').trim();
 
 type ItemSection = { ids: string[]; name: string; html: string };
-type PriceEntry = { price: string; weight: number; name: string };
+type PriceEntry = { price: string; weight: number; name: string; link: string };
 type PriceWeight = { price: string; weight: number; name?: string };
 
 /** Normalize an anchor or name for matching: lowercase, strip leading toc-, entities, punctuation. */
@@ -71,6 +71,16 @@ function itemSections(page: string): ItemSection[] {
     const tbl = body.search(/<p\b[^>]*>\s*<a\b[^>]*\bname=["']table-/i);
     if (tbl >= 0) body = body.slice(0, tbl);
     sections.push({ ids: headingIds(headHtml), name, html: body });
+  }
+  // A copy-pasted anchor can sit on two headings (tools-kits: "Shears" carries
+  // name="TOC-Bridge-Portable"). Give a shared anchor only to the heading whose name it spells.
+  const owners = new Map<string, ItemSection[]>();
+  for (const sct of sections) for (const id of sct.ids) owners.set(id, [...(owners.get(id) ?? []), sct]);
+  for (const [id, list] of owners) {
+    if (list.length < 2) continue;
+    const named = list.filter((sct) => normAnchor(sct.name) === normAnchor(id));
+    if (!named.length) continue;
+    for (const sct of list) if (!named.includes(sct)) sct.ids = sct.ids.filter((x) => x !== id);
   }
   return sections;
 }
@@ -133,8 +143,8 @@ function pagePriceMap(page: string): Map<string, PriceEntry[]> {
       const price = parsePrice(cells[hd.pi].text);
       const weight = hd.wi >= 0 && hd.wi < cells.length ? parseWeight(cells[hd.wi].text) : 0;
       if (!price && !weight) continue;
-      const entry: PriceEntry = { price, weight, name: cells[0].text };
       const link = cells[0].link || '';
+      const entry: PriceEntry = { price, weight, name: cells[0].text, link };
       if (link) add(normAnchor(link), entry);
       add(`name:${normAnchor(cells[0].text)}`, entry);
       add(`words:${wordKey(cells[0].text)}`, entry);
@@ -210,13 +220,18 @@ function sectionPriceLine(html: string): PriceWeight | null {
 }
 
 /** First data row of a variant table inside the section (Thieves' tools Common/Concealable/Masterwork). */
-function sectionVariantTable(html: string): PriceWeight | null {
+function sectionVariantTable(html: string, ids: string[] = []): PriceWeight | null {
   const t = /<table\b[^>]*>([\s\S]*?)<\/table>/i.exec(html.split(/<h5\b/i)[0]);
   if (!t) return null;
   const rows = [...t[1].matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map((r) => rowCells(r[1]));
   const hd = tableHeader(rows);
   if (!hd) return null;
-  for (let i = hd.hi + 1; i < rows.length; i++) {
+  // Prefer the row whose #link is this item's anchor, then the first row.
+  const anchors = new Set(ids.map(normAnchor));
+  const order = [...Array(rows.length).keys()].slice(hd.hi + 1);
+  const linked = (i: number) => rows[i].some((c) => c.link && anchors.has(normAnchor(c.link)));
+  order.sort((x, y) => Number(linked(y)) - Number(linked(x)) || x - y);
+  for (const i of order) {
     const c = rows[i];
     if (hd.pi >= c.length) continue;
     const price = parsePrice(c[hd.pi].text);
@@ -228,7 +243,7 @@ function sectionVariantTable(html: string): PriceWeight | null {
 
 const stripParen = (n: string) => n.replace(/\s*\([^)]*\)\s*$/, '');
 const ambiguous = (item: ItemSection, rows: PriceEntry[]) => new Error(
-  `${D20PFSRD_UNSUPPORTED} "${item.name}" has ${rows.length} different price rows on that page (${rows.slice(0, 4).map((r) => `${r.name}: ${r.price || '—'}`).join('; ')}${rows.length > 4 ? '; …' : ''}), so the price is ambiguous. Add it by hand.${HINT}`);
+  `${D20PFSRD_UNSUPPORTED} "${item.name}" matches several price rows on that page (${rows.slice(0, 4).map((r) => `${r.name}: ${r.price || '—'}`).join('; ')}${rows.length > 4 ? '; …' : ''}), so the price is ambiguous. Link the exact row instead (e.g. #${normAnchor(rows[0].name)}) or add it by hand.`);
 
 /**
  * One row, or several that agree. Rows agree when they have the same price and at most one
@@ -249,34 +264,53 @@ function single(item: ItemSection, rows: PriceEntry[], withName = false): PriceW
 /**
  * Page-level table row for this item: by anchor first, then by exact name
  * (with and without a trailing parenthetical), then by order-free words.
- * Several rows can share one anchor. Resolution:
- *  1. rows named exactly like the heading (all must agree, else ambiguous -> throw: Ale, Luglurch 1 gp / 4 sp);
- *  2. rows that are the heading plus a parenthetical ("Chain (10 ft.)" for "Chain"); the row name is used;
- *  3. a single row;
- *  4. a variant family where EVERY row is "<heading>, <variant>" (Tent, small/medium/large/…):
- *     the first (base) row is used and its name is kept, so it imports as "Tent, small";
- *  5. anything else (rows for unrelated items, e.g. #TOC-Hirelings -> Chronicler, Laborer…) throws.
+ * Several rows can share one anchor. Rows are compared to the heading with any
+ * trailing "(...)" stripped, and the matching rows must agree:
+ *  - exact-name rows win (Woolly mammoth over Woolly mammoth (combat-trained));
+ *  - #chain: "Chain (10 ft.)" matches "Chain", "Chains, breakaway" does not -> 30 gp, named "Chain (10 ft.)";
+ *  - #ale_luglurch: two "Ale, Luglurch" rows (1 gp / 4 sp) -> ambiguous, throws;
+ *  - #TOC-Tent: "Tent, small/medium/…" none matches "Tent" -> ambiguous, throws
+ *    (link the row itself instead: #tent-small, see rowByFragment);
+ *  - a lone row on the anchor is used as is.
  */
 function pageTableRow(item: ItemSection, map: Map<string, PriceEntry[]>): PriceWeight | null {
-  const want = normAnchor(item.name);
+  const want = normAnchor(stripParen(item.name));
   const anchors = [...new Set(item.ids.map(normAnchor))];
   for (const k of anchors) {
     const rows = map.get(k);
     if (!rows?.length) continue;
-    const exact = rows.filter((r) => normAnchor(r.name) === want);
-    if (exact.length) return single(item, exact);
-    const base = rows.filter((r) => normAnchor(stripParen(r.name)) === want);
-    // Row name only when it disambiguates a shared anchor ("Chain (10 ft.)" vs "Chains, breakaway").
-    if (base.length) return single(item, base, rows.length > 1);
     if (rows.length === 1) return single(item, rows);
-    if (rows.every((r) => normAnchor(r.name).startsWith(`${want}-`) && /,/.test(r.name))) return rows[0];
+    // Rows named exactly like the heading first (Woolly mammoth vs Woolly mammoth (combat-trained)),
+    // then rows matching once a trailing "(...)" is stripped (Chain (10 ft.)).
+    const exact = rows.filter((r) => normAnchor(r.name) === normAnchor(item.name));
+    if (exact.length) return single(item, exact);
+    const match = rows.filter((r) => normAnchor(stripParen(r.name)) === want);
+    if (match.length) return single(item, match, true);
     throw ambiguous(item, rows);
   }
-  for (const k of [`name:${want}`, `name:${normAnchor(stripParen(item.name))}`, `words:${wordKey(item.name)}`]) {
+  for (const k of [`name:${normAnchor(item.name)}`, `name:${want}`, `words:${wordKey(item.name)}`]) {
     const rows = map.get(k);
     if (rows?.length) return single(item, rows);
   }
   return null;
+}
+
+/**
+ * A fragment naming one table row ("#tent-small", "#Tent,%20small", "#tent_small" for the
+ * "Tent, small" row). d20pfsrd gives such rows no anchor of their own (all Tent rows link
+ * #TOC-Tent), so the row name is the only way to point at one. Returns the row and the
+ * section its link points to.
+ */
+function rowByFragment(fragNorm: string, sections: ItemSection[], map: Map<string, PriceEntry[]>): { row: PriceEntry; item: ItemSection } | null {
+  if (!fragNorm) return null;
+  const seen = new Set<PriceEntry>();
+  for (const rows of map.values()) for (const r of rows) if (normAnchor(r.name) === fragNorm) seen.add(r);
+  const rows = [...seen];
+  if (!rows.length) return null;
+  const item = sections.find((s) => rows[0].link && s.ids.includes(normAnchor(rows[0].link)));
+  if (!item) return null;
+  const pw = single({ ...item, name: rows[0].name }, rows, true) as PriceEntry;
+  return { row: pw, item };
 }
 
 /** Description: paragraphs and lists, minus source citations, labels, and price tables. */
@@ -340,6 +374,7 @@ export function parseD20pfsrdGearPage(html: string, sourceUrl: string): CatalogD
   catch { fragment = ''; }
   const fragNorm = normAnchor(fragment);
   let item: ItemSection | undefined | null;
+  let byRow: PriceWeight | null = null; // fragment named one table row (#tent-small)
   if (isSingleItemUrl(sourceUrl)) {
     item = singlePageSection(html);
     if (!item) throw new Error(`${D20PFSRD_UNSUPPORTED} That page has no gear entry.${HINT}`);
@@ -347,6 +382,10 @@ export function parseD20pfsrdGearPage(html: string, sourceUrl: string): CatalogD
     const sections = itemSections(html);
     if (fragment) {
       item = sections.find((s) => s.ids.includes(fragment)) ?? sections.find((s) => s.ids.includes(fragNorm));
+      if (!item) {
+        const hit = rowByFragment(fragNorm, sections, pagePriceMap(html));
+        if (hit) { item = hit.item; byRow = hit.row; }
+      }
       if (!item) throw new Error(`${D20PFSRD_UNSUPPORTED} No item "#${fragment}" on that page.${HINT}`);
     } else if (sections.length === 1) {
       item = sections[0];
@@ -361,8 +400,8 @@ export function parseD20pfsrdGearPage(html: string, sourceUrl: string): CatalogD
   // The page table is only consulted when the section itself has nothing, so an
   // ambiguous table (several rows for one anchor) never blocks an item whose own text is clear.
   const pageMap = pagePriceMap(html);
-  const own = sectionPriceLine(item.html) ?? sectionVariantTable(item.html);
-  const pw: PriceWeight = own ?? pageTableRow(item, pageMap) ?? { price: '', weight: 0 };
+  const own = byRow ? null : sectionPriceLine(item.html) ?? sectionVariantTable(item.html, item.ids);
+  const pw: PriceWeight = byRow ?? own ?? pageTableRow(item, pageMap) ?? { price: '', weight: 0 };
   const price = pw.price;
   let weight = pw.weight;
   // Own line without a weight: take the table weight only when an unambiguous row has the same price.
@@ -370,6 +409,12 @@ export function parseD20pfsrdGearPage(html: string, sourceUrl: string): CatalogD
     let row: PriceWeight | null = null;
     try { row = pageTableRow(item, pageMap); } catch { row = null; }
     if (row && row.price === price) weight = row.weight;
+  }
+  // Still no weight: a Weight label anywhere in the item's own section, if they all agree
+  // (Pack Animal: price from the table, "Yak … Weight 1,000 lbs." in its list).
+  if (!byRow && price && !weight) {
+    const ws = new Set([...item.html.matchAll(/<(b|strong)\b[^>]*>\s*weight\s*:?\s*<\/\1>\s*:?\s*([^<;]+)/gi)].map((m) => parseWeight(oneLine(m[2]))).filter((w) => w > 0));
+    if (ws.size === 1) weight = [...ws][0];
   }
   if (!price && !weight) {
     throw new Error(`${D20PFSRD_UNSUPPORTED} Could not read a price or weight for "${item.name}".${HINT}`);

@@ -55,9 +55,21 @@ const chain = gear('tools-kits.html', U.chain);
 assert.equal(chain.data.cost, '30 gp'); assert.equal(chain.data.weight, 2);
 ok('Chain (10 ft.) = 30 gp, 2 lb');
 
-const tent = gear('hunting-camping-survival-gear.html', U.tent);
-assert.equal(tent.name, 'Tent, small'); assert.equal(tent.data.cost, '10 gp'); assert.equal(tent.data.weight, 20);
-ok('Tent, small = 10 gp, 20 lb (#TOC-Tent anchor)');
+// #TOC-Tent / #tent: every Tent row (small/medium/large/pavilion/hanging) links #TOC-Tent -> ambiguous.
+for (const u of [U.tent, U.tent.replace('#TOC-Tent', '#tent')]) {
+  assert.throws(() => G.parseD20pfsrdGearPage(fx('hunting-camping-survival-gear.html'), u),
+    /"Tent" matches several price rows .*Tent, small: 10 gp.*Link the exact row instead \(e\.g\. #tent-small\)/);
+}
+ok('Tent via #TOC-Tent / #tent throws "matches several price rows"');
+// The page gives the rows no anchors of their own; the row name as fragment selects one.
+for (const f of ['#tent-small', '#tent_small', '#Tent,%20small']) {
+  const tent = gear('hunting-camping-survival-gear.html', U.tent.replace('#TOC-Tent', f));
+  assert.equal(tent.name, 'Tent, small'); assert.equal(tent.data.cost, '10 gp'); assert.equal(tent.data.weight, 20, f);
+  assert.ok(tent.data.description.startsWith('Tents come in a variety of sizes'));
+}
+const tl = gear('hunting-camping-survival-gear.html', U.tent.replace('#TOC-Tent', '#tent-large'));
+assert.equal(tl.data.cost, '30 gp'); assert.equal(tl.data.weight, 40);
+ok('Tent, small = 10 gp, 20 lb via row fragment #tent-small (also #tent_small, #Tent,%20small); #tent-large = 30 gp, 40 lb');
 
 const bat = gear('animals-animal-gear.html', U.bat);
 assert.equal(bat.data.cost, '5 gp'); assert.equal(bat.data.weight, 1);
@@ -117,7 +129,7 @@ ok('3pp single page: Weight line after the Cost line is parsed; "12GP" -> "12 gp
 
 // Shared anchors: ambiguous rows throw instead of taking the first row
 assert.throws(() => G.parseD20pfsrdGearPage(fx('hunting-camping-survival-gear.html'),
-  'https://www.d20pfsrd.com/equipment/goods-and-services/hunting-camping-survival-gear/#ale_luglurch'), /"Ale, Luglurch" has 2 different price rows .*1 gp.*4 sp.*ambiguous/);
+  'https://www.d20pfsrd.com/equipment/goods-and-services/hunting-camping-survival-gear/#ale_luglurch'), /"Ale, Luglurch" matches several price rows .*1 gp.*4 sp.*ambiguous/);
 ok('Ale, Luglurch (two rows: 1 gp / 4 sp) throws ambiguous');
 assert.throws(() => G.parseD20pfsrdGearPage(fx('hunting-camping-survival-gear.html'),
   'https://www.d20pfsrd.com/equipment/goods-and-services/hunting-camping-survival-gear/#food_lodging_aka_monthly_cost_of_living'), /is a service, not gear/);
@@ -125,6 +137,20 @@ ok('Food & Lodging heading on a gear page is rejected as a service');
 const mam = gear('animals-animal-gear.html', 'https://www.d20pfsrd.com/equipment/goods-and-services/animals-animal-gear/#woolly_mammoth');
 assert.equal(mam.data.cost, '3,000 gp'); assert.equal(mam.data.weight, 12000);
 ok('Woolly Mammoth: training-table repeat with no weight agrees with the main row');
+const pack = gear('animals-animal-gear.html', 'https://www.d20pfsrd.com/equipment/goods-and-services/animals-animal-gear/#pack_animal');
+assert.equal(pack.data.cost, '24 gp'); assert.equal(pack.data.weight, 1000);
+ok('Pack Animal = 24 gp, 1,000 lbs (Weight from its own list line)');
+for (const f of ['#TOC-Bridge-Portable', '#bridge_portable']) {
+  const br2 = gear('tools-kits.html', `https://www.d20pfsrd.com/equipment/goods-and-services/tools-kits/${f}`);
+  assert.equal(br2.name, 'Bridge, Portable'); assert.equal(br2.data.cost, '200 gp'); assert.equal(br2.data.weight, 60);
+}
+const shears = gear('tools-kits.html', 'https://www.d20pfsrd.com/equipment/goods-and-services/tools-kits/#shears');
+assert.equal(shears.name, 'Shears'); assert.notEqual(shears.data.cost, '200 gp');
+ok('copy-pasted TOC-Bridge-Portable anchor on the Shears heading resolves to Bridge, Portable');
+for (const f of ['lock', 'manacles', 'tools_thieves8217_extenders']) {
+  assert.throws(() => G.parseD20pfsrdGearPage(fx('tools-kits.html'), `https://www.d20pfsrd.com/equipment/goods-and-services/tools-kits/#${f}`), /matches several price rows/, f);
+}
+ok('Lock, Manacles, Thieves\u2019 Extenders (several rows on one anchor) throw');
 
 // ---- Synthetic Widget probes ----
 const widgetPage = (body) => `<html><body><div id="article-content">${body}</div></body></html>`;
@@ -260,11 +286,22 @@ assert.equal(w.data.cost, '5 gp'); assert.equal(w.data.weight, 2);
 ok('Widget: variant Price line inside <ul> does not win');
 
 const shared = (rows) => `<table><tr><th>Item</th><th>Price</th><th>Weight</th></tr>${rows.map(([n, p]) => `<tr><td><a href="#TOC-Widget">${n}</a></td><td>${p}</td><td>1 lb.</td></tr>`).join('')}</table>`;
-assert.throws(() => widget(shared([['Gizmo', '1 gp'], ['Doohickey', '2 gp']]) + sec('widget', 'Widget', '<p>A widget.</p>'), 'widget'), /2 different price rows .*ambiguous/);
+assert.throws(() => widget(shared([['Gizmo', '1 gp'], ['Doohickey', '2 gp']]) + sec('widget', 'Widget', '<p>A widget.</p>'), 'widget'), /matches several price rows .*ambiguous/);
 ok('Widget: shared anchor, rows for other items -> throws (no first-row guess)');
-w = widget(shared([['Widget, small', '1 gp'], ['Widget, large', '2 gp']]) + sec('widget', 'Widget', '<p>A widget.</p>'), 'widget');
-assert.equal(w.name, 'Widget, small'); assert.equal(w.data.cost, '1 gp');
-ok('Widget: variant family "Widget, small/large" -> base row, named for it (Tent, small)');
+assert.throws(() => widget(shared([['Widget, small', '1 gp'], ['Widget, large', '2 gp']]) + sec('widget', 'Widget', '<p>A widget.</p>'), 'widget'), /matches several price rows/);
+w = widget(shared([['Widget, small', '1 gp'], ['Widget, large', '2 gp']]) + sec('widget', 'Widget', '<p>A widget.</p>'), 'widget-large');
+assert.equal(w.name, 'Widget, large'); assert.equal(w.data.cost, '2 gp');
+ok('Widget: variant rows on one anchor throw; #widget-large selects the row');
+w = widget(shared([['Widget (big)', '3 gp'], ['Gizmo', '1 gp']]) + sec('widget', 'Widget', '<p>A widget.</p>'), 'widget');
+assert.equal(w.data.cost, '3 gp'); assert.equal(w.name, 'Widget (big)');
+ok('Widget: trailing "(...)" stripped before comparing to the heading (Chain (10 ft.))');
+w = widget(sec('widget', 'Widget', '<table><tr><th>Item</th><th>Price</th><th>Weight</th></tr><tr><td><a href="#gadget">Gadget</a></td><td>1 gp</td><td>1 lb.</td></tr><tr><td><a href="#widget">Widget</a></td><td>7 gp</td><td>3 lbs.</td></tr></table><p>A widget.</p>'), 'widget');
+assert.equal(w.data.cost, '7 gp'); assert.equal(w.data.weight, 3);
+ok('Widget: in-section variant table prefers the row linking the item anchor');
+w = widget(`<table><tr><th>Item</th><th>Price</th><th>Weight</th></tr><tr><td><a href="#widget">Widget</a></td><td>24 gp</td><td>—</td></tr></table>` +
+  sec('widget', 'Widget', '<p>A widget.</p><ul><li><i>Big</i>: <b>Price</b> 24 gp; <b>Weight</b> 1,000 lbs.</li></ul>'), 'widget');
+assert.equal(w.data.cost, '24 gp'); assert.equal(w.data.weight, 1000);
+ok('Widget: weight from elsewhere in the section when the price source has none');
 assert.throws(() => widget(shared([['Widget', '1 gp'], ['Widget', '2 gp']]) + sec('widget', 'Widget', '<p>A widget.</p>'), 'widget'), /ambiguous/);
 ok('Widget: two exact-name rows with different prices -> throws');
 w = widget(sec('widget', 'Widget', '<p><b>Price</b> 5 GP; <b>Weight</b> 1 lb.</p><p>A widget.</p>'), 'widget');
