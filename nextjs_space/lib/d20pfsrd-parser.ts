@@ -211,10 +211,12 @@ function parseFeat(title: string, blocks: Block[], sourceUrl: string): D20pfsrdD
 export function parseD20pfsrdPage(html: string, sourceUrl: string, indexPages: string[] = []): D20pfsrdDraft {
   const kind = d20pfsrdKindForUrl(sourceUrl);
   if (!kind) throw new Error(`${D20PFSRD_UNSUPPORTED}${HINT}`);
+  // Mundane gear pages are split into h4 item sections by the gear parser itself.
+  if (kind === 'gear' && new URL(sourceUrl).pathname.toLowerCase().startsWith('/equipment/goods-and-services/')) {
+    return parseD20pfsrdGearPage(html, sourceUrl);
+  }
   const { title, blocks } = entryBlocks(html, kind);
-  if (kind === 'gear') return sourceUrl.includes('/equipment/goods-and-services/')
-    ? parseD20pfsrdGearPage(html, sourceUrl)
-    : parseD20pfsrdMagicItem(title, blocks, sourceUrl);
+  if (kind === 'gear') return parseD20pfsrdMagicItem(title, blocks, sourceUrl);
   if (kind === 'weapon') return parseD20pfsrdWeapon(title, blocks, sourceUrl);
   if (kind === 'armor') return parseD20pfsrdArmor(title, blocks, sourceUrl, indexPages);
   return kind === 'spell' ? parseSpell(title, blocks, sourceUrl) : parseFeat(title, blocks, sourceUrl);

@@ -51,7 +51,9 @@ ok('bedroll (simple price/weight)');
 // another item from the same page
 const tent = gear('adventuring-gear.html', U.tent);
 assert.equal(tent.name, 'Tent');
-assert.ok(tent.data.cost.length > 0);
+// The trimmed fixture's Tent section has no price line; the following
+// Hunting and Fishing table must not be misattributed to it.
+assert.equal(tent.data.cost, '');
 assert.ok(tent.data.weight >= 0);
 assert.ok(tent.data.description.length > 20);
 ok('tent (second item, same page)');
@@ -83,8 +85,8 @@ assert.equal(K('https://www.d20pfsrd.com/equipment/goods-and-services/'), null, 
 assert.equal(K('https://www.d20pfsrd.com/equipment/goods-and-services'), null, 'index page rejected (no slash)');
 assert.equal(K('https://www.d20pfsrd.com/equipment/weapons/'), null, 'weapons not gear');
 assert.equal(K('https://www.d20pfsrd.com/equipment/armor/'), null, 'armor not gear');
-assert.equal(K('https://www.d20pfsrd.com/magic-items/wondrous-items/a-b/bag-of-holding/'), null, 'wondrous not gear');
-ok('url routing (gear pages; weapons/armor/wondrous/index rejected)');
+assert.equal(K('https://www.d20pfsrd.com/magic-items/wondrous-items/a-b/bag-of-holding/'), 'gear', 'wondrous items route to gear (magic-item parser)');
+ok('url routing (gear pages; weapons/armor/index rejected; wondrous -> magic items)');
 
 // rejections
 const NOFRAG = /lists .* items/;

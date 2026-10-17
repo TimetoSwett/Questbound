@@ -83,7 +83,7 @@ function parseWeight(raw: string): number {
 /** Description: paragraphs and lists after the price line, minus source citations and tables. */
 function description(html: string): string {
   // Drop the price paragraph and any variant table (their data is in price/weight already).
-  let h = html
+  const h = html
     .replace(/<p\b[^>]*>\s*<b[^>]*>\s*price\s*<\/b>[\s\S]*?<\/p>/i, '')
     .replace(/<table\b[\s\S]*?<\/table>/gi, '')
     .replace(/<p\b[^>]*\bclass=["'][^"']*\bsource\b[^"']*["'][\s\S]*?<\/p>/gi, '');
