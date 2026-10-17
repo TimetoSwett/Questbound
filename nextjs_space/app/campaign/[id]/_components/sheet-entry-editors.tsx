@@ -6,7 +6,7 @@ import { AbilityEntryFields } from '@/components/library/ability-entry-fields';
 import { GearEntryFields } from '@/components/library/gear-entry-fields';
 import {
   featFormFromEntry, featPatchFromForm, abilityFormFromEntry, abilityPatchFromForm,
-  gearFormFromItem, gearPatchFromForm,
+  gearFormFromItem, gearPatchFromForm, nextDraft,
 } from '@/lib/sheet-entry-forms';
 
 export function SheetFeatEditor({ entry, onPatch, idPrefix }: {
@@ -15,11 +15,19 @@ export function SheetFeatEditor({ entry, onPatch, idPrefix }: {
   idPrefix: string;
 }) {
   const [form, setForm] = useState(() => featFormFromEntry(entry));
+  const [lastSynced, setLastSynced] = useState(() => JSON.stringify(featFormFromEntry(entry)));
   const [error, setError] = useState('');
+  // Adjust this component's state during render to avoid an effect-triggered update.
+  const synced = nextDraft(form, lastSynced, featFormFromEntry(entry), !error);
+  if (synced.lastSynced !== lastSynced) {
+    setForm(synced.draft);
+    setLastSynced(synced.lastSynced);
+  }
   const change = (next: typeof form) => {
     setForm(next);
     const result = featPatchFromForm(next);
     if (result.ok) {
+      setLastSynced(JSON.stringify(featFormFromEntry({ ...entry, ...result.patch })));
       onPatch(result.patch);
       setError('');
     } else setError(result.error);
@@ -39,11 +47,19 @@ export function SheetAbilityEditor({ entry, onPatch, idPrefix }: {
   idPrefix: string;
 }) {
   const [form, setForm] = useState(() => abilityFormFromEntry(entry));
+  const [lastSynced, setLastSynced] = useState(() => JSON.stringify(abilityFormFromEntry(entry)));
   const [error, setError] = useState('');
+  // Adjust this component's state during render to avoid an effect-triggered update.
+  const synced = nextDraft(form, lastSynced, abilityFormFromEntry(entry), !error);
+  if (synced.lastSynced !== lastSynced) {
+    setForm(synced.draft);
+    setLastSynced(synced.lastSynced);
+  }
   const change = (next: typeof form) => {
     setForm(next);
     const result = abilityPatchFromForm(next);
     if (result.ok) {
+      setLastSynced(JSON.stringify(abilityFormFromEntry({ ...entry, ...result.patch })));
       onPatch(result.patch);
       setError('');
     } else setError(result.error);
@@ -63,11 +79,19 @@ export function SheetGearEditor({ item, onPatch, idPrefix }: {
   idPrefix: string;
 }) {
   const [form, setForm] = useState(() => gearFormFromItem(item));
+  const [lastSynced, setLastSynced] = useState(() => JSON.stringify(gearFormFromItem(item)));
   const [error, setError] = useState('');
+  // Adjust this component's state during render to avoid an effect-triggered update.
+  const synced = nextDraft(form, lastSynced, gearFormFromItem(item), !error);
+  if (synced.lastSynced !== lastSynced) {
+    setForm(synced.draft);
+    setLastSynced(synced.lastSynced);
+  }
   const change = (next: typeof form) => {
     setForm(next);
     const result = gearPatchFromForm(next);
     if (result.ok) {
+      setLastSynced(JSON.stringify(gearFormFromItem({ ...item, ...result.patch })));
       onPatch(result.patch);
       setError('');
     } else setError(result.error);

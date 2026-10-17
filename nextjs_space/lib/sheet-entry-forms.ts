@@ -60,3 +60,10 @@ export function gearMetaExtras(item: GearItem) {
   const slot = item.slot && GEAR_SLOT_LABELS[item.slot as keyof typeof GEAR_SLOT_LABELS];
   return [slot, item.aura, item.cl !== undefined ? `CL ${item.cl}` : ''].filter(Boolean).join(' · ');
 }
+
+/** Preserve invalid typing until the draft can accept an external update. */
+export function nextDraft<F>(draft: F, lastSynced: string, fromEntry: F, draftValid: boolean): { draft: F; lastSynced: string } {
+  const serialized = JSON.stringify(fromEntry);
+  if (serialized === lastSynced || !draftValid) return { draft, lastSynced };
+  return { draft: fromEntry, lastSynced: serialized };
+}

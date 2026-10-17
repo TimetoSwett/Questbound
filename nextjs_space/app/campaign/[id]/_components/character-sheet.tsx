@@ -14,6 +14,7 @@ import { levelForCharacter } from '@/components/library/spell-picker';
 import { SpellCard, type SpellEntry } from './spell-card';
 import { EntryCard, sheetCardGridClass } from './entry-card';
 import { castingAbilityFor, spellDc } from '@/lib/spell-dc';
+import { ensureEntryIds, newEntryId } from '@/lib/entry-ids';
 import { newAbilityId } from '@/lib/spells-extras';
 import { newSpellClientId } from '@/lib/spell-client-id';
 import { EquipmentEditor, BonusEditor } from './equipment-editor';
@@ -45,8 +46,8 @@ const ALIGNMENTS = ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'];
 type DrRow = NonNullable<SheetOptions['dr']>[number];
 type ResistRow = NonNullable<SheetOptions['resist']>[number];
 
-interface EquipItem { slot?: string; aura?: string; cl?: number; name: string; weight: number; quantity: number; value: string; notes: string; summary?: string; libraryEntryId?: string; sourceUrl?: string | null; }
-interface FeatEntry { uses?: string; featType?: string; prerequisites?: string; benefit?: string; name: string; description: string; summary?: string; kind?: 'feat' | 'ability'; tag?: AbilityTag; libraryEntryId?: string; sourceUrl?: string | null; bonuses?: ItemBonus[]; }
+interface EquipItem { id?: string; slot?: string; aura?: string; cl?: number; name: string; weight: number; quantity: number; value: string; notes: string; summary?: string; libraryEntryId?: string; sourceUrl?: string | null; }
+interface FeatEntry { id?: string; uses?: string; featType?: string; prerequisites?: string; benefit?: string; name: string; description: string; summary?: string; kind?: 'feat' | 'ability'; tag?: AbilityTag; libraryEntryId?: string; sourceUrl?: string | null; bonuses?: ItemBonus[]; }
 interface ClassEntry { name: string; level: number; }
 
 function groupFeats(feats: FeatEntry[]) {
@@ -239,9 +240,9 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           const parsed = {
             ...ch,
             skills: parseJson(ch?.skills, []),
-            equipment: parseJson(ch?.equipment, []),
+            equipment: ensureEntryIds(parseJson(ch?.equipment, [])),
             equipped: parseJson(ch?.equipped, {}),
-            feats: parseJson(ch?.feats, []),
+            feats: ensureEntryIds(parseJson(ch?.feats, [])),
             spells: parseJson(ch?.spells, { slots: {}, known: [] }),
             classes: parseJson(ch?.classes, []),
           };
@@ -800,7 +801,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
               {editable && (
                 <div className="flex gap-1">
                   <Button variant="ghost" size="sm" onClick={() => setCatalog('gear')}>+ From shop</Button>
-                  <Button variant="ghost" size="sm" onClick={() => { update('equipment', [...(data?.equipment ?? []), { name: '', weight: 0, quantity: 1, value: '', notes: '' }]); autoSave(); }}>+ Custom item</Button>
+                  <Button variant="ghost" size="sm" onClick={() => { update('equipment', [...(data?.equipment ?? []), { id: newEntryId(), name: '', weight: 0, quantity: 1, value: '', notes: '' }]); autoSave(); }}>+ Custom item</Button>
                 </div>
               )}
             </div>
@@ -821,11 +822,11 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                   update('equipment', arr);
                   autoSave();
                 };
-                return <EntryCard key={i} name={item?.name ?? ''} unnamed="Unnamed item" meta={itemMeta(item)} body={item?.summary || item?.notes} libraryEntryId={item?.libraryEntryId} sourceUrl={item?.sourceUrl} editable={editable}
+                return <EntryCard key={item?.id ?? i} name={item?.name ?? ''} unnamed="Unnamed item" meta={itemMeta(item)} body={item?.summary || item?.notes} libraryEntryId={item?.libraryEntryId} sourceUrl={item?.sourceUrl} editable={editable}
                   onDelete={() => { const arr = [...(data?.equipment ?? [])]; arr.splice(i, 1); update('equipment', arr); autoSave(); }}>
                   <Input value={item?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ name: e.target.value, libraryEntryId: undefined, sourceUrl: null, summary: undefined })} className="h-7 text-xs" placeholder="Item name" />
                   <label className="text-xs text-muted-foreground">Qty<Input type="number" value={item?.quantity ?? 1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ quantity: parseInt(e.target.value) || 1 })} className="h-7 text-xs text-center font-mono" /></label>
-                  <SheetGearEditor item={item} onPatch={(partial) => patch({ ...partial, summary: undefined })} idPrefix={`sheet-gear-${i}`} />
+                  <SheetGearEditor key={item?.id ?? i} item={item} onPatch={(partial) => patch({ ...partial, summary: undefined })} idPrefix={`sheet-gear-${item?.id ?? i}`} />
                 </EntryCard>;
               })}
             </div>
@@ -901,7 +902,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
             actions={editable ? (
               <div className="flex gap-1">
                 <Button variant="ghost" size="sm" onClick={() => setCatalog('training')}>+ From training</Button>
-                <Button variant="ghost" size="sm" onClick={() => { update('feats', [...(data?.feats ?? []), { name: '', description: '' }]); autoSave(); }}>+ Custom</Button>
+                <Button variant="ghost" size="sm" onClick={() => { update('feats', [...(data?.feats ?? []), { id: newEntryId(), name: '', description: '' }]); autoSave(); }}>+ Custom</Button>
               </div>
             ) : undefined}
           >
@@ -925,7 +926,7 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                       };
                       const tag = group.kind === 'ability' && feat?.tag && feat.tag in ABILITY_TAGS ? ABILITY_TAGS[feat.tag] : undefined;
                       const meta = [group.kind === 'ability' ? abilityMeta(feat) : feat.featType || 'Feat', ...(feat?.bonuses ?? []).map(bonusLabel)].filter(Boolean).join(' · ');
-                      return <EntryCard key={index} name={feat?.name ?? ''} unnamed={group.kind === 'ability' ? 'Unnamed ability' : 'Unnamed feat'} meta={meta} note={tag?.text} body={group.kind === 'feat' ? featCardBody(feat) : feat?.summary || feat?.description} libraryEntryId={feat?.libraryEntryId} sourceUrl={feat?.sourceUrl} editable={editable}
+                      return <EntryCard key={feat?.id ?? index} name={feat?.name ?? ''} unnamed={group.kind === 'ability' ? 'Unnamed ability' : 'Unnamed feat'} meta={meta} note={tag?.text} body={group.kind === 'feat' ? featCardBody(feat) : feat?.summary || feat?.description} libraryEntryId={feat?.libraryEntryId} sourceUrl={feat?.sourceUrl} editable={editable}
                         onDelete={() => { const arr = [...(data?.feats ?? [])]; arr.splice(index, 1); update('feats', arr); autoSave(); }}>
                         <Input value={feat?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ name: e.target.value, libraryEntryId: undefined, sourceUrl: null, summary: undefined })} className="h-7 text-sm font-semibold" placeholder="Name" />
                         <label className="text-xs text-muted-foreground">Type
@@ -935,9 +936,9 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                           </select>
                         </label>
                         {group.kind === 'ability' ? <>
-                          <SheetAbilityEditor key={`${index}-${group.kind}`} entry={feat} onPatch={(partial) => patch({ ...partial, summary: undefined })} idPrefix={`sheet-ability-${index}`} />
+                          <SheetAbilityEditor key={feat?.id ?? index} entry={feat} onPatch={(partial) => patch({ ...partial, summary: undefined })} idPrefix={`sheet-ability-${feat?.id ?? index}`} />
                           {tag && <p className="text-xs text-muted-foreground">{tag.text}</p>}
-                        </> : <SheetFeatEditor key={`${index}-${group.kind}`} entry={feat} onPatch={patch} idPrefix={`sheet-feat-${index}`} />}
+                        </> : <SheetFeatEditor key={feat?.id ?? index} entry={feat} onPatch={patch} idPrefix={`sheet-feat-${feat?.id ?? index}`} />}
                         <BonusEditor bonuses={feat?.bonuses ?? []} hint={group.kind === 'ability' ? 'This ability counts while it is on the sheet.' : 'This feat counts while it is on the sheet.'} onChange={bonuses => patch({ bonuses })} />
 
                       </EntryCard>;
@@ -1260,9 +1261,9 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           queries={[{ kind: 'gear', label: 'Gear' }]}
           knownIds={(data?.equipment ?? []).map((item: EquipItem) => item.libraryEntryId).filter((id: string | undefined): id is string => Boolean(id))}
           onClose={() => setCatalog(null)}
-          onCustom={() => { update('equipment', [...(data?.equipment ?? []), { name: '', weight: 0, quantity: 1, value: '', notes: '' }]); autoSave(); setCatalog(null); }}
+          onCustom={() => { update('equipment', [...(data?.equipment ?? []), { id: newEntryId(), name: '', weight: 0, quantity: 1, value: '', notes: '' }]); autoSave(); setCatalog(null); }}
           onPick={(entry) => {
-            const item = { ...gearFromLibrary(entry.name, (entry.data ?? {}) as GearData, { libraryEntryId: entry.id, sourceUrl: entry.sourceUrl }), summary: entry.summary ?? '' };
+            const item = { id: newEntryId(), ...gearFromLibrary(entry.name, (entry.data ?? {}) as GearData, { libraryEntryId: entry.id, sourceUrl: entry.sourceUrl }), summary: entry.summary ?? '' };
             setData((prev: any) => ({ ...prev, equipment: [...(prev?.equipment ?? []), item] }));
             autoSave();
           }}
@@ -1275,11 +1276,11 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
           queries={[{ kind: 'feat', label: 'Feats' }, { kind: 'ability', label: 'Special abilities' }]}
           knownIds={(data?.feats ?? []).map((feat: FeatEntry) => feat.libraryEntryId).filter((id: string | undefined): id is string => Boolean(id))}
           onClose={() => setCatalog(null)}
-          onCustom={() => { update('feats', [...(data?.feats ?? []), { name: '', description: '' }]); autoSave(); setCatalog(null); }}
+          onCustom={() => { update('feats', [...(data?.feats ?? []), { id: newEntryId(), name: '', description: '' }]); autoSave(); setCatalog(null); }}
           onPick={(entry) => {
             const made = featFromLibrary(entry.name, (entry.data ?? {}) as FeatData, { libraryEntryId: entry.id, sourceUrl: entry.sourceUrl });
             const kind = entry.kind === 'ability' ? 'ability' as const : 'feat' as const;
-            const feat = { ...made, summary: entry.summary ?? '', kind, tag: kind === 'ability' ? made.tag ?? abilityTag(entry.name, `${entry.summary ?? ''}\n${made.description}`) : undefined };
+            const feat = { ...made, id: newEntryId(), summary: entry.summary ?? '', kind, tag: kind === 'ability' ? made.tag ?? abilityTag(entry.name, `${entry.summary ?? ''}\n${made.description}`) : undefined };
             setData((prev: any) => ({ ...prev, feats: [...(prev?.feats ?? []), feat] }));
             autoSave();
           }}
