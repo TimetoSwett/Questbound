@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { useCampaignTopic } from '@/hooks/use-campaign-events';
+import { encodeRollCursor } from '@/lib/dice-roll-cursor';
 
 interface Roll {
   id: string;
@@ -107,13 +108,17 @@ export function RollLog({ campaignId, role }: { campaignId: string; role: string
     setLoadingMore(true);
     try {
       const res = await fetch(
-        `/api/dice-rolls?campaignId=${campaignId}&limit=50${cursorParams('before', rolls[0])}`,
+        `/api/dice-rolls?campaignId=${campaignId}&limit=50&cursor=${encodeURIComponent(encodeRollCursor(rolls[0]))}`,
       );
       if (!res.ok) return;
       const data: Roll[] = await res.json();
       const el = scrollRef.current;
       const prevHeight = el?.scrollHeight ?? 0;
-      setRolls((prev) => [...data, ...prev]);
+      setRolls((prev) => {
+        const ids = new Set(prev.map((r) => r.id));
+        const older = data.filter((r) => !ids.has(r.id));
+        return older.length ? [...older, ...prev] : prev;
+      });
       setHasMore(data.length === 50);
       requestAnimationFrame(() => {
         if (el) el.scrollTop = el.scrollHeight - prevHeight;

@@ -5,17 +5,14 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
 import { parseDiceExpression, rollDice } from '@/lib/dice';
+import {
+  encodeRollCursor, keysetWhere, legacyWhere, parseRollCursorParams, rollOrder,
+} from '@/lib/dice-roll-cursor';
 
 const rollSelect = {
   id: true, userName: true, expression: true, results: true,
   total: true, isSecret: true, createdAt: true,
 } as const;
-
-function parseDate(v: string | null): Date | null | 'invalid' {
-  if (!v) return null;
-  const d = new Date(v);
-  return Number.isNaN(+d) ? 'invalid' : d;
-}
 
 // Simple per-user, per-process rate limit for POST (single-instance app).
 const RATE_WINDOW_MS = 10_000;
@@ -36,9 +33,15 @@ function rateLimited(userId: string): boolean {
   return false;
 }
 
-// GET ?campaignId=&limit=&before=&beforeId=&after=&afterId= — campaign members only.
+// GET ?campaignId=&limit= (+ cursor params) — campaign members only.
 // Non-DMs never receive secret rolls. Returns chronological (oldest first).
-// Each cursor pairs an ISO timestamp with a roll ID to break timestamp ties.
+// Keyset cursors pair an ISO timestamp with a roll ID (id breaks ties when
+// rolls share a millisecond, so nothing is skipped or duplicated). Accepted
+// formats: `cursor=` / `afterCursor=` (opaque token), `before`+`beforeId` /
+// `after`+`afterId`, and the legacy timestamp-only `before`/`after`. When
+// paging older (or on the initial load) the response carries X-Next-Cursor
+// with the encoded cursor of the oldest row returned, omitted when the page
+// is shorter than the limit.
 export async function GET(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -49,38 +52,45 @@ export async function GET(request: Request) {
   if (!role) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
 
   const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') ?? '100', 10) || 100));
-  const before = parseDate(searchParams.get('before'));
-  const after = parseDate(searchParams.get('after'));
-  const beforeId = searchParams.get('beforeId');
-  const afterId = searchParams.get('afterId');
-  if (before === 'invalid' || after === 'invalid' ||
-      Boolean(before) !== Boolean(beforeId) || Boolean(after) !== Boolean(afterId)) {
-    return NextResponse.json({ error: 'Invalid before/after cursor (timestamp and ID required)' }, { status: 400 });
+  const beforeParsed = parseRollCursorParams(searchParams, 'before');
+  const afterParsed = parseRollCursorParams(searchParams, 'after');
+  if (beforeParsed === 'invalid' || afterParsed === 'invalid') {
+    return NextResponse.json({ error: 'Invalid cursor' }, { status: 400 });
   }
 
   const where: Record<string, unknown> = { campaignId };
   if (role !== 'dm') where.isSecret = false;
-  if (before) where.OR = [
-    { createdAt: { lt: before } },
-    { createdAt: before, id: { lt: beforeId } },
-  ];
-  else if (after) where.OR = [
-    { createdAt: { gt: after } },
-    { createdAt: after, id: { gt: afterId } },
-  ];
+  // `before` wins when both directions are sent, matching the old route.
+  let direction: 'before' | 'after' | null = null;
+  if (beforeParsed.cursor) {
+    where.OR = keysetWhere('before', beforeParsed.cursor).OR;
+    direction = 'before';
+  } else if (beforeParsed.legacyTimestamp) {
+    Object.assign(where, legacyWhere('before', beforeParsed.legacyTimestamp));
+    direction = 'before';
+  } else if (afterParsed.cursor) {
+    where.OR = keysetWhere('after', afterParsed.cursor).OR;
+    direction = 'after';
+  } else if (afterParsed.legacyTimestamp) {
+    Object.assign(where, legacyWhere('after', afterParsed.legacyTimestamp));
+    direction = 'after';
+  }
 
   // Polling (`after`) reads oldest-first so a burst of >limit new rolls isn't
   // skipped; history/initial load read newest-first.
   const rolls = await prisma.diceRoll.findMany({
     where,
-    orderBy: !before && after
-      ? [{ createdAt: 'asc' }, { id: 'asc' }]
-      : [{ createdAt: 'desc' }, { id: 'desc' }],
+    orderBy: rollOrder(direction === 'after' ? 'after' : 'before'),
     take: limit,
     select: rollSelect,
   });
-  if (before || !after) rolls.reverse();
-  return NextResponse.json(rolls);
+  const pagingOlder = direction !== 'after';
+  if (pagingOlder) rolls.reverse();
+  const res = NextResponse.json(rolls);
+  if (pagingOlder && rolls.length >= limit) {
+    res.headers.set('X-Next-Cursor', encodeRollCursor(rolls[0]));
+  }
+  return res;
 }
 
 // POST {campaignId, expression, isSecret?} — rolls on the server so the
