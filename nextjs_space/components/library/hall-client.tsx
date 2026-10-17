@@ -201,7 +201,7 @@ export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: stri
     if (!draft) return;
     const kind = String(draft.kind);
     if (kind !== filter.kind) {
-      const where = kind === 'gear' ? 'the Shop' : kind === 'feat' || kind === 'ability' ? 'Training Grounds' : 'the Armory';
+      const where = kind === 'spell' ? 'the Library' : kind === 'gear' ? 'the Shop' : kind === 'feat' || kind === 'ability' ? 'Training Grounds' : 'the Armory';
       setError(`That page is a ${kind}. Open ${where} and import it there.`);
       return;
     }
@@ -219,21 +219,21 @@ export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: stri
     <DialogContent className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto">
       <DialogHeader>
         <DialogTitle>Add to the catalog</DialogTitle>
-        <DialogDescription>{filter.kind === 'spell' ? 'Add a spell to the library by hand.' : 'One Archives of Nethys display link, or a short entry of your own. This does not import a whole list.'}</DialogDescription>
+        <DialogDescription>{filter.kind === 'spell' ? 'One d20pfsrd spell link, or a spell of your own.' : 'One Archives of Nethys or d20pfsrd (spells and feats) link, or a short entry of your own. This does not import a whole list.'}</DialogDescription>
       </DialogHeader>
       <div className="flex gap-1">
-        {filter.kind !== 'spell' && <button type="button" className={`rounded px-3 py-1 text-sm ${mode === 'link' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`} onClick={() => setMode('link')}>From a link</button>}
+        <button type="button" className={`rounded px-3 py-1 text-sm ${mode === 'link' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`} onClick={() => setMode('link')}>From a link</button>
         <button type="button" className={`rounded px-3 py-1 text-sm ${mode === 'hand' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`} onClick={() => setMode('hand')}>By hand</button>
       </div>
-      {filter.kind === 'spell' ? <SpellEntryForm onCreated={() => onSaved()} /> : mode === 'link' ? <div className="space-y-3">
-        <div><Label htmlFor="import-url">Archives of Nethys link</Label><Input id="import-url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://www.aonprd.com/FeatDisplay.aspx?ItemName=Power%20Attack" /></div>
+      {mode === 'link' ? <div className="space-y-3">
+        <div><Label htmlFor="import-url">Archives of Nethys or d20pfsrd link</Label><Input id="import-url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder={filter.kind === 'spell' ? 'https://www.d20pfsrd.com/magic/all-spells/f/fireball/' : 'https://www.aonprd.com/FeatDisplay.aspx?ItemName=Power%20Attack'} /></div>
         <Button type="button" disabled={busy || !url.trim()} onClick={() => void loadLink()}>{busy ? 'Reading…' : 'Read link'}</Button>
         {draft && <div className="rounded-md border p-3 text-sm">
           <p className="font-semibold">{String(draft.name)}</p>
           <p className="text-muted-foreground">{String(draft.kind)} — {String(draft.summary || '')}</p>
           <Button type="button" className="mt-2" disabled={busy} onClick={() => void saveDraft()}>Save to catalog</Button>
         </div>}
-      </div> : <form noValidate className="space-y-3" onSubmit={(event) => {
+      </div> : filter.kind === 'spell' ? <SpellEntryForm onCreated={() => onSaved()} /> : <form noValidate className="space-y-3" onSubmit={(event) => {
         event.preventDefault();
         if (filter.kind === 'ability') {
           const result = buildAbilityData({ ...abilityForm, description });
