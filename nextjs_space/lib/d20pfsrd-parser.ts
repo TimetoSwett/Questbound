@@ -6,9 +6,10 @@ import type { CatalogDraft } from './aon-catalog-parser';
 import { sanitizeSummary, summaryFromDescription } from './library';
 import { magicItemCategory, parseD20pfsrdMagicItem } from './d20pfsrd/magic-items';
 import { weaponPath, parseD20pfsrdWeapon } from './d20pfsrd/weapons';
+import { parseD20pfsrdGearPage } from './d20pfsrd/gear';
 
-export const D20PFSRD_UNSUPPORTED = 'd20pfsrd import currently supports spells, feats, and magic items (wondrous items, rings, rods, staves) only.';
-export const HINT = ' Open a single spell (/magic/all-spells/…), feat (/feats/…), or magic item (/magic-items/…) page.';
+export const D20PFSRD_UNSUPPORTED = 'd20pfsrd import currently supports spells, feats, magic items and mundane gear only.';
+export const HINT = ' Open a single spell (/magic/all-spells/…), feat (/feats/…), magic item (/magic-items/…) or gear (/equipment/goods-and-services/…#item) page.';
 
 export type D20pfsrdDraft = CatalogDraft & { spellLevels?: Array<{ cls: string; level: number }> };
 
@@ -33,6 +34,7 @@ export function d20pfsrdKindForUrl(raw: string): 'spell' | 'feat' | 'gear' | 'we
   if (seg[0] === 'magic-items') return magicItemCategory(seg) ? 'gear' : null;
   if (weaponPath(seg)) return 'weapon';
   if (seg[0] === 'magic' && (seg[1] === 'all-spells' || seg[1] === '3rd-party-spells')) return seg.length === 4 ? 'spell' : null;
+  if (seg[0] === 'equipment' && seg[1] === 'goods-and-services') return seg.length >= 3 ? 'gear' : null;
   if (seg[0] === 'feats') {
     if (seg[1] === '3rd-party-feats') return seg.length >= 4 && seg.length <= 5 ? 'feat' : null;
     return seg.length === 3 ? 'feat' : null;
@@ -208,7 +210,9 @@ export function parseD20pfsrdPage(html: string, sourceUrl: string): D20pfsrdDraf
   const kind = d20pfsrdKindForUrl(sourceUrl);
   if (!kind) throw new Error(`${D20PFSRD_UNSUPPORTED}${HINT}`);
   const { title, blocks } = entryBlocks(html, kind);
-  if (kind === 'gear') return parseD20pfsrdMagicItem(title, blocks, sourceUrl);
+  if (kind === 'gear') return sourceUrl.includes('/equipment/goods-and-services/')
+    ? parseD20pfsrdGearPage(html, sourceUrl)
+    : parseD20pfsrdMagicItem(title, blocks, sourceUrl);
   if (kind === 'weapon') return parseD20pfsrdWeapon(title, blocks, sourceUrl);
   return kind === 'spell' ? parseSpell(title, blocks, sourceUrl) : parseFeat(title, blocks, sourceUrl);
 }
