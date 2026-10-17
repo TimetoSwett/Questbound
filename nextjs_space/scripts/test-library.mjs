@@ -21,6 +21,22 @@ const deq = (a, b, m) => assert.deepEqual(JSON.parse(JSON.stringify(a)), JSON.pa
 const lib = load('lib/library.ts');
 const { escapeLike, normalizeNameKey, sanitizeSummary, summaryFromDescription, parseCreateInput, parsePatchInput, canEditEntry, canDeleteEntry, canCreateEntry, presentEntry, orderSearchResults, searchQuerySchema } = lib;
 
+// Gear form conversion and legacy data compatibility.
+const { buildGearData, emptyGearForm } = load('lib/library-gear-form.ts', { './library': lib });
+const gearForm = emptyGearForm({ cl: '8', aura: ' moderate transmutation ', cost: '4,000 gp', weight: '1' });
+const builtGear = buildGearData(gearForm);
+assert.equal(builtGear.ok, true);
+assert.equal(builtGear.data.cl, 8);
+assert.equal(builtGear.data.aura, 'moderate transmutation');
+assert.equal('slot' in builtGear.data, false);
+assert.equal(buildGearData(emptyGearForm()).data.weight, 0);
+for (const change of [{ cl: '31' }, { cl: '5th' }, { slot: 'tail' }, { weight: '-1' }, { weight: '100001' }, { aura: 'x'.repeat(81) }, { cost: 'x'.repeat(121) }]) {
+  assert.equal(buildGearData({ ...gearForm, ...change }).ok, false);
+}
+assert.equal(parseCreateInput({ kind: 'gear', name: 'Legacy gear', data: { weight: 1, cost: '1 gp', description: 'x' } }).ok, true);
+assert.equal(parseCreateInput({ kind: 'gear', name: 'Invalid gear', data: { cl: 31 } }).ok, false);
+console.log('ok   gear form & legacy validation');
+
 // normalizer + summary
 assert.equal(normalizeNameKey('  Magic   Missile\t'), 'magic missile');
 assert.equal(normalizeNameKey('FIREBALL'), 'fireball');

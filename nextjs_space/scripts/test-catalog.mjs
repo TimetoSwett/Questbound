@@ -55,11 +55,15 @@ assert.equal(lib.parseCreateInput(armor).ok, true);
 
 const gear = parser.parseAonCatalogPage(page('<h1>Backpack</h1><b>Price</b> 2 gp; <b>Weight</b> 2 lbs.<h3>Description</h3>Holds gear.'), 'https://www.aonprd.com/EquipmentMiscDisplay.aspx?ItemName=Backpack');
 assert.equal(gear.kind, 'gear');
+for (const key of ['slot', 'aura', 'cl']) assert.equal(key in gear.data, false);
 assert.equal(gear.data.cost, '2 gp');
 assert.equal(lib.parseCreateInput(gear).ok, true);
 
 const wondrous = parser.parseAonCatalogPage(page('<h1 class="title">Headband of Inspired Wisdom</h1><b>Source</b> Core Rulebook<br /><b>Aura</b> moderate transmutation; <b>CL</b> 8th<br /><b>Slot</b> headband; <b>Price</b> 4,000 gp (<img src="x.gif"> +2), 16,000 gp (+4), 36,000 gp (+6); <b>Weight</b> 1 lb.<h3 class="framing">Description</h3>This simple bronze headband is decorated with etchings. It grants Wisdom.<h3 class="framing">Construction</h3><b>Requirements</b> Craft Wondrous Item; <b>Cost</b> 2,000 gp'), 'https://aonprd.com/MagicWondrousDisplay.aspx?FinalName=Headband%20of%20Inspired%20Wisdom2');
 assert.equal(wondrous.kind, 'gear');
+assert.equal(wondrous.data.slot, 'headband');
+assert.equal(wondrous.data.aura, 'moderate transmutation');
+assert.equal(wondrous.data.cl, 8);
 assert.equal(wondrous.name, 'Headband of Inspired Wisdom');
 assert.equal(wondrous.data.weight, 1);
 assert.equal(wondrous.data.cost, '4,000 gp (+2), 16,000 gp (+4), 36,000 gp (+6)');
@@ -69,6 +73,13 @@ assert.match(wondrous.data.description, /Construction/);
 assert.match(wondrous.summary, /bronze headband/);
 assert.doesNotMatch(wondrous.summary, /Source/);
 assert.equal(lib.parseCreateInput(wondrous).ok, true);
+
+assert.equal(parser.catalogKindForUrl('https://aonprd.com/MagicRingsDisplay.aspx?FinalName=Ring%20of%20Protection%20%2B1'), null);
+const slotless = parser.parseAonCatalogPage(page('<h1 class="title">Ioun Stone (Dusty Rose Prism)</h1><b>Source</b> Core Rulebook<br /><b>Aura</b> moderate insight; <b>CL</b> 12th<br /><b>Slot</b> none; <b>Price</b> 5,000 gp; <b>Weight</b> —<h3 class="framing">Description</h3>This dusty rose prism grants a bonus to AC.'), 'https://aonprd.com/MagicWondrousDisplay.aspx?FinalName=Ioun%20StoneDusty%20Rose%20Prism');
+assert.equal(slotless.data.slot, 'slotless');
+assert.equal(slotless.data.aura, 'moderate insight');
+assert.equal(slotless.data.cl, 12);
+assert.equal(lib.parseCreateInput(slotless).ok, true);
 
 const ability = parser.parseAonCatalogPage(page('<h1>Grab (Ex)</h1>If the creature hits, it grapples.'), 'https://www.aonprd.com/UMR.aspx?ItemName=Grab');
 assert.equal(ability.kind, 'ability');
@@ -86,7 +97,14 @@ lib.stripMissingLibraryIds(sheet, new Set(['keep']));
 assert.equal(sheet.feats[0].libraryEntryId, 'keep');
 assert.equal('libraryEntryId' in sheet.feats[1], false);
 assert.equal('libraryEntryId' in sheet.equipment[0], false);
-const { weaponFromLibrary, featFromLibrary } = load('lib/catalog.ts');
+const { weaponFromLibrary, featFromLibrary, gearFromLibrary } = load('lib/catalog.ts');
+const mappedGear = gearFromLibrary(wondrous.name, wondrous.data, {});
+assert.equal(mappedGear.slot, 'headband');
+assert.equal(mappedGear.aura, 'moderate transmutation');
+assert.equal(mappedGear.cl, 8);
+const legacyGear = gearFromLibrary(gear.name, gear.data, {});
+for (const key of ['slot', 'aura', 'cl']) assert.equal(key in legacyGear, false);
+assert.equal(gearFromLibrary('Zero', { ...gear.data, cl: 0 }, {}).cl, 0);
 const twoHanded = weaponFromLibrary('Sword', { ...weapon.data, hands: 'two' }, {});
 assert.equal(twoHanded.hands, 'two');
 assert.equal(twoHanded.baseDie, 'medium');

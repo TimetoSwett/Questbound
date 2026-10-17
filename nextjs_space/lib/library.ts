@@ -104,7 +104,13 @@ export const armorDataSchema = z.object({
 }).strict();
 export type ArmorData = z.infer<typeof armorDataSchema>;
 
+// Mirrors BODY_SLOTS in lib/equipment.ts with ring1/ring2 collapsed to ring, plus slotless.
+export const GEAR_SLOTS = ['head', 'headband', 'eyes', 'shoulders', 'neck', 'chest', 'body', 'armor', 'belt', 'wrists', 'hands', 'ring', 'feet', 'slotless'] as const;
+
 export const gearDataSchema = z.object({
+  slot: z.enum(GEAR_SLOTS).optional(),
+  aura: z.string().trim().max(80).optional(),
+  cl: z.number().int().min(0).max(30).optional(),
   weight: pounds,
   cost,
   description: str(20_000),

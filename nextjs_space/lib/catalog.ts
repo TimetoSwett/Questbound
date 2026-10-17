@@ -36,6 +36,9 @@ export function slotFromLibrary(name: string, data: { description?: string }, li
 export function gearFromLibrary(name: string, data: GearData, link: Linked) {
   return {
     name, weight: data.weight || 0, quantity: 1, value: data.cost || '', notes: sheetNotes(data.description || ''),
+    ...(data.slot !== undefined ? { slot: data.slot } : {}),
+    ...(data.aura !== undefined ? { aura: data.aura } : {}),
+    ...(data.cl !== undefined ? { cl: data.cl } : {}),
     libraryEntryId: link.libraryEntryId, sourceUrl: link.sourceUrl ?? null,
   };
 }

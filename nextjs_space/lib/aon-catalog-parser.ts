@@ -2,7 +2,7 @@
 // Pure string parsing. This does not crawl indexes — the caller passes one page.
 
 import { htmlToText } from './aon-spell-parser';
-import { sanitizeSummary, summaryFromDescription, type LibraryKind } from './library';
+import { GEAR_SLOTS, sanitizeSummary, summaryFromDescription, type LibraryKind } from './library';
 
 const PAGES: Record<string, LibraryKind> = {
   'featdisplay.aspx': 'feat',
@@ -129,6 +129,12 @@ export function parseAonCatalogPage(html: string, sourceUrl: string): CatalogDra
     };
   }
   if (kind === 'gear') {
+    const rawSlot = (fields.slot ?? '').toLowerCase().trim().replace(/[;:,.!?]+$/, '').trim();
+    const aliases: Record<string, string> = { none: 'slotless', '—': 'slotless', '-': 'slotless', 'no slot': 'slotless', rings: 'ring', shoulder: 'shoulders', wrist: 'wrists', hand: 'hands' };
+    const slot = aliases[rawSlot] ?? rawSlot;
+    const aura = clip(fields.aura ?? '', 80).replace(/[;\s]+$/, '');
+    const clMatch = /[+-]?\d+/.exec(fields.cl ?? '');
+    const cl = clMatch ? Number(clMatch[0]) : undefined;
     const prose = sectionText(block, 'Description');
     const construction = sectionText(block, 'Construction');
     const statLine = [fields.slot && `Slot ${fields.slot}`, fields.aura && `Aura ${fields.aura}`, fields.cl && `CL ${fields.cl}`].filter(Boolean).join('. ');
@@ -136,7 +142,12 @@ export function parseAonCatalogPage(html: string, sourceUrl: string): CatalogDra
     const gearSummary = summaryFromDescription(prose || description) || summary;
     return {
       kind, name: clip(title, 120), summary: gearSummary, sourceUrl,
-      data: { weight: pounds(fields.weight), cost: money(fields.price || fields.cost), description },
+      data: {
+        weight: pounds(fields.weight), cost: money(fields.price || fields.cost), description,
+        ...(GEAR_SLOTS.some((value) => value === slot) ? { slot } : {}),
+        ...(aura ? { aura } : {}),
+        ...(cl !== undefined && cl >= 0 && cl <= 30 ? { cl } : {}),
+      },
     };
   }
   if (kind === 'feat') {
