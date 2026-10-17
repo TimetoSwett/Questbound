@@ -17,6 +17,7 @@
     "import:aon-spells": "tsx scripts/import-aon-spells.ts",
     "import:aon-rules": "tsx scripts/import-aon-spells.ts --kind rule",
     "test:aon": "tsx scripts/test-aon-spells.mjs",
+    "test:d20pfsrd": "tsx scripts/test-d20pfsrd.mjs",
     "test:terms": "node scripts/test-term-match.mjs",
     "test:psionics": "node scripts/test-psionics.mjs",
     "test:pathofwar": "node scripts/test-pathofwar.mjs",
