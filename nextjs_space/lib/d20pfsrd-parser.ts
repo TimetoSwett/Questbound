@@ -4,7 +4,7 @@
 import { htmlToText, parseLevels, parseSchool } from './aon-spell-parser';
 import type { CatalogDraft } from './aon-catalog-parser';
 import { sanitizeSummary, summaryFromDescription } from './library';
-import { magicItemCategory, parseD20pfsrdMagicItem } from './d20pfsrd/magic-items';
+import { isMetamagicRodUrl, magicItemCategory, parseD20pfsrdMagicItem, parseD20pfsrdMetamagicRod } from './d20pfsrd/magic-items';
 import { weaponPath, parseD20pfsrdWeapon } from './d20pfsrd/weapons';
 import { isArmorItemPath, parseD20pfsrdArmor } from './d20pfsrd/armor';
 
@@ -210,8 +210,15 @@ export function parseD20pfsrdPage(html: string, sourceUrl: string, indexPages: s
   const kind = d20pfsrdKindForUrl(sourceUrl);
   if (!kind) throw new Error(`${D20PFSRD_UNSUPPORTED}${HINT}`);
   const { title, blocks } = entryBlocks(html, kind);
-  if (kind === 'gear') return parseD20pfsrdMagicItem(title, blocks, sourceUrl);
+  if (kind === 'gear') return isMetamagicRodUrl(sourceUrl) ? parseD20pfsrdMetamagicRod(title, blocks, sourceUrl)[0] : parseD20pfsrdMagicItem(title, blocks, sourceUrl);
   if (kind === 'weapon') return parseD20pfsrdWeapon(title, blocks, sourceUrl);
   if (kind === 'armor') return parseD20pfsrdArmor(title, blocks, sourceUrl, indexPages);
   return kind === 'spell' ? parseSpell(title, blocks, sourceUrl) : parseFeat(title, blocks, sourceUrl);
+}
+
+/** Like parseD20pfsrdPage, but a metamagic rod page yields one draft per version (or the one picked by #lesser/#normal/#greater). */
+export function parseD20pfsrdDrafts(html: string, sourceUrl: string, indexPages: string[] = []): D20pfsrdDraft[] {
+  if (!isMetamagicRodUrl(sourceUrl) || d20pfsrdKindForUrl(sourceUrl) !== 'gear') return [parseD20pfsrdPage(html, sourceUrl, indexPages)];
+  const { title, blocks } = entryBlocks(html, 'gear');
+  return parseD20pfsrdMetamagicRod(title, blocks, sourceUrl);
 }

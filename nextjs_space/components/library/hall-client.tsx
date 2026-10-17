@@ -166,6 +166,8 @@ export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: stri
   const [mode, setMode] = useState<'link' | 'hand'>(filter.kind === 'spell' ? 'hand' : 'link');
   const [url, setUrl] = useState('');
   const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
+  const [drafts, setDrafts] = useState<Array<Record<string, unknown>>>([]);
+  const [saved, setSaved] = useState<string[]>([]);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [gearForm, setGearForm] = useState(emptyGearForm());
@@ -176,41 +178,67 @@ export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: stri
   const [error, setError] = useState('');
 
   async function loadLink() {
-    setBusy(true); setError(''); setDraft(null);
+    setBusy(true); setError(''); setDraft(null); setDrafts([]); setSaved([]);
     try {
       const response = await fetch('/api/library/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'Import failed.');
       setDraft(body.draft);
+      setDrafts(Array.isArray(body.drafts) ? body.drafts : []);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Import failed.'); }
     finally { setBusy(false); }
+  }
+
+  async function post(body: unknown) {
+    const response = await fetch('/api/library', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Could not save.');
   }
 
   async function save(body: unknown) {
     setBusy(true); setError('');
     try {
-      const response = await fetch('/api/library', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'Could not save.');
+      await post(body);
       onSaved();
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not save.'); }
     finally { setBusy(false); }
   }
 
-  async function saveDraft() {
-    if (!draft) return;
-    const kind = String(draft.kind);
+  function draftProblem(d: Record<string, unknown>): string {
+    const kind = String(d.kind);
     if (kind !== filter.kind) {
       const where = kind === 'spell' ? 'the Library' : kind === 'gear' ? 'the Shop' : kind === 'feat' || kind === 'ability' ? 'Training Grounds' : 'the Armory';
-      setError(`That page is a ${kind}. Open ${where} and import it there.`);
-      return;
+      return `That page is a ${kind}. Open ${where} and import it there.`;
     }
-    const slot = (draft.data as { slot?: unknown } | undefined)?.slot;
+    const slot = (d.data as { slot?: unknown } | undefined)?.slot;
     if ('slot' in filter && filter.slot && typeof slot === 'string' && slot !== filter.slot) {
-      setError(slot === 'shield' ? 'That is a shield. Switch to Shields, then save it.' : 'That is armor. Switch to Armor, then save it.');
-      return;
+      return slot === 'shield' ? 'That is a shield. Switch to Shields, then save it.' : 'That is armor. Switch to Armor, then save it.';
     }
+    return '';
+  }
+
+  async function saveDraft() {
+    if (!draft) return;
+    const problem = draftProblem(draft);
+    if (problem) { setError(problem); return; }
     await save(draft);
+  }
+
+  /** Several versions from one page (metamagic rods): save the given ones in order, stop at the first error, close once all are saved. */
+  async function saveVersions(list: Array<Record<string, unknown>>) {
+    setBusy(true); setError('');
+    const done = new Set(saved);
+    try {
+      for (const d of list) {
+        const problem = draftProblem(d);
+        if (problem) throw new Error(problem);
+        await post(d);
+        done.add(String(d.name));
+        setSaved([...done]);
+      }
+      if (drafts.every((d) => done.has(String(d.name)))) onSaved();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not save.'); }
+    finally { setBusy(false); }
   }
 
   const handLabel = filter.kind === 'ability' ? 'ability' : filter.kind === 'armor' && 'slot' in filter && filter.slot === 'shield' ? 'shield' : filter.kind === 'gear' ? 'item' : filter.kind;
@@ -228,7 +256,14 @@ export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: stri
       {mode === 'link' ? <div className="space-y-3">
         <div><Label htmlFor="import-url">Archives of Nethys or d20pfsrd link</Label><Input id="import-url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder={filter.kind === 'spell' ? 'https://www.d20pfsrd.com/magic/all-spells/f/fireball/' : 'https://www.aonprd.com/FeatDisplay.aspx?ItemName=Power%20Attack'} /></div>
         <Button type="button" disabled={busy || !url.trim()} onClick={() => void loadLink()}>{busy ? 'Reading…' : 'Read link'}</Button>
-        {draft && <div className="rounded-md border p-3 text-sm">
+        {drafts.length > 1 ? <div className="space-y-2">
+          {drafts.map((d) => <div key={String(d.name)} className="rounded-md border p-3 text-sm">
+            <p className="font-semibold">{String(d.name)}{(d.data as { cost?: unknown } | undefined)?.cost ? ` — ${String((d.data as { cost?: unknown }).cost)}` : ''}</p>
+            <p className="text-muted-foreground">{String(d.kind)} — {String(d.summary || '')}</p>
+            <Button type="button" className="mt-2" disabled={busy || saved.includes(String(d.name))} onClick={() => void saveVersions([d])}>{saved.includes(String(d.name)) ? 'Saved' : 'Save'}</Button>
+          </div>)}
+          <Button type="button" disabled={busy || drafts.every((d) => saved.includes(String(d.name)))} onClick={() => void saveVersions(drafts.filter((d) => !saved.includes(String(d.name))))}>Save all {drafts.length}</Button>
+        </div> : draft && <div className="rounded-md border p-3 text-sm">
           <p className="font-semibold">{String(draft.name)}</p>
           <p className="text-muted-foreground">{String(draft.kind)} — {String(draft.summary || '')}</p>
           <Button type="button" className="mt-2" disabled={busy} onClick={() => void saveDraft()}>Save to catalog</Button>
