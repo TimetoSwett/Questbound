@@ -6,7 +6,7 @@ import { GEAR_SLOTS, sanitizeSummary, summaryFromDescription } from '../library'
 import { D20PFSRD_UNSUPPORTED, HINT, blockText, clip, isSkippable, oneLine } from '../d20pfsrd-parser';
 import type { Block, D20pfsrdDraft } from '../d20pfsrd-parser';
 
-type MagicItemCategory = 'wondrous' | 'ring' | 'rod' | 'staff' | 'magic-weapon' | 'magic-armor' | 'potion';
+type MagicItemCategory = 'wondrous' | 'ring' | 'rod' | 'staff' | 'magic-weapon' | 'magic-armor' | 'magic-shield' | 'potion';
 const CATEGORIES: Record<string, MagicItemCategory> = { 'wondrous-items': 'wondrous', rings: 'ring', rods: 'rod', staves: 'staff' };
 
 /** Magic item category of a lowercase path (core or 3rd party), else null. */
@@ -20,8 +20,11 @@ export function magicItemCategory(seg: string[]): MagicItemCategory | null {
   }
   // Specific magic armor/shields: /magic-items/magic-armor/specific-magic-armor/<name>/
   // or /magic-items/magic-armor/specific-magic-shields/<name>/
-  if (seg[1] === 'magic-armor' && (seg[2] === 'specific-magic-armor' || seg[2] === 'specific-magic-shields')) {
+  if (seg[1] === 'magic-armor' && seg[2] === 'specific-magic-armor') {
     return seg.length === 4 && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(seg[3]) ? 'magic-armor' : null;
+  }
+  if (seg[1] === 'magic-armor' && seg[2] === 'specific-magic-shields') {
+    return seg.length === 4 && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(seg[3]) ? 'magic-shield' : null;
   }
   // Potions: /magic-items/potions/other-potions/<name>/
   if (seg[1] === 'potions' && seg[2] === 'other-potions') {
@@ -77,9 +80,12 @@ export function parseD20pfsrdMagicItem(title: string, blocks: Block[], sourceUrl
     slot = category === 'ring' ? 'ring'
       : category === 'rod' || category === 'staff' || category === 'magic-weapon' || category === 'potion' ? 'slotless'
       : category === 'magic-armor' ? 'armor'
+      : category === 'magic-shield' ? 'shield'
       : '';
   }
-  const aura = clip(f('aura'), 80).replace(/[;\s]+$/, '');
+  const auraRaw = clip(f('aura'), 80).replace(/[;\s]+$/, '');
+  // Non-magical special materials list "no aura (non-magical)" — omit the aura.
+  const aura = /no aura/i.test(auraRaw) ? '' : auraRaw;
   const clMatch = /\d+/.exec(level);
   const cl = clMatch ? Number(clMatch[0]) : undefined;
   const statLine = [f('slot') && `Slot ${f('slot')}`, f('aura') && `Aura ${f('aura')}`, level && `${levelLabel} ${level}`].filter(Boolean).join('. ');
