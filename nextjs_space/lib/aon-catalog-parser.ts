@@ -1,4 +1,4 @@
-// Turn one Archives of Nethys feat or equipment page into a library draft.
+// Turn one Archives of Nethys feat, equipment, or magic item (wondrous/ring/rod/staff) page into a library draft.
 // Pure string parsing. This does not crawl indexes — the caller passes one page.
 
 import { htmlToText } from './aon-spell-parser';
@@ -10,6 +10,9 @@ const PAGES: Record<string, LibraryKind> = {
   'equipmentarmordisplay.aspx': 'armor',
   'equipmentmiscdisplay.aspx': 'gear',
   'magicwondrousdisplay.aspx': 'gear',
+  'magicringsdisplay.aspx': 'gear',
+  'magicrodsdisplay.aspx': 'gear',
+  'magicstavesdisplay.aspx': 'gear',
   'umr.aspx': 'ability',
 };
 
@@ -20,6 +23,10 @@ export function catalogKindForUrl(raw: string): LibraryKind | null {
   if (url.protocol !== 'https:' || host !== 'aonprd.com') return null;
   const file = url.pathname.split('/').pop()?.toLowerCase() ?? '';
   return PAGES[file] ?? null;
+}
+
+function pageFile(sourceUrl: string): string {
+  try { return new URL(sourceUrl).pathname.split('/').pop()?.toLowerCase() ?? ''; } catch { return ''; }
 }
 
 function entryHtml(html: string): string {
@@ -131,7 +138,12 @@ export function parseAonCatalogPage(html: string, sourceUrl: string): CatalogDra
   if (kind === 'gear') {
     const rawSlot = (fields.slot ?? '').toLowerCase().trim().replace(/[;:,.!?]+$/, '').trim();
     const aliases: Record<string, string> = { none: 'slotless', '—': 'slotless', '-': 'slotless', 'no slot': 'slotless', rings: 'ring', shoulder: 'shoulders', wrist: 'wrists', hand: 'hands' };
-    const slot = aliases[rawSlot] ?? rawSlot;
+    let slot = aliases[rawSlot] ?? rawSlot;
+    if (!GEAR_SLOTS.some((value) => value === slot)) {
+      const file = pageFile(sourceUrl);
+      if (file === 'magicringsdisplay.aspx') slot = 'ring';
+      else if (file === 'magicrodsdisplay.aspx' || file === 'magicstavesdisplay.aspx') slot = 'slotless';
+    }
     const aura = clip(fields.aura ?? '', 80).replace(/[;\s]+$/, '');
     const clMatch = /[+-]?\d+/.exec(fields.cl ?? '');
     const cl = clMatch ? Number(clMatch[0]) : undefined;

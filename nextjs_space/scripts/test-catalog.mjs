@@ -75,7 +75,49 @@ assert.match(wondrous.summary, /bronze headband/);
 assert.doesNotMatch(wondrous.summary, /Source/);
 assert.equal(lib.parseCreateInput(wondrous).ok, true);
 
-assert.equal(parser.catalogKindForUrl('https://aonprd.com/MagicRingsDisplay.aspx?FinalName=Ring%20of%20Protection%20%2B1'), null);
+assert.equal(parser.catalogKindForUrl('https://aonprd.com/MagicRingsDisplay.aspx?FinalName=Ring%20of%20Protection%20%2B1'), 'gear');
+assert.equal(parser.catalogKindForUrl('https://aonprd.com/MagicRodsDisplay.aspx?FinalName=Rod%20of%20Metamagic%2C%20Extend'), 'gear');
+assert.equal(parser.catalogKindForUrl('https://aonprd.com/MagicStavesDisplay.aspx?ItemName=Staff%20of%20Fire'), 'gear');
+
+const ring = parser.parseAonCatalogPage(page(`<h1 class="title">Ring of Protection</h1><b>Source</b> <a href="http://paizo.com/products/btpy8tmc?Pathfinder-Roleplaying-Game-Ultimate-Equipment" target="_blank" class="external-link"><i>Ultimate Equipment pg. 172</i></a>, <a href="http://paizo.com/pathfinderRPG/v5748btpy88yj" target="_blank"><i>PRPG Core Rulebook pg. 479</i></a><br /><b>Aura</b> faint abjuration <b>CL</b> 5th<br /><b>Slot</b> ring; <b>Price</b> 2,000 gp (+1), 8,000 gp (+2), 18,000 gp (+3), 32,000 gp (+4), 50,000 gp (+5); <b>Weight</b> &mdash;<h3 class="framing">Description</h3>This ring offers continual magical protection in the form of a deflection bonus of +1 to +5 to AC.<h3 class="framing">Construction</h3><b>Requirements</b> Forge Ring, <i>shield of faith</i>, caster must be of a level at least three times higher than the bonus of the ring; <b>Cost</b> 1,000 gp (+1), 4,000 gp (+2), 9,000 gp (+3), 16,000 gp (+4), 25,000 gp (+5)`), 'https://aonprd.com/MagicRingsDisplay.aspx?FinalName=Ring%20of%20Protection1');
+assert.equal(ring.kind, 'gear');
+assert.equal(ring.name, 'Ring of Protection');
+assert.equal(ring.data.slot, 'ring');
+assert.equal(ring.data.aura, 'faint abjuration');
+assert.equal(ring.data.cl, 5);
+assert.equal(ring.data.weight, 0);
+assert.match(ring.data.cost, /^2,000 gp \(\+1\)/);
+assert.match(ring.data.description, /deflection bonus/);
+assert.equal(lib.parseCreateInput(ring).ok, true);
+
+const rod = parser.parseAonCatalogPage(page(`<h1 class="title">Rod of Metamagic, Extend</h1><b>Source</b> <a href="http://paizo.com/products/btpy8tmc?Pathfinder-Roleplaying-Game-Ultimate-Equipment" target="_blank" class="external-link"><i>Ultimate Equipment pg. 189</i></a>, <a href="http://paizo.com/pathfinderRPG/v5748btpy88yj" target="_blank"><i>PRPG Core Rulebook pg. 485</i></a><br /><b>Aura</b> strong (no school) <b>CL</b> 17th<br /><b>Slot</b> none; <b>Price</b> 3,000 gp (lesser), 11,000 gp (normal), 24,500 gp (greater); <b>Weight</b> 5 lbs.<h3 class="framing">Description</h3>The wielder can cast up to three spells per day that are extended as though using the Extend Spell feat.<h3 class="framing">Construction</h3><b>Requirements</b> Craft Rod, Extend Spell; <b>Cost</b> 1,500 gp (lesser), 5,500 gp (normal), 12,250 gp (greater)`), 'https://aonprd.com/MagicRodsDisplay.aspx?FinalName=Rod%20of%20Metamagic,%20Extendlesser');
+assert.equal(rod.kind, 'gear');
+assert.equal(rod.name, 'Rod of Metamagic, Extend');
+assert.equal(rod.data.slot, 'slotless');
+assert.equal(rod.data.aura, 'strong (no school)');
+assert.equal(rod.data.cl, 17);
+assert.equal(rod.data.weight, 5);
+assert.match(rod.data.cost, /^3,000 gp \(lesser\)/);
+assert.match(rod.data.description, /Extend Spell/);
+assert.equal(lib.parseCreateInput(rod).ok, true);
+
+const staff = parser.parseAonCatalogPage(page(`<h1 class="title"><img src="images/PathfinderSocietySymbol.gif" title="PFS Legal" style="margin:3px 3px 0px 3px;"> Staff of Fire</h1><b>Source</b> <a href="http://paizo.com/products/btpy8tmc?Pathfinder-Roleplaying-Game-Ultimate-Equipment" target="_blank" class="external-link"><i>Ultimate Equipment pg. 197</i></a>, <a href="http://paizo.com/pathfinderRPG/v5748btpy88yj" target="_blank"><i>PRPG Core Rulebook pg. 494</i></a><br /><b>Aura</b> moderate evocation <b>CL</b> 8th<br /><b>Slot</b> none; <b>Price</b> 18,950 gp; <b>Weight</b> 5 lbs.<h3 class="framing">Description</h3>Crafted from bronzewood with brass bindings, this staff allows use of the following spells: <ul><li><i>Burning hands </i>(1 charge)</li><li><i>Fireball </i>(2 charges)</li><li><i>Wall of fire </i>(3 charges)</li></ul><h3 class="framing">Construction</h3><b>Requirements</b> Craft Staff, <i>burning hands</i>, <i>fireball</i>, <i>wall of fire</i>; <b>Cost</b> 9,475 gp`), 'https://aonprd.com/MagicStavesDisplay.aspx?ItemName=Staff%20of%20Fire');
+assert.equal(staff.kind, 'gear');
+assert.equal(staff.name, 'Staff of Fire');
+assert.equal(staff.data.slot, 'slotless');
+assert.equal(staff.data.aura, 'moderate evocation');
+assert.equal(staff.data.cl, 8);
+assert.equal(staff.data.weight, 5);
+assert.equal(staff.data.cost, '18,950 gp');
+assert.match(staff.data.description, /Fireball/i);
+assert.match(staff.data.description, /2 charges/);
+assert.equal(lib.parseCreateInput(staff).ok, true);
+
+const noSlotRing = parser.parseAonCatalogPage(page('<h1 class="title">Ring of Namelessness</h1><b>Aura</b> faint illusion; <b>CL</b> 3rd<br /><b>Price</b> 1,000 gp; <b>Weight</b> &mdash;<h3 class="framing">Description</h3>Hides the wearer\'s name.'), 'https://aonprd.com/MagicRingsDisplay.aspx?FinalName=Ring%20of%20Namelessness');
+assert.equal(noSlotRing.data.slot, 'ring');
+const noSlotStaff = parser.parseAonCatalogPage(page('<h1 class="title">Staff of Nothing</h1><b>Aura</b> faint conjuration; <b>CL</b> 4th<br /><b>Price</b> 2,000 gp; <b>Weight</b> 4 lbs.<h3 class="framing">Description</h3>Does very little.'), 'https://aonprd.com/MagicStavesDisplay.aspx?ItemName=Staff%20of%20Nothing');
+assert.equal(noSlotStaff.data.slot, 'slotless');
+
 const slotless = parser.parseAonCatalogPage(page('<h1 class="title">Ioun Stone (Dusty Rose Prism)</h1><b>Source</b> Core Rulebook<br /><b>Aura</b> moderate insight; <b>CL</b> 12th<br /><b>Slot</b> none; <b>Price</b> 5,000 gp; <b>Weight</b> —<h3 class="framing">Description</h3>This dusty rose prism grants a bonus to AC.'), 'https://aonprd.com/MagicWondrousDisplay.aspx?FinalName=Ioun%20StoneDusty%20Rose%20Prism');
 assert.equal(slotless.data.slot, 'slotless');
 assert.equal(slotless.data.aura, 'moderate insight');
