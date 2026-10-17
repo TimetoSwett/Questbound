@@ -1,10 +1,11 @@
 // Keyset paging for the dice-roll log: tied-millisecond safety, cursor
 // encode/decode round trips, param parsing, and a Prisma-semantics simulator.
 import assert from 'node:assert/strict';
-import {
+// Dynamic import so named exports resolve under tsx on Node 26 (static named imports of .ts from .mjs come through as CJS there).
+const {
   compareRollsDesc, decodeRollCursor, encodeRollCursor, isOlderThan,
   keysetWhere, pageOlder, parseRollCursorParams, rollOrder,
-} from '../lib/dice-roll-cursor.ts';
+} = await import('../lib/dice-roll-cursor.ts');
 
 // Deterministic PRNG so failures reproduce.
 let seed = 42;
