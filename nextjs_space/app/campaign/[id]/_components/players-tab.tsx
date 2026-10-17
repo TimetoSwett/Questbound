@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Users, RefreshCw, UserMinus, Copy, Check, Shield, Scroll, Settings } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Users, RefreshCw, UserMinus, Copy, Check, Shield, Scroll, Settings, Trash2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,12 +27,16 @@ interface CharData {
 }
 
 export function PlayersTab({ campaignId }: { campaignId: string }) {
+  const router = useRouter();
   const [members, setMembers] = useState<Member[]>([]);
   const [characters, setCharacters] = useState<CharData[]>([]);
   const [campaign, setCampaign] = useState<any>(null);
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [copied, setCopied] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   const loadRequest = useCallback(async () => {
     const [campRes, charRes] = await Promise.all([
@@ -70,13 +75,29 @@ export function PlayersTab({ campaignId }: { campaignId: string }) {
   };
 
   const removePlayer = async (userId: string, name: string) => {
-    if (!confirm(`Remove ${name} from campaign?`)) return;
+    if (!confirm(`Remove ${name} from campaign? Their characters go back to their vault.`)) return;
     const res = await fetch('/api/campaigns', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ campaignId, removeUserId: userId }),
     });
     if (res.ok) { toast.success(`${name} removed`); load(); }
+    else toast.error((await res.json().catch(() => null))?.error ?? 'Failed to remove player');
+  };
+
+  const deleteCampaign = async () => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        toast.error((await res.json().catch(() => null))?.error ?? 'Failed to delete campaign');
+        return;
+      }
+      toast.success('Campaign deleted');
+      router.push('/dashboard');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const rename = async () => {
@@ -189,6 +210,40 @@ export function PlayersTab({ campaignId }: { campaignId: string }) {
               );
             })
           )}
+        </div>
+      </FadeIn>
+
+      {/* Danger zone */}
+      <FadeIn delay={0.4}>
+        <div className="rounded-lg border border-destructive/40 p-4">
+          <h3 className="font-display text-lg font-semibold flex items-center gap-2 text-destructive"><AlertTriangle className="w-5 h-5" /> Danger Zone</h3>
+          <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              Delete this campaign and its maps, wiki, bestiary, towns, loot and roll log. Characters are kept in their owners&apos; vaults.
+            </p>
+            <Dialog open={deleteOpen} onOpenChange={(o) => { setDeleteOpen(o); if (!o) setDeleteConfirm(''); }}>
+              <DialogTrigger asChild>
+                <Button variant="destructive" size="sm" className="shrink-0"><Trash2 className="w-4 h-4 mr-1" /> Delete Campaign</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader><DialogTitle>Delete Campaign</DialogTitle></DialogHeader>
+                <div className="space-y-4 mt-2">
+                  <p className="text-sm text-muted-foreground">
+                    This cannot be undone. Type <span className="font-mono font-medium text-foreground">{campaign?.name}</span> to confirm.
+                  </p>
+                  <Input value={deleteConfirm} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDeleteConfirm(e.target.value)} placeholder={campaign?.name ?? ''} />
+                  <Button
+                    variant="destructive"
+                    className="w-full"
+                    onClick={deleteCampaign}
+                    disabled={deleting || !campaign?.name || deleteConfirm.trim() !== campaign.name.trim()}
+                  >
+                    {deleting ? 'Deleting...' : 'Delete forever'}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
       </FadeIn>
     </div>

@@ -3,7 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'next-auth/react';
-import { Shield, Swords, Globe, Users, BookOpen, LogOut, ChevronLeft, Copy, Check, Dices, Castle, Drama, Coins } from 'lucide-react';
+import { Shield, Swords, Globe, Users, BookOpen, LogOut, ChevronLeft, Copy, Check, Dices, Castle, Drama, Coins, DoorOpen } from 'lucide-react';
 import { BrightnessControl } from '@/components/brightness-control';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -75,6 +75,17 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
     return () => window.removeEventListener('keydown', onKey);
   }, [isDesktop, mobileLogOpen]);
 
+  const leaveCampaign = async () => {
+    if (!confirm(`Leave ${campaignName}? Your characters go back to your vault.`)) return;
+    const res = await fetch(`/api/campaigns/${campaignId}/leave`, { method: 'POST' });
+    if (!res.ok) {
+      toast.error((await res.json().catch(() => null))?.error ?? 'Failed to leave campaign');
+      return;
+    }
+    toast.success(`Left ${campaignName}`);
+    router.push('/dashboard');
+  };
+
   const copyCode = () => {
     navigator?.clipboard?.writeText?.(inviteCode);
     setCopied(true);
@@ -126,6 +137,11 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
             <Button variant="ghost" size="sm" onClick={() => setLogOpen((o) => !o)} title={logOpen ? 'Hide roll log' : 'Show roll log'} aria-label={logOpen ? 'Hide roll log' : 'Show roll log'} aria-expanded={logOpen} aria-controls="campaign-roll-log">
               <Dices className="w-4 h-4 mr-1" /> Roll log
             </Button>
+            {!isDM && (
+              <Button variant="ghost" size="sm" onClick={leaveCampaign} title="Leave campaign" aria-label="Leave campaign">
+                <DoorOpen className="w-4 h-4" />
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={async () => { await signOut({ redirect: false }); window.location.href = '/login'; }}>
               <LogOut className="w-4 h-4" />
             </Button>

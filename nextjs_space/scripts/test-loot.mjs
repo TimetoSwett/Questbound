@@ -182,7 +182,7 @@ const routeMocks = {
 const campaignRoute = load('app/api/campaigns/[id]/route.ts', routeMocks);
 const coinRoute = load('app/api/loot/coins/route.ts', routeMocks);
 const campaignContext = { params: Promise.resolve({ id: 'campaign' }) };
-assert.deepEqual(Object.keys(campaignRoute).filter(key => ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].includes(key)), ['PATCH']);
+assert.deepEqual(Object.keys(campaignRoute).filter(key => ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].includes(key)), ['PATCH', 'DELETE']);
 routeUser = null;
 assert.equal((await campaignRoute.PATCH(req({ sharedPurse: true }, 'PATCH'), campaignContext)).status, 401);
 routeUser = 'player';
@@ -214,4 +214,21 @@ assert.deepEqual(routePublished.map(([id, topic]) => [id, topic]), [
   ['campaign', 'loot'],
   ['campaign', 'battle'],
 ]);
-console.log('Shared purse PATCH validation, DM authorization, and coin POST authorization tests passed.');
+// Campaign DELETE: only the campaign's DM (Campaign.dmUserId) may delete it.
+const deleteCalls = [];
+const deleteRoute = load('app/api/campaigns/[id]/route.ts', { ...routeMocks,
+  '@/lib/campaign-helpers': { getUserRole: async () => routeRole, detachCampaignCharacters: async () => [] },
+  '@/lib/prisma': { prisma: {
+    campaign: { findUnique: async () => ({ dmUserId: 'gm' }) },
+    $transaction: async fn => { deleteCalls.push('tx'); return fn({ campaign: { delete: async args => deleteCalls.push(args) } }); },
+  } },
+});
+routeUser = null;
+assert.equal((await deleteRoute.DELETE(req(null, 'DELETE'), campaignContext)).status, 401);
+routeUser = 'player'; routeRole = 'dm'; // a 'dm' membership row alone isn't enough
+assert.equal((await deleteRoute.DELETE(req(null, 'DELETE'), campaignContext)).status, 403);
+assert.equal(deleteCalls.length, 0);
+routeUser = 'gm';
+assert.equal((await deleteRoute.DELETE(req(null, 'DELETE'), campaignContext)).status, 200);
+assert.equal(JSON.stringify(deleteCalls), JSON.stringify(['tx', { where: { id: 'campaign' } }]));
+console.log('Shared purse PATCH validation, DM authorization, coin POST authorization, and campaign DELETE authorization tests passed.');
