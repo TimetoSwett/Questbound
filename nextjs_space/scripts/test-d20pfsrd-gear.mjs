@@ -12,9 +12,17 @@ const fx = (f) => readFileSync(new URL(`./fixtures/d20pfsrd/${f}`, import.meta.u
 const U = {
   bedroll: 'https://www.d20pfsrd.com/equipment/goods-and-services/hunting-camping-survival-gear/#bedroll',
   tent: 'https://www.d20pfsrd.com/equipment/goods-and-services/hunting-camping-survival-gear/#TOC-Tent',
-  bat: 'https://www.d20pfsrd.com/equipment/goods-and-services/hunting-camping-survival-gear/#bat',
+  bat: 'https://www.d20pfsrd.com/equipment/goods-and-services/animals-animal-gear/#bat',
   chain: 'https://www.d20pfsrd.com/equipment/goods-and-services/tools-kits/#chain',
   thieves: 'https://www.d20pfsrd.com/equipment/goods-and-services/tools-kits/#TOC-Tools-Thieves-',
+  thievesSpan: 'https://www.d20pfsrd.com/equipment/goods-and-services/tools-kits/#tools_thieves8217',
+  breakaway: 'https://www.d20pfsrd.com/equipment/goods-and-services/tools-kits/#chain_breakaway',
+  hook: 'https://www.d20pfsrd.com/equipment/goods-and-services/tools-kits/#hook_grappling',
+  wax: 'https://www.d20pfsrd.com/equipment/goods-and-services/tools-kits/#key_wax_blank',
+  toad: 'https://www.d20pfsrd.com/equipment/goods-and-services/animals-animal-gear/#toad_common',
+  barding: 'https://www.d20pfsrd.com/equipment/goods-and-services/animals-animal-gear/#barding',
+  straw: 'https://www.d20pfsrd.com/equipment/3rd-party-equipment/3rd-party-goods-and-services/rite-publishing/backpack-straw/',
+  deodorizer: 'https://www.d20pfsrd.com/equipment/3rd-party-equipment/3rd-party-goods-and-services/adamant-entertainment/deodorizer/',
   battery: 'https://www.d20pfsrd.com/equipment/goods-and-services/technological-gear/#battery',
   multi: 'https://www.d20pfsrd.com/equipment/goods-and-services/hunting-camping-survival-gear/',
   hirelings: 'https://www.d20pfsrd.com/equipment/goods-and-services/hirelings-servants-services/',
@@ -50,23 +58,54 @@ const tent = gear('hunting-camping-survival-gear.html', U.tent);
 assert.equal(tent.name, 'Tent, small'); assert.equal(tent.data.cost, '10 gp'); assert.equal(tent.data.weight, 20);
 ok('Tent, small = 10 gp, 20 lb (#TOC-Tent anchor)');
 
-const bat = gear('hunting-camping-survival-gear.html', U.bat);
+const bat = gear('animals-animal-gear.html', U.bat);
 assert.equal(bat.data.cost, '5 gp'); assert.equal(bat.data.weight, 1);
 ok('Bat = 5 gp, 1 lb');
 
 const battery = gear('technological-gear.html', U.battery);
 assert.equal(battery.data.weight, 1, 'Battery = 1 lb (Price; Slot; Weight line)');
-assert.ok(battery.data.cost.length > 0);
+assert.equal(battery.data.cost, '100 gp');
+assert.ok(!/CONSTRUCTION|Craft Technological Item/.test(battery.data.description.slice(0, 40)));
 ok('Battery weight from Price/Slot/Weight line');
 
 const br = gear('hunting-camping-survival-gear.html', U.bedroll);
 assert.equal(br.name, 'Bedroll'); assert.equal(br.data.cost, '1 sp'); assert.equal(br.data.weight, 5);
 ok('Bedroll = 1 sp, 5 lb');
 
-const th = gear('tools-kits.html', U.thieves);
-assert.ok(th.data.cost.length > 0, 'thieves tools has a cost');
-assert.ok(!/Price|Weight/.test(th.data.description) || th.data.description.includes('Disable Device'));
-ok("Thieves' Tools (TOC anchor with trailing dash)");
+for (const u of [U.thieves, U.thievesSpan]) {
+  const th = gear('tools-kits.html', u);
+  // In-section variant table (Common row), not the Concealable Price line inside the <ul>.
+  assert.equal(th.data.cost, '30 gp'); assert.equal(th.data.weight, 1);
+  assert.ok(th.data.description.includes('Disable Device'));
+}
+ok("Thieves' Tools = 30 gp, 1 lb via #TOC-Tools-Thieves- and #tools_thieves8217");
+
+const ba = gear('tools-kits.html', U.breakaway);
+assert.equal(ba.data.cost, '65 gp'); assert.equal(ba.data.weight, 2);
+ok('Chain, Breakaway = 65 gp via name match ("Chains, breakaway" row links #TOC-Chain)');
+
+const hook = gear('tools-kits.html', U.hook);
+assert.equal(hook.data.cost, '1 gp'); assert.equal(hook.data.weight, 4);
+ok('Hook, Grappling = 1 gp, 4 lb (variant table, a id= anchor)');
+
+const wax = gear('tools-kits.html', U.wax);
+assert.equal(wax.data.cost, '15 gp'); assert.equal(wax.data.weight, 0.5);
+ok('Key, Wax Blank = 15 gp via "Key blank, wax" word match');
+
+const toad = gear('animals-animal-gear.html', U.toad);
+assert.equal(toad.data.cost, '2 cp'); assert.equal(toad.data.weight, 0.4375);
+ok('Toad (Common) = 2 cp, 7 oz.');
+
+assert.throws(() => G.parseD20pfsrdGearPage(fx('animals-animal-gear.html'), U.barding), /price or weight/);
+ok('Barding "×2" multiplier is not a price (throws)');
+
+// 3rd-party goods: one item per page under a publisher
+const straw = D.parseD20pfsrdPage(fx('3pp-goods-backpack-straw.html'), U.straw); check(straw);
+assert.equal(straw.name, 'Backpack, Straw'); assert.equal(straw.data.cost, '2 cp');
+assert.ok(straw.data.description.includes('woven straw basket'));
+const deo = D.parseD20pfsrdPage(fx('3pp-goods-deodorizer.html'), U.deodorizer); check(deo);
+assert.equal(deo.name, 'Deodorizer'); assert.equal(deo.data.cost, '25gp');
+ok('3pp goods: Backpack, Straw = 2 cp; Deodorizer = 25gp (full pages)');
 
 // ---- Synthetic Widget probes ----
 const widgetPage = (body) => `<html><body><div id="article-content">${body}</div></body></html>`;
@@ -174,11 +213,32 @@ for (const [raw, want] of [['½ lb.', 0.5], ['1-1/2 lbs.', 1.5], ['2½ lbs.', 2.
 }
 ok('Widget: fractional and per-unit weights');
 
-w = widget(sec('widget', 'Widget', '<p><b>Price</b> —</p><p>A widget.</p>'), 'widget');
 assert.throws(() => G.parseD20pfsrdGearPage(widgetPage(
   sec('widget', 'Widget', '<p><b>Price</b> —</p><p>A widget.</p>')), 
   'https://www.d20pfsrd.com/equipment/goods-and-services/tools-kits/#widget'), /price or weight/);
 ok('Widget: Price "—" throws (no silent dash)');
+
+w = widget(sec('widget', 'Widget', '<p>A widget, hired by the day. <b>Price</b> 1 gp</p>'), 'widget');
+assert.equal(w.data.cost, '1 gp');
+ok('Widget: Price at the end of a paragraph (Valet)');
+
+for (const [raw, want] of [['1–1/2 lbs.', 1.5], ['8 oz.', 0.5], ['3 tons', 6000], ['1 lb.–8 lbs.', 1], ['20 lbs.<sup>1</sup>', 20]]) {
+  w = widget(`<table><tr><th>Item</th><th>Price</th><th>Weight</th></tr><tr><td><a href="#widget">Widget</a></td><td>5 gp</td><td>${raw}</td></tr></table>` +
+    sec('widget', 'Widget', '<p>A widget.</p>'), 'widget');
+  assert.equal(w.data.weight, want, raw);
+}
+ok('Widget: en-dash fractions, oz, tons, ranges, footnotes');
+
+w = widget(`<table><tr><th>Item</th><th>Price</th><th>Weight</th></tr><tr><td><a href="#widget">Widget</a></td><td>5 gp</td><td>2 lbs.</td></tr></table>` +
+  sec('widget', 'Widget', '<p>A widget.</p>') +
+  `<p><a name="table-next"></a></p><table><tr><th>Item</th><th>Price</th><th>Weight</th></tr><tr><td><a href="#gadget">Gadget</a></td><td>1 sp</td><td>—</td></tr></table>`, 'widget');
+assert.equal(w.data.cost, '5 gp'); assert.equal(w.data.weight, 2);
+ok('Widget: next category table after the last item is not its variant table (Tent)');
+
+w = widget(sec('widget', 'Widget', '<p>A widget.</p><ul><li><i>Fancy</i>: <b>Price</b> 99 gp; <b>Weight</b> 9 lbs.</li></ul>') +
+  `<table><tr><th>Item</th><th>Price</th><th>Weight</th></tr><tr><td><a href="#widget">Widget</a></td><td>5 gp</td><td>2 lbs.</td></tr></table>`, 'widget');
+assert.equal(w.data.cost, '5 gp'); assert.equal(w.data.weight, 2);
+ok('Widget: variant Price line inside <ul> does not win');
 
 // Anchors
 w = widget(sec('widget', 'Widget', '<p><b>Price</b> 5 gp</p><p>A widget.</p>'), 'TOC-Widget');
@@ -204,7 +264,9 @@ const K = D.d20pfsrdKindForUrl;
 for (const host of ['www.d20pfsrd.com', 'd20pfsrd.com']) {
   assert.equal(K(`https://${host}/equipment/goods-and-services/tools-kits/`), 'gear');
   assert.equal(K(`https://${host}/equipment/goods-and-services/tools-kits/#widget`), 'gear');
-  assert.equal(K(`https://${host}/equipment/3rd-party-equipment/3rd-party-goods-and-services/`), 'gear');
+  assert.equal(K(`https://${host}/equipment/3rd-party-equipment/3rd-party-goods-and-services/rite-publishing/backpack-straw/`), 'gear');
+  assert.equal(K(`https://${host}/equipment/3rd-party-equipment/3rd-party-goods-and-services/`), null, '3pp index has no items');
+  assert.equal(K(`https://${host}/equipment/3rd-party-equipment/3rd-party-goods-and-services/rite-publishing/`), null, 'publisher index');
 }
 assert.equal(K('https://www.d20pfsrd.com/equipment/goods-and-services/'), null, 'index rejected');
 assert.equal(K('https://www.d20pfsrd.com/equipment/goods-and-services/hirelings-servants-services/extra/'), null, '4 segments rejected');
@@ -214,6 +276,9 @@ ok('url routing');
 // ---- Rejections ----
 assert.throws(() => G.parseD20pfsrdGearPage(fx('hunting-camping-survival-gear.html'), U.multi), /lists .* items/, 'multi-item without fragment');
 assert.throws(() => G.parseD20pfsrdGearPage(fx('hunting-camping-survival-gear.html'), U.bedroll.replace('#bedroll', '#nope')), /No item/, 'bad fragment');
+assert.throws(() => D.parseD20pfsrdPage(fx('3pp-goods-and-services.html'), 'https://www.d20pfsrd.com/equipment/3rd-party-equipment/3rd-party-goods-and-services/'), /only\. Open a single/, '3pp index rejected');
+// Sidebar widget h4s ("Discuss!") are not items: the count is the real item count.
+assert.throws(() => G.parseD20pfsrdGearPage(fx('hunting-camping-survival-gear.html'), U.multi), /lists 77 items/);
 ok('rejections');
 
 console.log(`\n${count} d20pfsrd gear checks passed`);

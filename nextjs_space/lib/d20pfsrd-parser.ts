@@ -37,7 +37,8 @@ export function d20pfsrdKindForUrl(raw: string): 'spell' | 'feat' | 'gear' | 'we
   if (seg[0] === 'equipment' && seg[1] === 'armor') return isArmorItemPath(seg) ? 'armor' : null;
   if (seg[0] === 'magic' && (seg[1] === 'all-spells' || seg[1] === '3rd-party-spells')) return seg.length === 4 ? 'spell' : null;
   if (seg[0] === 'equipment' && seg[1] === 'goods-and-services' && seg.length === 3) return 'gear';
-  if (seg[0] === 'equipment' && seg[1] === '3rd-party-equipment' && seg[2] === '3rd-party-goods-and-services' && seg.length === 3) return 'gear';
+  // 3rd-party goods are one item per page under a publisher: …/3rd-party-goods-and-services/<publisher>/<item>/
+  if (seg[0] === 'equipment' && seg[1] === '3rd-party-equipment' && seg[2] === '3rd-party-goods-and-services' && seg.length === 5) return 'gear';
   if (seg[0] === 'feats') {
     if (seg[1] === '3rd-party-feats') return seg.length >= 4 && seg.length <= 5 ? 'feat' : null;
     return seg.length === 3 ? 'feat' : null;
