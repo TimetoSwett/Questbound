@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
+import { useCampaignEventsAvailable, useCampaignTopic } from '@/hooks/use-campaign-events';
 import { breakdownCoins, formatCoins } from '@/lib/coins';
 
 type Coins = { pp?: number; gp?: number; sp?: number; cp?: number };
@@ -12,18 +13,30 @@ const safeCoinInt = (value: unknown) => {
 
 export function useSharedPurse(campaignId?: string | null) {
   const [purse, setPurse] = useState<{ campaignId: string; sharedPurse: boolean; partyCp: number } | null>(null);
-  useEffect(() => {
+  const events = useCampaignEventsAvailable();
+  const idRef = useRef(campaignId);
+  idRef.current = campaignId;
+  const load = useCallback(async () => {
     if (!campaignId) return;
-    let cancelled = false;
-    fetch(`/api/loot?campaignId=${encodeURIComponent(campaignId)}`)
-      .then(async res => {
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) setPurse({ campaignId, sharedPurse: data.sharedPurse === true, partyCp: safeCoinInt(data.partyCp) });
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
+    const id = campaignId;
+    try {
+      const res = await fetch(`/api/loot?campaignId=${encodeURIComponent(id)}`, { cache: 'no-store' });
+      if (!res.ok || idRef.current !== id) return;
+      const data = await res.json();
+      if (idRef.current !== id) return;
+      setPurse({ campaignId: id, sharedPurse: data.sharedPurse === true, partyCp: safeCoinInt(data.partyCp) });
+    } catch { /* ignore */ }
   }, [campaignId]);
+  useEffect(() => { void load(); }, [load]);
+  // The shared-purse toggle publishes `loot`. Polling covers a dropped stream.
+  // Outside the campaign shell there is no stream, so don't poll the dashboard.
+  const onLive = useCallback(() => { void load(); }, [load]);
+  const pollMs = useCampaignTopic(['loot'], onLive);
+  useEffect(() => {
+    if (!events || pollMs === null || !campaignId) return;
+    const id = setInterval(() => { void load(); }, pollMs);
+    return () => clearInterval(id);
+  }, [events, pollMs, load, campaignId]);
   return purse?.campaignId === campaignId ? purse : null;
 }
 
