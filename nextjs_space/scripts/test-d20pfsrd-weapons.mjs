@@ -52,9 +52,9 @@ assert.throws(() => D.parseD20pfsrdPage(fx('3pp-weapon-vardatch-nostats.html'), 
 assert.equal(W.isD20pfsrdWeaponUrl(core), false);
 assert.equal(D.d20pfsrdKindForUrl(core), null);
 const magicWeapon = 'https://www.d20pfsrd.com/magic-items/magic-weapons/specific-magic-weapons/flame-tongue/';
-assert.equal(D.d20pfsrdKindForUrl(magicWeapon), null);
+// Specific magic weapons import as gear (magic-items.ts), not through the mundane weapon table parser.
+assert.equal(D.d20pfsrdKindForUrl(magicWeapon), 'gear');
 assert.equal(W.isD20pfsrdWeaponUrl(magicWeapon), false);
-assert.throws(() => D.parseD20pfsrdPage(fx('weapon-longsword.html'), magicWeapon), unsupported);
 assert.throws(() => D.parseD20pfsrdPage(fx('weapon-descriptions-index.html'), core), unsupported);
 for (const url of [
   'https://www.d20pfsrd.com/magic/all-spells/f/fireball/',

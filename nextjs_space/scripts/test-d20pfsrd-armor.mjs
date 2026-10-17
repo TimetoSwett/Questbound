@@ -128,12 +128,15 @@ for (const u of [
   'https://www.d20pfsrd.com/equipment/goods-and-services/', 'https://www.d20pfsrd.com/equipment/armor/',
   'https://www.d20pfsrd.com/equipment/armor/armor-modifications/',
   'https://www.d20pfsrd.com/equipment/3rd-party-equipment/3rd-party-armor-shields/',
-  'https://www.d20pfsrd.com/magic-items/magic-armor/specific-magic-armor/mithral-shirt/',
 ]) {
   assert.equal(D.d20pfsrdKindForUrl(u), null, u);
   assert.throws(() => D.parseD20pfsrdPage(fx('armor-leather.html'), u), (e) => e.message.startsWith(D.D20PFSRD_UNSUPPORTED), u);
 }
-ok('armor url routing (index, modifications, magic armor rejected)');
+// Specific magic armor imports as gear (magic-items.ts), not through the mundane armor table parser.
+const magicArmor = 'https://www.d20pfsrd.com/magic-items/magic-armor/specific-magic-armor/mithral-shirt/';
+assert.equal(D.d20pfsrdKindForUrl(magicArmor), 'gear');
+assert.equal(A.isD20pfsrdArmorUrl(magicArmor), false);
+ok('armor url routing (index and modifications rejected, magic armor routed to gear)');
 
 // routing for others unchanged
 assert.equal(D.d20pfsrdKindForUrl(U.pa), 'feat'); assert.equal(D.d20pfsrdKindForUrl(U.rop), 'gear');

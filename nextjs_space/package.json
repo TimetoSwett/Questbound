@@ -21,6 +21,7 @@
     "test:d20pfsrd-weapons": "tsx scripts/test-d20pfsrd-weapons.mjs",
     "test:d20pfsrd-gear": "tsx scripts/test-d20pfsrd-gear.mjs",
     "test:d20pfsrd-armor": "tsx scripts/test-d20pfsrd-armor.mjs",
+    "test:d20pfsrd-metamagic-rods": "tsx scripts/test-d20pfsrd-metamagic-rods.mjs",
     "test:d20pfsrd-magic-weapons-armor": "tsx scripts/test-d20pfsrd-magic-weapons-armor.mjs",
     "test:terms": "node scripts/test-term-match.mjs",
     "test:psionics": "node scripts/test-psionics.mjs",

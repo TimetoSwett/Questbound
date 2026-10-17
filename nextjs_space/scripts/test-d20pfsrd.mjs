@@ -186,13 +186,14 @@ for (const host of ['www.d20pfsrd.com', 'd20pfsrd.com']) {
     'magic-items/wondrous-items/a-b/bag-of-holding/', 'magic-items/rings/ring-of-protection/', 'magic-items/rods/crypt-rod/', 'magic-items/staves/staff-of-fire/',
     'magic-items/3rd-party-magic-items/3rd-party-wondrous-items/some-pub/some-item/', 'magic-items/3rd-party-magic-items/3rd-party-rings/some-pub/some-ring/',
     'magic-items/3rd-party-magic-items/3rd-party-rods/some-pub/some-rod/', 'magic-items/3rd-party-magic-items/3rd-party-staves/some-pub/some-staff/',
+    'magic-items/magic-weapons/specific-magic-weapons/flame-tongue/', 'magic-items/magic-armor/specific-magic-armor/mithral-shirt/',
   ]) assert.equal(K(`https://${host}/${p}`), 'gear', p);
   for (const p of [
     'magic-items/', 'magic-items/rings/', 'magic-items/rods/', 'magic-items/staves/', 'magic-items/wondrous-items/', 'magic-items/wondrous-items/a-b/',
     'magic-items/3rd-party-magic-items/', 'magic-items/3rd-party-magic-items/3rd-party-rings/', 'magic-items/3rd-party-magic-items/3rd-party-rings/4-winds-fantasy-gaming/',
     'magic-items/3rd-party-magic-items/3rd-party-wands/some-pub/some-wand/', 'magic-items/rings/a/b/', 'magic-items/wondrous-items/a-b/c/d/',
     'magic-items/potions-and-oils/cure-light-wounds/', 'magic-items/scrolls/scroll-of-x/', 'magic-items/wands/wand-of-magic-missile/', 'magic-items/artifacts/axe-of-the-dwarvish-lords/',
-    'magic-items/cursed-items/cursed-sword/', 'magic-items/magic-weapons/specific-magic-weapons/flame-tongue/', 'magic-items/magic-armor/specific-magic-armor/mithral-shirt/',
+    'magic-items/cursed-items/cursed-sword/',
   ]) assert.equal(K(`https://${host}/${p}`), null, p);
 }
 assert.equal(K(U.staff.slice(0, -1)), 'gear', 'no trailing slash');
@@ -225,8 +226,6 @@ for (const u of [
   'https://www.d20pfsrd.com/magic-items/scrolls/scroll-of-x/',
   'https://www.d20pfsrd.com/magic-items/wands/wand-of-magic-missile/',
   'https://www.d20pfsrd.com/magic-items/artifacts/axe-of-the-dwarvish-lords/',
-  'https://www.d20pfsrd.com/magic-items/magic-weapons/specific-magic-weapons/flame-tongue/',
-  'https://www.d20pfsrd.com/magic-items/magic-armor/specific-magic-armor/mithral-shirt/',
   'https://www.d20pfsrd.com/magic-items/rings/',
   'https://www.d20pfsrd.com/magic-items/wondrous-items/a-b/',
   'https://www.d20pfsrd.com/equipment---final/weapons/',
@@ -267,9 +266,11 @@ const MI = await import('../lib/d20pfsrd/magic-items.ts');
 assert.equal(typeof MI.parseD20pfsrdMagicItem, 'function');
 assert.equal(typeof MI.magicItemCategory, 'function');
 assert.equal(MI.magicItemCategory(['magic-items', 'rings', 'ring-of-protection']), 'ring');
-assert.equal(MI.magicItemCategory(['magic-items', 'magic-weapons', 'specific-magic-weapons', 'flame-tongue']), null);
-assert.equal(MI.magicItemCategory(['magic-items', 'magic-armor', 'specific-magic-armor', 'mithral-shirt']), null);
-ok('magic-items module exports; weapons/armor paths rejected');
+assert.equal(MI.magicItemCategory(['magic-items', 'magic-weapons', 'specific-magic-weapons', 'flame-tongue']), 'magic-weapon');
+assert.equal(MI.magicItemCategory(['magic-items', 'magic-armor', 'specific-magic-armor', 'mithral-shirt']), 'magic-armor');
+assert.equal(MI.magicItemCategory(['magic-items', 'rods', 'metamagic-rods', 'metamagic-extend']), 'rod');
+assert.equal(MI.magicItemCategory(['magic-items', 'rods', 'metamagic-rods']), null);
+ok('magic-items module exports; weapon/armor/metamagic rod categories');
 
 // Every d20pfsrd example URL shown as an input placeholder is accepted by the router.
 const hallSrc = readFileSync(new URL('../components/library/hall-client.tsx', import.meta.url), 'utf8');
