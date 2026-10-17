@@ -21,6 +21,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     data: { sharedPurse: body.sharedPurse },
     select: { sharedPurse: true },
   });
-  publish(id, 'battle');
+  // Loot tabs and character sheets subscribe to this topic. Battle-map state is unchanged.
+  publish(id, 'loot');
   return NextResponse.json({ sharedPurse: campaign.sharedPurse });
 }
