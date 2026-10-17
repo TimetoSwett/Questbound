@@ -38,25 +38,24 @@ export function bonusStack(bonus: { stack?: StackKind }): StackKind {
   return bonus.stack ?? 'untyped';
 }
 
-/** Untyped, dodge, circumstance, and penalties add. Other types keep the best bonus and the worst penalty.
- * Note: circumstance bonuses from the same source would technically overlap, but we accept that
- * because it's rare — entries here don't carry source info to distinguish them. */
+/** Untyped, dodge, and circumstance bonuses stack. Every other bonus type keeps only the highest.
+ * Penalties always stack, even when they share a type (morale −2 and morale −1 is −3).
+ * A modifier whose stack is literally "penalty" also adds, bonus or penalty.
+ * Circumstance bonuses from the same source would technically overlap, but entries here
+ * don't carry source info to distinguish them. */
 export function foldStacks(entries: { amount: number; stack: StackKind }[]): number {
   let total = 0;
   const bonus = new Map<string, number>();
-  const penalized = new Map<string, number>();
   for (const entry of entries) {
     if (!entry.amount) continue;
-    if (entry.stack === 'untyped' || entry.stack === 'penalty' || entry.stack === 'dodge' || entry.stack === 'circumstance') {
+    if (entry.amount < 0 || entry.stack === 'untyped' || entry.stack === 'penalty' || entry.stack === 'dodge' || entry.stack === 'circumstance') {
       total += entry.amount;
       continue;
     }
-    const bucket = entry.amount > 0 ? bonus : penalized;
-    const current = bucket.get(entry.stack);
-    bucket.set(entry.stack, current === undefined ? entry.amount : entry.amount > 0 ? Math.max(current, entry.amount) : Math.min(current, entry.amount));
+    const current = bonus.get(entry.stack);
+    bonus.set(entry.stack, current === undefined ? entry.amount : Math.max(current, entry.amount));
   }
   for (const amount of bonus.values()) total += amount;
-  for (const amount of penalized.values()) total += amount;
   return total;
 }
 

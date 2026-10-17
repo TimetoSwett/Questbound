@@ -209,5 +209,9 @@ assert.equal(disabled.status, 200);
 assert.equal(disabled.body.sharedPurse, false);
 assert.equal((await coinRoute.POST(req({ campaignId: 'campaign', deltaCp: 100 }))).status, 200);
 assert.equal(routePublished.length, 3);
-assert.ok(routePublished.every(([id, topic]) => id === 'campaign' && topic === 'battle'));
+assert.deepEqual(routePublished.map(([id, topic]) => [id, topic]), [
+  ['campaign', 'loot'],
+  ['campaign', 'loot'],
+  ['campaign', 'battle'],
+]);
 console.log('Shared purse PATCH validation, DM authorization, and coin POST authorization tests passed.');

@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Coins, Plus, Pencil, Trash2, Split, ArrowRightLeft, Backpack, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { FadeIn } from '@/components/ui/animate';
+import { useCampaignTopic } from '@/hooks/use-campaign-events';
 import { breakdownCoins } from '@/lib/coins';
 import { LootTableEditor } from './loot-editor';
 
@@ -44,23 +45,45 @@ export function LootTab({ campaignId, role, userId }: { campaignId: string; role
   const [data, setData] = useState<LootData | null>(null);
   const [loading, setLoading] = useState(true);
   const isDM = role === 'dm';
+  const campaignRef = useRef(campaignId);
+  // Bumped when the DM flips the purse so an in-flight loot GET from before the write can't snap it back.
+  const purseGen = useRef(0);
+  useEffect(() => { campaignRef.current = campaignId; }, [campaignId]);
 
   const load = useCallback(async () => {
+    const id = campaignId;
+    const gen = purseGen.current;
     try {
-      const res = await fetch(`/api/loot?campaignId=${campaignId}`);
-      if (res.ok) setData(await res.json());
-    } catch { /* ignore */ } finally { setLoading(false); }
+      const res = await fetch(`/api/loot?campaignId=${id}`, { cache: 'no-store' });
+      if (!res.ok || campaignRef.current !== id || purseGen.current !== gen) return;
+      setData(await res.json());
+    } catch { /* ignore */ }
   }, [campaignId]);
 
   useEffect(() => {
     let active = true;
-    fetch(`/api/loot?campaignId=${campaignId}`)
+    const gen = purseGen.current;
+    fetch(`/api/loot?campaignId=${campaignId}`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (active && d) setData(d); })
+      .then((d) => { if (active && d && purseGen.current === gen) setData(d); })
       .catch(() => { /* ignore */ })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [campaignId]);
+  // DM purse toggles publish `loot`. Refetch on that invalidation (and poll if the stream drops)
+  // so every open loot tab updates without a reload.
+  const onLive = useCallback(() => { void load(); }, [load]);
+  const pollMs = useCampaignTopic(['loot'], onLive);
+  useEffect(() => {
+    if (pollMs === null) return;
+    const id = setInterval(() => { void load(); }, pollMs);
+    return () => clearInterval(id);
+  }, [pollMs, load]);
+
+  const setSharedPurse = useCallback((sharedPurse: boolean) => {
+    purseGen.current += 1;
+    setData((prev) => (prev ? { ...prev, sharedPurse } : prev));
+  }, []);
 
   if (loading) return <p className="text-muted-foreground py-10 text-center">Loading loot...</p>;
   if (!data) return <p className="text-muted-foreground py-10 text-center">Could not load loot.</p>;
@@ -90,7 +113,7 @@ export function LootTab({ campaignId, role, userId }: { campaignId: string; role
         </h2>
       </FadeIn>
 
-      <CoinsCard sharedPurse={data.sharedPurse} partyCp={data.partyCp} campaignId={campaignId} isDM={isDM} onChange={load} />
+      <CoinsCard sharedPurse={data.sharedPurse} partyCp={data.partyCp} campaignId={campaignId} isDM={isDM} onChange={load} onSharedPurse={setSharedPurse} />
 
       <div className="mt-8">
         <div className="flex items-center justify-between mb-3">
@@ -153,7 +176,7 @@ function GroupTotals({ value, weight }: { value: number; weight: number }) {
   );
 }
 
-function CoinsCard({ partyCp, sharedPurse, campaignId, isDM, onChange }: { sharedPurse: boolean; partyCp: number; campaignId: string; isDM: boolean; onChange: () => void }) {
+function CoinsCard({ partyCp, sharedPurse, campaignId, isDM, onChange, onSharedPurse }: { sharedPurse: boolean; partyCp: number; campaignId: string; isDM: boolean; onChange: () => void; onSharedPurse: (shared: boolean) => void }) {
   const { pp, gp, sp, cp } = breakdownCoins(partyCp);
   const [adj, setAdj] = useState({ pp: '', gp: '', sp: '', cp: '' });
   const [busy, setBusy] = useState(false);
@@ -191,6 +214,8 @@ function CoinsCard({ partyCp, sharedPurse, campaignId, isDM, onChange }: { share
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={sharedPurse} disabled={busy} onChange={async e => {
               const enabled = e.target.checked;
+              const previous = sharedPurse;
+              onSharedPurse(enabled);
               setBusy(true);
               try {
                 const res = await fetch(`/api/campaigns/${campaignId}`, {
@@ -199,8 +224,11 @@ function CoinsCard({ partyCp, sharedPurse, campaignId, isDM, onChange }: { share
                   body: JSON.stringify({ sharedPurse: enabled }),
                 });
                 if (!res.ok) throw new Error('Could not update shared purse');
+                const body = await res.json().catch(() => null);
+                if (body && typeof body.sharedPurse === 'boolean') onSharedPurse(body.sharedPurse);
                 onChange();
               } catch {
+                onSharedPurse(previous);
                 toast.error('Could not update shared purse');
               } finally {
                 setBusy(false);

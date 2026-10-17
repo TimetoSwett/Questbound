@@ -18,6 +18,11 @@ export type CampaignStreamPause = null | 'session-expired' | 'not-a-member';
 type Ctx = { healthy: boolean; paused: CampaignStreamPause; subscribe: (fn: Listener) => () => void };
 const CampaignEventsContext = createContext<Ctx | null>(null);
 
+/** True inside CampaignEventsProvider. Dashboard sheets are outside it and should not poll. */
+export function useCampaignEventsAvailable(): boolean {
+  return useContext(CampaignEventsContext) != null;
+}
+
 export function CampaignEventsProvider({ campaignId, children }: { campaignId: string; children: ReactNode }) {
   const [healthy, setHealthy] = useState(false);
   const [paused, setPaused] = useState<CampaignStreamPause>(null);

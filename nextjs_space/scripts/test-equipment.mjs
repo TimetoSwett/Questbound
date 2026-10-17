@@ -143,6 +143,17 @@ assert.equal(conditions.resolveToggles(['enlarge']).acPenalty, 0);
 assert.equal(conditions.resolveToggles(['reduce']).sizeCmb, -1);
 const belt = conditions.sheetAdjustment({ equipped: { conditions: ['rage'], slots: { belt: { name: 'Belt', bonuses: [{ kind: 'ability', ability: 'str', amount: 4, stack: 'enhancement' }, { kind: 'ability', ability: 'str', amount: 2, stack: 'enhancement' }] } } } });
 assert.equal(belt.ability.str, 8);
+// Same-type bonuses keep the highest. Same-type penalties stack: morale −2 and −1 is −3.
+const moraleMods = (amounts) => conditions.sheetAdjustment({
+  equipped: { buffs: amounts.map((amount, i) => ({ name: `Morale ${i}`, on: true, bonuses: [{ kind: 'attack', amount, stack: 'morale' }] })) },
+});
+assert.equal(moraleMods([-2, -1]).attack, -3);
+assert.equal(moraleMods([2, 1]).attack, 2);
+assert.equal(equipment.foldStacks([{ amount: -2, stack: 'morale' }, { amount: -1, stack: 'morale' }]), -3);
+assert.equal(equipment.foldStacks([{ amount: 4, stack: 'morale' }, { amount: 1, stack: 'morale' }]), 4);
+assert.equal(equipment.foldStacks([{ amount: 1, stack: 'dodge' }, { amount: 2, stack: 'dodge' }]), 3);
+assert.equal(equipment.foldStacks([{ amount: 2, stack: 'circumstance' }, { amount: 2, stack: 'circumstance' }]), 4);
+assert.equal(equipment.stackParts([{ amount: -2, stack: 'morale' }, { amount: -1, stack: 'morale' }, { amount: 4, stack: 'morale' }])[0].amount, 1);
 assert.equal(validation.equippedSchema.safeParse({ sheet: { dodge: 1, naturalEnhancement: 2, initAbilities: ['int'], dr: [{ amount: 5, bypass: 'magic' }], resist: [{ energy: 'Fire', amount: 10 }], pins: { left: ['hp', 'ac'], right: ['attacks'] } }, weapons: [{ ...weapon, extraAbilities: ['int'] }] }).success, true);
 assert.equal(validation.equippedSchema.safeParse({ sheet: { pins: { left: ['nope'] } } }).success, false);
 assert.equal(validation.equippedSchema.safeParse({ sheet: { noScore: ['con', 'int'] } }).success, true);
