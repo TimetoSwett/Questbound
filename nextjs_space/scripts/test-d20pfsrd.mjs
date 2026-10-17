@@ -213,8 +213,10 @@ for (const bad of ['http://www.d20pfsrd.com/magic/all-spells/f/fireball/', 'http
 ok('url routing (www / bare host; http and other hosts rejected)');
 
 // rejections
-const NO = /supports spells, feats, magic items and mundane gear only/;
-assert.equal(D.D20PFSRD_UNSUPPORTED, 'd20pfsrd import currently supports spells, feats, magic items and mundane gear only.');
+const NO = new RegExp(D.D20PFSRD_UNSUPPORTED.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+assert.equal(D.D20PFSRD_UNSUPPORTED, 'd20pfsrd import supports spells, feats, magic items (wondrous items, rings, rods, staves), weapons, armor and shields, and mundane gear. Magic weapons and armor, potions, scrolls, wands, artifacts and services are not supported yet.');
+assert.equal(D.HINT, ' Open a single spell, feat, magic item, weapon, armor, shield or gear page (for goods-and-services gear, copy the link with the #item anchor).');
+assert.ok(!/^\s*import\b/m.test(readFileSync(new URL('../lib/d20pfsrd/messages.ts', import.meta.url), 'utf8')), 'messages.ts must stay a leaf module (no imports)');
 for (const u of [
   'https://www.d20pfsrd.com/bestiary/monster-listings/dragons/dragon-true/red-dragon/',
   'https://www.d20pfsrd.com/bestiary/monster-listings/humanoids/goblin/',
@@ -268,5 +270,18 @@ assert.equal(MI.magicItemCategory(['magic-items', 'rings', 'ring-of-protection']
 assert.equal(MI.magicItemCategory(['magic-items', 'magic-weapons', 'specific-magic-weapons', 'flame-tongue']), null);
 assert.equal(MI.magicItemCategory(['magic-items', 'magic-armor', 'specific-magic-armor', 'mithral-shirt']), null);
 ok('magic-items module exports; weapons/armor paths rejected');
+
+// Every d20pfsrd example URL shown as an input placeholder is accepted by the router.
+const hallSrc = readFileSync(new URL('../components/library/hall-client.tsx', import.meta.url), 'utf8');
+const placeholders = hallSrc.match(/https:\/\/www\.d20pfsrd\.com\/[^'"\s]+/g) ?? [];
+assert.ok(placeholders.length >= 5, 'placeholder URLs found');
+for (const u of placeholders) assert.ok(D.d20pfsrdKindForUrl(u), `placeholder accepted: ${u}`);
+ok('hall-client placeholder URLs accepted by d20pfsrdKindForUrl');
+
+const AON = await import('../lib/aon-catalog-parser.ts');
+const aonPlaceholders = hallSrc.match(/https:\/\/www\.aonprd\.com\/[^'"\s]+/g) ?? [];
+assert.ok(aonPlaceholders.length >= 1, 'AoN placeholder URL found');
+for (const u of aonPlaceholders) assert.ok(AON.catalogKindForUrl(u), `AoN placeholder accepted: ${u}`);
+ok('hall-client AoN placeholder URLs accepted by catalogKindForUrl');
 
 console.log(`\n${count} d20pfsrd checks passed`);

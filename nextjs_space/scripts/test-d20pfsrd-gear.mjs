@@ -365,7 +365,7 @@ ok('messages.ts shared by parser and gear.ts; no cycle');
 // ---- Rejections ----
 assert.throws(() => G.parseD20pfsrdGearPage(fx('hunting-camping-survival-gear.html'), U.multi), /lists .* items/, 'multi-item without fragment');
 assert.throws(() => G.parseD20pfsrdGearPage(fx('hunting-camping-survival-gear.html'), U.bedroll.replace('#bedroll', '#nope')), /No item/, 'bad fragment');
-assert.throws(() => D.parseD20pfsrdPage(fx('3pp-goods-and-services.html'), 'https://www.d20pfsrd.com/equipment/3rd-party-equipment/3rd-party-goods-and-services/'), /only\. Open a single/, '3pp index rejected');
+assert.throws(() => D.parseD20pfsrdPage(fx('3pp-goods-and-services.html'), 'https://www.d20pfsrd.com/equipment/3rd-party-equipment/3rd-party-goods-and-services/'), (e) => e.message.startsWith(D.D20PFSRD_UNSUPPORTED) && e.message.endsWith(D.HINT), '3pp index rejected');
 // Sidebar widget h4s ("Discuss!") are not items: the count is the real item count.
 assert.throws(() => G.parseD20pfsrdGearPage(fx('hunting-camping-survival-gear.html'), U.multi), /lists 77 items/);
 ok('rejections');

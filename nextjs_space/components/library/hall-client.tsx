@@ -98,7 +98,7 @@ export function HallClient({ hall, userName }: { hall: HallId; userName: string 
       </div>
       <Pages page={page} pages={pages} onPage={setPage} />
       <div aria-live="polite">{search.loading ? <p className="text-muted-foreground">Searching…</p> : search.error ? <p role="alert">{search.error}</p> : <p className="text-sm text-muted-foreground">{search.total} {search.total === 1 ? 'entry' : 'entries'}{pages > 1 ? ` — page ${page} of ${pages}` : ''}</p>}</div>
-      {!search.loading && !search.error && search.results.length === 0 && <p>Nothing here yet. Import one from an Archives of Nethys link, or add it by hand.</p>}
+      {!search.loading && !search.error && search.results.length === 0 && <p>Nothing here yet. Import one from an Archives of Nethys or d20pfsrd link, or add it by hand.</p>}
       <ul className="space-y-2">{search.results.map((entry) => <li key={entry.id}><button type="button" onClick={() => { setDetail(null); setSelected(entry); }} className="w-full rounded-lg border bg-card p-4 text-left hover:bg-accent">
         <h2 className="font-display font-semibold">{entry.name}</h2>
         {entry.summary && <p className="mt-1 text-sm text-muted-foreground">{entry.summary}</p>}
@@ -118,6 +118,15 @@ export function HallClient({ hall, userName }: { hall: HallId; userName: string 
     {importOpen && <ImportDialog filter={filter} onClose={() => setImportOpen(false)} onSaved={() => setImportOpen(false)} />}
   </div>;
 }
+
+const LINK_PLACEHOLDER: Record<string, string> = {
+  spell: 'https://www.d20pfsrd.com/magic/all-spells/f/fireball/',
+  feat: 'https://www.d20pfsrd.com/feats/combat-feats/power-attack-combat/',
+  weapon: 'https://www.d20pfsrd.com/equipment/weapons/weapon-descriptions/longsword/',
+  armor: 'https://www.d20pfsrd.com/equipment/armor/chain-shirt/',
+  gear: 'https://www.d20pfsrd.com/equipment/goods-and-services/hunting-camping-survival-gear/#bedroll',
+  ability: 'https://www.aonprd.com/UMR.aspx?ItemName=Grab',
+};
 
 const HAND_LABELS: Record<string, string> = { one: 'One-handed', two: 'Two-handed', off: 'Off-hand' };
 
@@ -247,14 +256,14 @@ export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: stri
     <DialogContent className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto">
       <DialogHeader>
         <DialogTitle>Add to the catalog</DialogTitle>
-        <DialogDescription>{filter.kind === 'spell' ? 'One d20pfsrd spell link, or a spell of your own.' : 'One Archives of Nethys or d20pfsrd (spells, feats, magic items) link, or a short entry of your own. This does not import a whole list.'}</DialogDescription>
+        <DialogDescription>{filter.kind === 'spell' ? 'One d20pfsrd spell link, or a spell of your own.' : 'One Archives of Nethys or d20pfsrd page link, or a short entry of your own. This does not import a whole list.'}</DialogDescription>
       </DialogHeader>
       <div className="flex gap-1">
         <button type="button" className={`rounded px-3 py-1 text-sm ${mode === 'link' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`} onClick={() => setMode('link')}>From a link</button>
         <button type="button" className={`rounded px-3 py-1 text-sm ${mode === 'hand' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`} onClick={() => setMode('hand')}>By hand</button>
       </div>
       {mode === 'link' ? <div className="space-y-3">
-        <div><Label htmlFor="import-url">Archives of Nethys or d20pfsrd link</Label><Input id="import-url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder={filter.kind === 'spell' ? 'https://www.d20pfsrd.com/magic/all-spells/f/fireball/' : 'https://www.aonprd.com/FeatDisplay.aspx?ItemName=Power%20Attack'} /></div>
+        <div><Label htmlFor="import-url">Archives of Nethys or d20pfsrd link</Label><Input id="import-url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder={LINK_PLACEHOLDER[filter.kind] ?? LINK_PLACEHOLDER.feat} /></div>
         <Button type="button" disabled={busy || !url.trim()} onClick={() => void loadLink()}>{busy ? 'Reading…' : 'Read link'}</Button>
         {drafts.length > 1 ? <div className="space-y-2">
           {drafts.map((d) => <div key={String(d.name)} className="rounded-md border p-3 text-sm">

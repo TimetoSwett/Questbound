@@ -2,7 +2,7 @@ export const HALLS = {
   armory: {
     title: 'Armory',
     path: '/armory',
-    blurb: 'Weapons and armor. Nothing is imported in bulk — bring in one piece with an Archives of Nethys link, or write it in by hand.',
+    blurb: 'Weapons and armor. Nothing is imported in bulk — bring in one piece with an Archives of Nethys or d20pfsrd link, or write it in by hand.',
     filters: [
       { id: 'weapon', label: 'Weapons', kind: 'weapon' },
       { id: 'armor', label: 'Armor', kind: 'armor', slot: 'armor' },
@@ -12,13 +12,13 @@ export const HALLS = {
   shop: {
     title: 'Shop',
     path: '/shop',
-    blurb: 'Adventuring gear and wondrous items. Add an item from a link, or write your own.',
+    blurb: 'Adventuring gear and wondrous items. Add an item from an Archives of Nethys or d20pfsrd link, or write your own.',
     filters: [{ id: 'gear', label: 'Gear', kind: 'gear' }],
   },
   training: {
     title: 'Training Grounds',
     path: '/training',
-    blurb: 'Feats and special abilities. Import one from a link, or write your own.',
+    blurb: 'Feats and special abilities. Import one from an Archives of Nethys or d20pfsrd link, or write your own.',
     filters: [
       { id: 'feat', label: 'Feats', kind: 'feat' },
       { id: 'ability', label: 'Special abilities', kind: 'ability' },

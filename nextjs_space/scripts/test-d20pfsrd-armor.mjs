@@ -103,7 +103,7 @@ assert.deepEqual(fetches, []); assert.deepEqual(ip, []);
 ok('stat block page fetches nothing');
 
 // no stats anywhere
-assert.throws(() => armor('armor-shield-tower.html', 'https://www.d20pfsrd.com/equipment/armor/not-real/', [fx('armor-index.html'), fx('armor-3pp-index.html')]), /d20pfsrd import currently supports/);
+assert.throws(() => armor('armor-shield-tower.html', 'https://www.d20pfsrd.com/equipment/armor/not-real/', [fx('armor-index.html'), fx('armor-3pp-index.html')]), (e) => e.message.startsWith(D.D20PFSRD_UNSUPPORTED));
 ok('no matching row throws unsupported');
 
 // Extras rows (armor spikes, shield boss, locked gauntlet) are add-ons, not armor: rejected even though the core index links them.
@@ -131,7 +131,7 @@ for (const u of [
   'https://www.d20pfsrd.com/magic-items/magic-armor/specific-magic-armor/mithral-shirt/',
 ]) {
   assert.equal(D.d20pfsrdKindForUrl(u), null, u);
-  assert.throws(() => D.parseD20pfsrdPage(fx('armor-leather.html'), u), /d20pfsrd import currently supports/, u);
+  assert.throws(() => D.parseD20pfsrdPage(fx('armor-leather.html'), u), (e) => e.message.startsWith(D.D20PFSRD_UNSUPPORTED), u);
 }
 ok('armor url routing (index, modifications, magic armor rejected)');
 

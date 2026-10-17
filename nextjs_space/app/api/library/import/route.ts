@@ -1,14 +1,14 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { parseAonCatalogPage } from '@/lib/aon-catalog-parser';
-import { D20PFSRD_UNSUPPORTED, d20pfsrdKindForUrl, isD20pfsrdUrl, parseD20pfsrdDrafts } from '@/lib/d20pfsrd-parser';
+import { D20PFSRD_UNSUPPORTED, HINT, d20pfsrdKindForUrl, isD20pfsrdUrl, parseD20pfsrdDrafts } from '@/lib/d20pfsrd-parser';
 import { d20pfsrdArmorIndexPages } from '@/lib/d20pfsrd/armor';
 import { parseCreateInput } from '@/lib/library';
 import { readBoundedJson, requireActor } from '@/lib/library-api';
 import { importRateLimited } from '@/lib/statblock-rate-limit';
 import { fetchStatblockHtml } from '@/lib/statblock-fetch';
 
-// POST /api/library/import { url } — one Archives of Nethys or d20pfsrd (spells, feats, magic items) page, returned as a draft. Nothing is saved.
+// POST /api/library/import { url } — one Archives of Nethys or d20pfsrd (spell, feat, magic item, weapon, armor or gear) page, returned as a draft. Nothing is saved.
 export async function POST(request: Request) {
   const a = await requireActor();
   if ('res' in a) return a.res;
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   if (typeof url !== 'string' || !url.trim() || url.length > 2048) return NextResponse.json({ error: 'Provide one HTTPS Archives of Nethys or d20pfsrd link.' }, { status: 400 });
   const link = url.trim();
   const d20 = isD20pfsrdUrl(link);
-  if (d20 && !d20pfsrdKindForUrl(link)) return NextResponse.json({ error: `${D20PFSRD_UNSUPPORTED} Open a single spell, feat, or magic item page.` }, { status: 400 });
+  if (d20 && !d20pfsrdKindForUrl(link)) return NextResponse.json({ error: `${D20PFSRD_UNSUPPORTED}${HINT}` }, { status: 400 });
   try {
     const source = await fetchStatblockHtml(link);
     const indexPages = d20 ? await d20pfsrdArmorIndexPages(link, source.html, (u) => fetchStatblockHtml(u)) : [];
