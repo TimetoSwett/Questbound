@@ -29,11 +29,19 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const { campaignId, fromNodeId, toNodeId, label } = await request.json();
+  const { campaignId, fromNodeId, toNodeId, label } = await request.json().catch(() => ({}));
+  if (typeof campaignId !== 'string' || !campaignId) return NextResponse.json({ error: 'campaignId required' }, { status: 400 });
   const role = await getUserRole(session.user.id, campaignId);
   if (role !== 'dm') return NextResponse.json({ error: 'Only DM' }, { status: 403 });
+  // Both ends must be distinct nodes of this campaign; GET includes the full
+  // node rows, so a foreign node id would leak another campaign's data.
+  if (typeof fromNodeId !== 'string' || typeof toNodeId !== 'string' || fromNodeId === toNodeId) {
+    return NextResponse.json({ error: 'Two different nodes required' }, { status: 400 });
+  }
+  const nodeCount = await prisma.regionNode.count({ where: { campaignId, id: { in: [fromNodeId, toNodeId] } } });
+  if (nodeCount !== 2) return NextResponse.json({ error: 'Nodes must belong to this campaign' }, { status: 400 });
   const edge = await prisma.regionEdge.create({
-    data: { campaignId, fromNodeId, toNodeId, label: label || '' },
+    data: { campaignId, fromNodeId, toNodeId, label: typeof label === 'string' ? label : '' },
   });
   return NextResponse.json(edge);
 }

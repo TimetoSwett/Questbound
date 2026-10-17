@@ -3,8 +3,11 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
+import { pickFields } from '@/lib/pick-fields';
 
 const WIKI_SELECT = { id: true, title: true, visibility: true } as const;
+// Fields a DM may change on an existing pin; id and campaignId stay fixed.
+const PIN_FIELDS = { x: 'number', y: 'number', label: 'string', description: 'string', category: 'string', visibility: 'visibility' } as const;
 
 // Resolve an optional wikiPageId to a validated page id, or null.
 // Returns { ok: false } when a non-empty id is invalid for this campaign.
@@ -65,14 +68,16 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const { id, wikiPageId, ...data } = await request.json();
+  const body = await request.json().catch(() => ({}));
+  const { id, wikiPageId } = body;
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
   const pin = await prisma.worldMapPin.findUnique({ where: { id } });
   if (!pin) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   const role = await getUserRole(session.user.id, pin.campaignId);
   if (role !== 'dm') return NextResponse.json({ error: 'Only DM' }, { status: 403 });
 
-  const updateData: Record<string, any> = { ...data };
+  const updateData: Record<string, unknown> | null = pickFields(body, PIN_FIELDS);
+  if (!updateData) return NextResponse.json({ error: 'Invalid fields' }, { status: 400 });
   if (wikiPageId !== undefined) {
     const link = await resolveWikiPageId(wikiPageId, pin.campaignId);
     if (!link.ok) return NextResponse.json({ error: 'Invalid wiki page' }, { status: 400 });

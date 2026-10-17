@@ -27,7 +27,8 @@
     "test:pathofwar": "node scripts/test-pathofwar.mjs",
     "test:battle-visibility": "tsx scripts/test-battle-visibility.mjs",
     "test:fog": "node scripts/test-fog.mjs",
-    "test:dice-paging": "tsx scripts/test-dice-paging.mjs"
+    "test:dice-paging": "tsx scripts/test-dice-paging.mjs",
+    "test:pick-fields": "tsx scripts/test-pick-fields.mjs"
   },
   "prisma": {
     "seed": "tsx --require dotenv/config scripts/safe-seed.ts"

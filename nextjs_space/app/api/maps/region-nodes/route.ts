@@ -3,6 +3,10 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
+import { pickFields } from '@/lib/pick-fields';
+
+// Fields a DM may change on an existing node; id and campaignId stay fixed.
+const NODE_FIELDS = { name: 'string', description: 'string', nodeType: 'string', x: 'number', y: 'number', visibility: 'visibility' } as const;
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -32,12 +36,15 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const { id, ...data } = await request.json();
+  const body = await request.json().catch(() => ({}));
+  const { id } = body;
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
   const node = await prisma.regionNode.findUnique({ where: { id } });
   if (!node) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   const role = await getUserRole(session.user.id, node.campaignId);
   if (role !== 'dm') return NextResponse.json({ error: 'Only DM' }, { status: 403 });
+  const data = pickFields(body, NODE_FIELDS);
+  if (!data) return NextResponse.json({ error: 'Invalid fields' }, { status: 400 });
   const updated = await prisma.regionNode.update({ where: { id }, data });
   return NextResponse.json(updated);
 }
