@@ -370,4 +370,51 @@ assert.throws(() => D.parseD20pfsrdPage(fx('3pp-goods-and-services.html'), 'http
 assert.throws(() => G.parseD20pfsrdGearPage(fx('hunting-camping-survival-gear.html'), U.multi), /lists 77 items/);
 ok('rejections');
 
+// ---- Size tables: Chest yields one draft per size row ----
+{
+  const url = 'https://www.d20pfsrd.com/equipment/goods-and-services/containers-bags-boxes-more/#TOC-Chest';
+  const drafts = G.parseD20pfsrdGearDrafts(fx('chest.html'), url);
+  assert.ok(drafts.length >= 4, `expected multiple size drafts, got ${drafts.length}`);
+  for (const d of drafts) check(d);
+  const byName = new Map(drafts.map((d) => [d.name.toLowerCase(), d]));
+  assert.ok(byName.has('chest (small)'), 'Chest (small)');
+  assert.ok(byName.has('chest (medium)'), 'Chest (medium)');
+  assert.ok(byName.has('chest (large)'), 'Chest (large)');
+  const small = byName.get('chest (small)');
+  assert.equal(small.data.cost, '2 gp');
+  assert.equal(small.data.weight, 25);
+  const large = byName.get('chest (large)');
+  assert.equal(large.data.cost, '10 gp');
+  assert.equal(large.data.weight, 100);
+  ok('Chest size table: one draft per size row');
+}
+{
+  // Fragment naming a specific size returns just that row
+  const url = 'https://www.d20pfsrd.com/equipment/goods-and-services/containers-bags-boxes-more/#chest-small';
+  const drafts = G.parseD20pfsrdGearDrafts(fx('chest.html'), url);
+  assert.equal(drafts.length, 1);
+  check(drafts[0]);
+  assert.equal(drafts[0].name.toLowerCase(), 'chest (small)');
+  assert.equal(drafts[0].data.cost, '2 gp');
+  ok('Chest #chest-small: single size row');
+}
+
+// ---- Orphan rows: table #link with no matching heading ----
+{
+  // Synthetic: row links to #toc-nonexistent, no heading matches; imports from row alone
+  const page = `<html><body><div id="article-content">
+    <table><tr><th>Item</th><th>Price</th><th>Weight</th></tr>
+    <tr><td><a href="#toc-orphan-widget">Orphan Widget</a></td><td>9 gp</td><td>4 lb.</td></tr></table>
+    <h4><span id="other">Other Item</span></h4><p><b>Price</b> 1 gp</p><p>Other desc.</p>
+  </div></body></html>`;
+  const url = 'https://www.d20pfsrd.com/equipment/goods-and-services/tools-kits/#toc-orphan-widget';
+  const drafts = G.parseD20pfsrdGearDrafts(page, url);
+  assert.equal(drafts.length, 1);
+  check(drafts[0]);
+  assert.equal(drafts[0].name, 'Orphan Widget');
+  assert.equal(drafts[0].data.cost, '9 gp');
+  assert.equal(drafts[0].data.weight, 4);
+  ok('orphan row: imports from table row alone');
+}
+
 console.log(`\n${count} d20pfsrd gear checks passed`);
