@@ -2,7 +2,7 @@
 // Client access to the library term endpoints (/api/library/terms, /[id]).
 import type { TermRow } from '@/lib/library-term-match';
 
-export type FullEntry = { id: string; name: string; kind: string; summary?: string | null; sourceUrl?: string | null; data?: unknown };
+export type FullEntry = { id: string; name: string; kind: string; summary?: string | null; sourceUrl?: string | null; data?: unknown; spellLevels?: { cls: string; level: number }[] };
 
 // Term list: in-memory cache plus sessionStorage, revalidated with If-None-Match.
 type TermCache = { etag: string | null; terms: TermRow[] };
@@ -156,9 +156,13 @@ export function fetchLibraryEntry(id: string): Promise<FullEntry | null> {
   return p;
 }
 
-/** Plain text of a rule entry's data, or null. */
+/** Plain text of a rule or spell entry, or null. */
 export function entryText(entry: FullEntry | null): string | null {
   const data = entry?.data;
-  if (data && typeof data === 'object' && typeof (data as { text?: unknown }).text === 'string') return (data as { text: string }).text;
+  if (data && typeof data === 'object') {
+    const { text, description } = data as { text?: unknown; description?: unknown };
+    if (typeof text === 'string') return text;
+    if (typeof description === 'string') return description;
+  }
   return null;
 }

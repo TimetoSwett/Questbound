@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   return NextResponse.json({ results: results.map((r) => presentEntry(r, a.actor, { includeData: false })), total, page: parsed.data.page, limit: parsed.data.limit });
 }
 
-// POST /api/library — any logged-in user creates a source="user" spell; rules are admin-only.
+// POST /api/library — any logged-in user creates a source="user" entry; rules are admin-only.
 export async function POST(request: Request) {
   const a = await requireActor();
   if ('res' in a) return a.res;

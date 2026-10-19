@@ -52,60 +52,91 @@ export function collectFileKeys(state: Record<string, any>): Set<string> {
 
 /**
  * Player view of tokens linked to bestiary creatures (token.creatureId).
- * Applies the same reveal rules as the Bestiary via presentCreature:
- *  - creature hidden, deleted, from another campaign, or unknown level: the
- *    token is removed entirely (like a hidden token);
+ * Applies the same reveal rules as the Bestiary via presentCreature, using
+ * the viewing player's own unlocks (userId):
+ *  - creature at reveal level "hidden": the token stays on the board but is
+ *    anonymized: label "???", no portrait, HP, conditions or creatureId
+ *    (no bestiary link), and its turn entries are relabelled "???";
+ *  - creature deleted or from another campaign: the token is removed;
  *  - name locked: label replaced by the runic card name, portrait removed;
  *  - defense locked: hp/maxHp removed (maxHp is the creature's hpMax).
- * Turn-order entries that belong to a removed token are dropped and entries
- * for relabelled tokens get the runic label, so names can't leak there.
+ * Tokens flagged hidden or on fog were already dropped by sanitizeForPlayer
+ * and their turn entries are dropped here.
  * Call on an already-sanitized player state.
  */
 export async function filterLinkedTokensForPlayer(
   state: Record<string, any>,
   campaignId: string,
+  userId: string,
   fullTokens: any[] = Array.isArray(state.tokens) ? state.tokens : [],
 ): Promise<Record<string, any>> {
-  const { prisma } = await import('@/lib/prisma');
-  const { presentCreature } = await import('@/lib/creatures');
   const tokens: any[] = Array.isArray(state.tokens) ? state.tokens : [];
   const all: any[] = Array.isArray(fullTokens) ? fullTokens : tokens;
   const linkedIds = [...new Set(all.map((t) => t?.creatureId).filter((id) => typeof id === 'string' && id))] as string[];
+  const cards = new Map<string, Record<string, any> | null>();
+  if (linkedIds.length > 0) {
+    const { prisma } = await import('@/lib/prisma');
+    const { presentCreaturesFor } = await import('@/lib/creature-reveals');
+    const creatures = await prisma.creature.findMany({ where: { id: { in: linkedIds }, campaignId } });
+    const presented = await presentCreaturesFor(creatures.map((c) => ({ ...c, wikiPage: null })), 'player', userId);
+    creatures.forEach((c, i) => cards.set(c.id, presented[i]));
+  }
+  return applyCreatureCardsForPlayer(state, cards, all);
+}
+
+export const HIDDEN_CREATURE_LABEL = '???';
+
+/**
+ * Pure part of filterLinkedTokensForPlayer. `cards` maps creatureId to the
+ * player card from presentCreature (null = creature exists but is hidden);
+ * a creatureId missing from the map means the creature doesn't exist here.
+ */
+export function applyCreatureCardsForPlayer(
+  state: Record<string, any>,
+  cards: Map<string, Record<string, any> | null>,
+  fullTokens: any[] = Array.isArray(state.tokens) ? state.tokens : [],
+): Record<string, any> {
+  const tokens: any[] = Array.isArray(state.tokens) ? state.tokens : [];
+  const all: any[] = Array.isArray(fullTokens) ? fullTokens : tokens;
   // Tokens not in the player's view (hidden/fogged) also hide their turn entries.
-  // sanitizeForPlayer already dropped hidden tokens except the player's own,
-  // so a player keeps the turn entry for their own hidden character.
   const visibleIds = new Set(tokens.map((t) => t?.id));
   const relabel = new Map<string, string>();
   const removed = new Set<string>(all.filter((t) => t?.id && !visibleIds.has(t.id)).map((t) => t.id));
+  const anon = new Set<string>();
   const out: Record<string, any> = { ...state };
 
-  if (linkedIds.length > 0) {
-    const creatures = await prisma.creature.findMany({ where: { id: { in: linkedIds }, campaignId } });
-    const cards = new Map<string, Record<string, any> | null>();
-    for (const c of creatures) cards.set(c.id, await presentCreature({ ...c, wikiPage: null } as any, 'player'));
-    const visible: any[] = [];
-    for (const t of tokens) {
-      const cid = t?.creatureId;
-      if (typeof cid !== 'string' || !cid) { visible.push(t); continue; }
-      const card = cards.get(cid);
-      if (!card) { removed.add(t.id); continue; }
-      const unlocked: string[] = Array.isArray(card.unlockedSections) ? card.unlockedSections : [];
-      const nt: any = { ...t };
-      if (!(card.revealLevel === 'full' || unlocked.includes('name'))) {
-        nt.label = typeof card.name === 'string' && card.name ? card.name : '???';
-        delete nt.portraitKey;
-        delete nt.characterName;
-        relabel.set(t.id, nt.label);
-      }
-      if (!(card.revealLevel === 'full' || unlocked.includes('defense'))) {
-        delete nt.hp;
-        delete nt.maxHp;
-      }
-      visible.push(nt);
+  const visible: any[] = [];
+  for (const t of tokens) {
+    const cid = t?.creatureId;
+    if (typeof cid !== 'string' || !cid) { visible.push(t); continue; }
+    if (!cards.has(cid)) { removed.add(t.id); continue; }
+    const card = cards.get(cid);
+    if (!card) {
+      // Hidden creature: show an anonymous token, nothing else.
+      visible.push({
+        id: t.id, x: t.x, y: t.y, size: t.size, color: t.color,
+        label: HIDDEN_CREATURE_LABEL,
+      });
+      relabel.set(t.id, HIDDEN_CREATURE_LABEL);
+      anon.add(t.id);
+      continue;
     }
-    out.tokens = visible;
-    for (const t of all) if (t?.creatureId && !cards.get(t.creatureId)) removed.add(t.id);
+    const unlocked: string[] = Array.isArray(card.unlockedSections) ? card.unlockedSections : [];
+    const nt: any = { ...t };
+    if (!(card.revealLevel === 'full' || unlocked.includes('name'))) {
+      nt.label = typeof card.name === 'string' && card.name ? card.name : HIDDEN_CREATURE_LABEL;
+      delete nt.portraitKey;
+      delete nt.characterName;
+      relabel.set(t.id, nt.label);
+    }
+    if (!(card.revealLevel === 'full' || unlocked.includes('defense'))) {
+      delete nt.hp;
+      delete nt.maxHp;
+    }
+    visible.push(nt);
   }
+  out.tokens = visible;
+  for (const t of all) if (t?.creatureId && !cards.has(t.creatureId)) removed.add(t.id);
 
   // Turn entries reference tokens by `tokenId` or by id `te_<ts>_<tokenId>`.
   const tokenOf = (e: any): string | undefined => {
@@ -116,7 +147,12 @@ export async function filterLinkedTokensForPlayer(
   if (Array.isArray(state.turnOrder)) {
     out.turnOrder = state.turnOrder
       .filter((e: any) => { const tid = tokenOf(e); return !(tid && removed.has(tid)); })
-      .map((e: any) => { const tid = tokenOf(e); return tid && relabel.has(tid) ? { ...e, label: relabel.get(tid) } : e; });
+      .map((e: any) => {
+        const tid = tokenOf(e);
+        if (!tid || !relabel.has(tid)) return e;
+        if (anon.has(tid)) return { id: e.id, tokenId: e.tokenId, initiative: e.initiative, label: HIDDEN_CREATURE_LABEL };
+        return { ...e, label: relabel.get(tid) };
+      });
     if (out.activeId && !out.turnOrder.some((e: any) => e?.id === out.activeId)) out.activeId = null;
   }
   return out;

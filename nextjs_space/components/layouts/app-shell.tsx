@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { PanelLeft } from 'lucide-react'
+import { BrightnessControl } from '@/components/brightness-control';
 import { Button } from '@/components/ui/button'
 
 export function AppShell({
@@ -53,6 +54,7 @@ export function AppShell({
             <PanelLeft className="h-5 w-5" />
           </Button>
           {header}
+          <BrightnessControl className="ml-auto" />
         </header>
 
         {/* Content */}

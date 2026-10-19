@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from 'sonner';
 import { DiceRoller } from './dice-roller';
 import { useCampaignTopic, type CampaignEvent } from '@/hooks/use-campaign-events';
+import { FOG_BRUSH_SIZES, allCells, applyFog, brushCells, fogModeAt, rectCells, type FogBrushSize, type FogMode } from '@/lib/fog-tools';
 
 interface Token { hidden?: boolean; id: string; label: string; color: string; x: number; y: number; size: number; characterId?: string; characterName?: string; portraitKey?: string; hp?: number; maxHp?: number; conditions?: string[]; creatureId?: string; }
 interface Highlight { id: string; x: number; y: number; w: number; h: number; color: string; label: string; }
@@ -168,6 +169,13 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
   const [state, setState] = useState<BattleState>(EMPTY_BATTLE);
   const [dragging, setDragging] = useState<string | null>(null);
   const [fogMode, setFogMode] = useState(false);
+  const [fogTool, setFogTool] = useState<'brush' | 'rect'>('brush');
+  const [fogBrush, setFogBrush] = useState<FogBrushSize>(1);
+  const [fogConfirm, setFogConfirm] = useState<FogMode | null>(null);
+  // In-progress fog gesture: base fog, paint mode, rect anchor, and the preview fog list.
+  const fogGestureRef = useRef<{ base: string[]; mode: FogMode; ax: number; ay: number } | null>(null);
+  const [fogPreview, setFogPreview] = useState<string[] | null>(null);
+  const [fogRect, setFogRect] = useState<{ ax: number; ay: number; bx: number; by: number } | null>(null);
   const [rulerMode, setRulerMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [pinDialog, setPinDialog] = useState<{ pin: BattlePin; mode: 'edit' | 'view'; isNew: boolean } | null>(null);
@@ -522,16 +530,43 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
     if (!isDM) return;
     if (rulerMode || drawTool) return;
     if (pinMode) { openPinEditor({ id: createBattleId('p'), x, y }, true); return; }
-    if (fogMode) {
-      const key = `${x},${y}`;
-      const fog = [...(state?.fog ?? [])];
-      const idx = fog.indexOf(key);
-      if (idx >= 0) fog.splice(idx, 1);
-      else fog.push(key);
-      const ns = { ...state, fog };
-      commitState(ns);
-      return;
-    }
+    // Fog edits (single square, brush, rectangle) are pointer gestures on the grid; see onFogDown.
+    if (fogMode) return;
+  };
+
+  // ---- Fog tools (DM-only): click or drag; the first cell decides cover vs reveal ----
+  const onFogDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDM || !fogMode || !state) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const { col, row } = cellFromPointer(e);
+    const base = state.fog ?? [];
+    const mode = fogModeAt(base, col, row);
+    fogGestureRef.current = { base, mode, ax: col, ay: row };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    if (fogTool === 'rect') { setFogRect({ ax: col, ay: row, bx: col, by: row }); setFogPreview(base); }
+    else setFogPreview(applyFog(base, brushCells(col, row, fogBrush, gw, gh), mode));
+  };
+  const onFogMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const g = fogGestureRef.current;
+    if (!g || !fogMode) return;
+    const { col, row } = cellFromPointer(e);
+    if (fogTool === 'rect') setFogRect((r) => (r && (r.bx !== col || r.by !== row) ? { ...r, bx: col, by: row } : r));
+    else setFogPreview((prev) => applyFog(prev ?? g.base, brushCells(col, row, fogBrush, gw, gh), g.mode));
+  };
+  const onFogUp = () => {
+    const g = fogGestureRef.current;
+    if (!g) return;
+    fogGestureRef.current = null;
+    let fog = fogPreview ?? g.base;
+    if (fogTool === 'rect' && fogRect) fog = applyFog(g.base, rectCells(fogRect.ax, fogRect.ay, fogRect.bx, fogRect.by, gw, gh), g.mode);
+    setFogPreview(null); setFogRect(null);
+    if (state && (fog.length !== g.base.length || fog.some((k, i) => k !== g.base[i]))) commitState({ ...state, fog });
+  };
+  const onFogCancel = () => { fogGestureRef.current = null; setFogPreview(null); setFogRect(null); };
+  const fogAll = (mode: FogMode) => {
+    if (!isDM || !state) return;
+    commitState({ ...state, fog: mode === 'cover' ? allCells(gw, gh) : [] });
+    setFogConfirm(null);
   };
 
   const toggleFog = () => {
@@ -1134,7 +1169,9 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
     commitState(ns);
   };
 
-  const isFogged = (x: number, y: number) => (state?.fog ?? []).includes(`${x},${y}`);
+  const fogShown = fogPreview ?? state?.fog ?? [];
+  const isFogged = (x: number, y: number) => fogShown.includes(`${x},${y}`);
+  const inFogRect = (x: number, y: number) => !!fogRect && x >= Math.min(fogRect.ax, fogRect.bx) && x <= Math.max(fogRect.ax, fogRect.bx) && y >= Math.min(fogRect.ay, fogRect.by) && y <= Math.max(fogRect.ay, fogRect.by);
 
   // Shared ruler overlay: red line + endpoint dots + distance pill.
   // Used by the free-measure ruler mode and by the live drag-ruler.
@@ -1291,8 +1328,30 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
           </Button>
           <Button variant={fogMode ? 'default' : 'secondary'} size="sm" onClick={toggleFog}>
             {fogMode ? <Eye className="w-4 h-4 mr-1" /> : <EyeOff className="w-4 h-4 mr-1" />}
-            {fogMode ? 'Fog: Click to toggle' : 'Toggle Fog'}
+            {fogMode ? 'Fog: on' : 'Toggle Fog'}
           </Button>
+          {fogMode && (
+            <div role="group" aria-label="Fog tools" className="flex flex-wrap items-center gap-1 rounded-md border border-border bg-card px-1.5 py-1">
+              <Button variant={fogTool === 'brush' ? 'default' : 'ghost'} size="sm" aria-pressed={fogTool === 'brush'} onClick={() => setFogTool('brush')} title="Click or drag to paint fog">Brush</Button>
+              <Button variant={fogTool === 'rect' ? 'default' : 'ghost'} size="sm" aria-pressed={fogTool === 'rect'} onClick={() => setFogTool('rect')} title="Drag a rectangle to fog or clear an area">Rectangle</Button>
+              {fogTool === 'brush' && <span className="flex items-center gap-0.5 text-xs text-muted-foreground" aria-label="Brush size">Size
+                {FOG_BRUSH_SIZES.map((n) => <Button key={n} variant={fogBrush === n ? 'default' : 'ghost'} size="sm" className="min-w-[2.25rem] px-2" aria-pressed={fogBrush === n} onClick={() => setFogBrush(n)}>{n}</Button>)}
+              </span>}
+              <Button variant="ghost" size="sm" onClick={() => setFogConfirm('cover')}>Fog all</Button>
+              <Button variant="ghost" size="sm" onClick={() => setFogConfirm('reveal')}>Clear all</Button>
+              <span className="text-[11px] text-muted-foreground px-1">Starting on fog clears; elsewhere covers.</span>
+            </div>
+          )}
+          <Dialog open={fogConfirm !== null} onOpenChange={(open) => { if (!open) setFogConfirm(null); }}>
+            <DialogContent>
+              <DialogHeader><DialogTitle>{fogConfirm === 'cover' ? 'Fog the whole map?' : 'Clear all fog?'}</DialogTitle></DialogHeader>
+              <p className="text-sm text-muted-foreground">{fogConfirm === 'cover' ? 'Every square will be hidden from players. You can undo this.' : 'Players will see the whole map, including tokens and pins under fog. You can undo this.'}</p>
+              <div className="flex justify-end gap-2 mt-2">
+                <Button variant="ghost" onClick={() => setFogConfirm(null)}>Cancel</Button>
+                <Button variant={fogConfirm === 'reveal' ? 'destructive' : 'default'} onClick={() => fogConfirm && fogAll(fogConfirm)}>{fogConfirm === 'cover' ? 'Fog all' : 'Clear all'}</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
           <Dialog open={settingsOpen} onOpenChange={(open) => { if (open && state) settingsBeforeRef.current = JSON.stringify(state); setSettingsOpen(open); }}>
             <DialogTrigger asChild><Button variant="secondary" size="sm"><Settings className="w-4 h-4 mr-1" /> Grid Size</Button></DialogTrigger>
             <DialogContent>
@@ -1403,7 +1462,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                   )}
                   <button onClick={() => setCondOpenId(condOpenId === t.id ? null : t.id)} className="text-muted-foreground hover:text-foreground" title="Conditions"><Tag className="w-3 h-3" /></button>
                   {(t.conditions ?? []).map((c) => (
-                    <button key={c} onClick={() => toggleTokenCondition(t.id, c)} title={`Remove ${c}`} className="rounded bg-amber-500/20 px-1 text-[10px] leading-4 text-amber-200 hover:bg-amber-500/40">{COND_SHORT[c] ?? c.slice(0, 4)}</button>
+                    <button key={c} onClick={() => toggleTokenCondition(t.id, c)} title={`Remove ${c}`} className="rounded bg-warning/20 px-1 text-[10px] leading-4 text-warning hover:bg-warning/40">{COND_SHORT[c] ?? c.slice(0, 4)}</button>
                   ))}
                   {condOpenId === t.id && (
                     <>
@@ -1429,7 +1488,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                   {t.creatureId && (
                     <button onClick={() => void openLinkedCreature(t)} className="text-muted-foreground hover:text-foreground" title="Open linked creature"><BookOpen className="w-3 h-3" /></button>
                   )}
-                  <button onClick={() => removeToken(t.id)} className="text-destructive hover:text-red-400"><Trash2 className="w-3 h-3" /></button>
+                  <button onClick={() => removeToken(t.id)} className="rounded text-destructive hover:text-destructive/80 hover:bg-destructive/15 transition-colors"><Trash2 className="w-3 h-3" /></button>
                 </div>
               ))}
             </div>
@@ -1540,7 +1599,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                       <span className="text-muted-foreground whitespace-nowrap">{enc.tokens.length} token{enc.tokens.length === 1 ? '' : 's'}</span>
                       <span className="ml-auto flex items-center gap-1">
                         <Button size="sm" variant="secondary" onClick={() => spawnEncounter(enc.id)}>Spawn</Button>
-                        <button onClick={() => deleteEncounter(enc.id)} className="text-destructive hover:text-red-400 p-1" title="Delete encounter">
+                        <button onClick={() => deleteEncounter(enc.id)} className="rounded text-destructive hover:text-destructive/80 hover:bg-destructive/15 transition-colors p-1" title="Delete encounter">
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </span>
@@ -1595,7 +1654,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                         >
                           {confirmRestore === snap.id ? 'Confirm restore' : 'Restore'}
                         </Button>
-                        <button onClick={() => deleteSnapshot(snap.id)} className="text-destructive hover:text-red-400 p-1" title="Delete snapshot">
+                        <button onClick={() => deleteSnapshot(snap.id)} className="rounded text-destructive hover:text-destructive/80 hover:bg-destructive/15 transition-colors p-1" title="Delete snapshot">
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </span>
@@ -1619,7 +1678,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
               gap: '1px',
               padding: '4px',
               backgroundColor: 'hsl(33 26% 52%)',
-              ...((rulerMode || drawTool === 'pen' || drawTool === 'eraser') ? { touchAction: 'none' } : {}),
+              ...((rulerMode || drawTool === 'pen' || drawTool === 'eraser' || (isDM && fogMode)) ? { touchAction: 'none' } : {}),
               ...(state?.backgroundImage ? {
                 backgroundImage: `url(/api/files/${state.backgroundImage})`,
                 backgroundSize: `${gw * cellSize + (gw - 1)}px ${gh * cellSize + (gh - 1)}px`,
@@ -1627,10 +1686,10 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                 backgroundRepeat: 'no-repeat',
               } : {}),
             }}
-              onPointerDown={(e) => { onRulerDown(e); onDrawDown(e); }}
-              onPointerMove={(e) => { onRulerMove(e); onDrawMove(e); }}
-              onPointerUp={() => { onRulerUp(); onDrawUp(); }}
-              onPointerCancel={() => { onRulerUp(); onDrawCancel(); }}>
+              onPointerDown={(e) => { onRulerDown(e); onDrawDown(e); onFogDown(e); }}
+              onPointerMove={(e) => { onRulerMove(e); onDrawMove(e); onFogMove(e); }}
+              onPointerUp={() => { onRulerUp(); onDrawUp(); onFogUp(); }}
+              onPointerCancel={() => { onRulerUp(); onDrawCancel(); onFogCancel(); }}>
               {Array.from({ length: gh }, (_, row) =>
                 Array.from({ length: gw }, (_, col) => {
                   const fogged = isFogged(col, row);
@@ -1656,7 +1715,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                             : hasBg
                               ? 'bg-transparent hover:bg-white/10'
                               : 'bg-card hover:bg-muted/50'
-                      }`}
+                      }${isDM && fogMode && inFogRect(col, row) ? ' ring-2 ring-inset ring-primary' : ''}`}
                       style={{
                         width: cellSize,
                         height: cellSize,
@@ -1676,7 +1735,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                           className="absolute z-[6] p-1 cursor-pointer"
                           style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}
                         >
-                          <MapPin className="w-4 h-4 text-amber-300" fill="currentColor" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.8))' }} />
+                          <MapPin className="w-4 h-4 text-warning" fill="currentColor" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.8))' }} />
                         </button>
                       ))}
                       {!showFog && tokensHere.map((t: Token) => {
@@ -1801,7 +1860,7 @@ export function BattleMapView({ campaignId, isDM, onOpenWikiPage }: { campaignId
                         <span className="font-mono w-8 text-center">{e.initiative}</span>
                         <span className="flex-1 truncate" title={e.label}>{e.label}</span>
                         {e.id === state?.activeId && <span className="text-[10px] uppercase tracking-wide text-primary">active</span>}
-                        <button onClick={() => removeEntry(e.id)} className="text-destructive hover:text-red-400" title="Remove"><Trash2 className="w-3 h-3" /></button>
+                        <button onClick={() => removeEntry(e.id)} className="rounded text-destructive hover:text-destructive/80 hover:bg-destructive/15 transition-colors" title="Remove"><Trash2 className="w-3 h-3" /></button>
                       </div>
                     ))}
                     {!sortedTurns.length && <p className="text-xs text-muted-foreground">No entries yet — add combatants above.</p>}

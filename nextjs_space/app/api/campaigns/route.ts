@@ -2,7 +2,8 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
-import { generateInviteCode } from '@/lib/campaign-helpers';
+import { detachCampaignCharacters, generateInviteCode } from '@/lib/campaign-helpers';
+import { publish } from '@/lib/realtime';
 
 export async function GET() {
   const session = await auth();
@@ -81,12 +82,18 @@ export async function PATCH(request: Request) {
   }
 
   if (removeUserId) {
-    await prisma.campaignMembership.deleteMany({
-      where: { campaignId, userId: removeUserId },
+    if (typeof removeUserId !== 'string') return NextResponse.json({ error: 'Invalid removeUserId' }, { status: 400 });
+    if (removeUserId === campaign.dmUserId) {
+      return NextResponse.json({ error: 'The DM cannot be removed from their own campaign' }, { status: 400 });
+    }
+    // Removed players keep their characters: they go back to the player's vault.
+    await prisma.$transaction(async (tx) => {
+      await detachCampaignCharacters(tx, campaignId, removeUserId);
+      await tx.campaignMembership.deleteMany({ where: { campaignId, userId: removeUserId } });
     });
-    await prisma.character.deleteMany({
-      where: { campaignId, userId: removeUserId },
-    });
+    publish(campaignId, 'characters');
+    publish(campaignId, 'battle');
+    publish(campaignId, 'loot');
   }
 
   const updated = await prisma.campaign.update({ where: { id: campaignId }, data: updates });

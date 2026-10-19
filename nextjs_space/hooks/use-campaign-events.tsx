@@ -7,7 +7,7 @@ import { createContext, createElement, useCallback, useContext, useEffect, useMe
 // per-viewer-filtered REST routes. Polling stays on as a fallback and slows
 // down while the stream is healthy.
 
-export type CampaignTopic = 'battle' | 'rolls' | 'characters' | 'loot' | 'resync';
+export type CampaignTopic = 'battle' | 'rolls' | 'characters' | 'loot' | 'bestiary' | 'resync';
 export type CampaignEvent = { topic: CampaignTopic; version?: number };
 type Listener = (evt: CampaignEvent) => void;
 
@@ -17,6 +17,11 @@ export const SLOW_POLL_MS = 30000;
 export type CampaignStreamPause = null | 'session-expired' | 'not-a-member';
 type Ctx = { healthy: boolean; paused: CampaignStreamPause; subscribe: (fn: Listener) => () => void };
 const CampaignEventsContext = createContext<Ctx | null>(null);
+
+/** True inside CampaignEventsProvider. Dashboard sheets are outside it and should not poll. */
+export function useCampaignEventsAvailable(): boolean {
+  return useContext(CampaignEventsContext) != null;
+}
 
 export function CampaignEventsProvider({ campaignId, children }: { campaignId: string; children: ReactNode }) {
   const [healthy, setHealthy] = useState(false);

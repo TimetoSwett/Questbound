@@ -1,6 +1,6 @@
 import { auth } from '@/auth';
 import { getUserRole } from '@/lib/campaign-helpers';
-import { subscribe, type RealtimeEvent } from '@/lib/realtime';
+import { shouldDeliver, subscribe, type RealtimeEvent } from '@/lib/realtime';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,7 +12,8 @@ type Context = { params: Promise<{ id: string }> };
 // GET /api/campaigns/:id/events — Server-Sent Events stream of invalidations
 // for one campaign. Payload is only {topic, version?}; clients refetch through
 // the filtered REST routes, so nothing hidden ever travels on this stream.
-// gmOnly events (e.g. secret rolls) go to DM connections only.
+// gmOnly events (e.g. secret rolls) go to DM connections only; events with
+// userIds (one player's Bestiary unlocks) go to those players and the DM.
 export async function GET(request: Request, context: Context) {
   const { id: campaignId } = await context.params;
   const session = await auth();
@@ -43,7 +44,7 @@ export async function GET(request: Request, context: Context) {
       const onAbort = () => close();
 
       const unsub = subscribe(campaignId, (evt: RealtimeEvent) => {
-        if (evt.gmOnly && role !== 'dm') return;
+        if (!shouldDeliver(evt, userId, role ?? '')) return;
         const data: { topic: string; version?: number } = { topic: evt.topic };
         if (evt.version !== undefined) data.version = evt.version;
         send(`event: update\ndata: ${JSON.stringify(data)}\n\n`);

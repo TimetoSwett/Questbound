@@ -1,11 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Dices, EyeOff, ChevronUp } from 'lucide-react';
+import { Dices, EyeOff, ChevronUp, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { useCampaignTopic } from '@/hooks/use-campaign-events';
+import { encodeRollCursor } from '@/lib/dice-roll-cursor';
 
 interface Roll {
   id: string;
@@ -34,7 +35,7 @@ function fmtResults(results: unknown): string {
   return Array.isArray(results) ? results.map(String).join(', ') : '';
 }
 
-export function RollLog({ campaignId, role }: { campaignId: string; role: string }) {
+export function RollLog({ campaignId, role, onClose }: { campaignId: string; role: string; onClose?: () => void }) {
   const isDM = role === 'dm';
   const [rolls, setRolls] = useState<Roll[]>([]);
   const [hasMore, setHasMore] = useState(true);
@@ -107,13 +108,17 @@ export function RollLog({ campaignId, role }: { campaignId: string; role: string
     setLoadingMore(true);
     try {
       const res = await fetch(
-        `/api/dice-rolls?campaignId=${campaignId}&limit=50${cursorParams('before', rolls[0])}`,
+        `/api/dice-rolls?campaignId=${campaignId}&limit=50&cursor=${encodeURIComponent(encodeRollCursor(rolls[0]))}`,
       );
       if (!res.ok) return;
       const data: Roll[] = await res.json();
       const el = scrollRef.current;
       const prevHeight = el?.scrollHeight ?? 0;
-      setRolls((prev) => [...data, ...prev]);
+      setRolls((prev) => {
+        const ids = new Set(prev.map((r) => r.id));
+        const older = data.filter((r) => !ids.has(r.id));
+        return older.length ? [...older, ...prev] : prev;
+      });
       setHasMore(data.length === 50);
       requestAnimationFrame(() => {
         if (el) el.scrollTop = el.scrollHeight - prevHeight;
@@ -147,6 +152,7 @@ export function RollLog({ campaignId, role }: { campaignId: string; role: string
       <div className="px-4 py-2.5 border-b border-border flex items-center gap-2">
         <Dices className="w-4 h-4 text-primary" />
         <h2 className="font-display text-sm font-bold uppercase tracking-widest">Roll Log</h2>
+        {onClose && <Button type="button" variant="ghost" size="sm" className="ml-auto" aria-label="Close roll log" onClick={onClose}><X className="h-4 w-4" /></Button>}
       </div>
 
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-2">

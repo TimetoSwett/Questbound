@@ -21,6 +21,40 @@ const deq = (a, b, m) => assert.deepEqual(JSON.parse(JSON.stringify(a)), JSON.pa
 const lib = load('lib/library.ts');
 const { escapeLike, normalizeNameKey, sanitizeSummary, summaryFromDescription, parseCreateInput, parsePatchInput, canEditEntry, canDeleteEntry, canCreateEntry, presentEntry, orderSearchResults, searchQuerySchema } = lib;
 
+// Ability form conversion and legacy data compatibility.
+const { buildAbilityData, emptyAbilityForm } = load('lib/library-ability-form.ts', { './library': lib });
+const builtAbility = buildAbilityData(emptyAbilityForm({ tag: 'su', uses: ' 3/day ', description: ' d ' }));
+assert.equal(builtAbility.ok, true);
+deq(builtAbility.data, { tag: 'su', uses: '3/day', description: 'd' });
+const blankAbility = buildAbilityData(emptyAbilityForm({ tag: ' ', uses: ' ' }));
+assert.equal(blankAbility.ok, true);
+assert.equal('tag' in blankAbility.data, false);
+assert.equal('uses' in blankAbility.data, false);
+assert.equal(buildAbilityData(emptyAbilityForm({ tag: 'xx' })).ok, false);
+const longUses = buildAbilityData(emptyAbilityForm({ uses: 'x'.repeat(61) }));
+assert.equal(longUses.ok, false);
+assert.equal(longUses.error, 'Uses must be at most 60 characters.');
+assert.equal(parseCreateInput({ kind: 'ability', name: 'X', data: { tag: 'sp', uses: 'at will', description: 'd' } }).ok, true);
+assert.equal(parseCreateInput({ kind: 'ability', name: 'X', data: { description: 'd' } }).ok, true);
+assert.equal(parseCreateInput({ kind: 'ability', name: 'X', data: { tag: 'xx', description: 'd' } }).ok, false);
+console.log('ok   ability form & legacy validation');
+
+// Gear form conversion and legacy data compatibility.
+const { buildGearData, emptyGearForm } = load('lib/library-gear-form.ts', { './library': lib });
+const gearForm = emptyGearForm({ cl: '8', aura: ' moderate transmutation ', cost: '4,000 gp', weight: '1' });
+const builtGear = buildGearData(gearForm);
+assert.equal(builtGear.ok, true);
+assert.equal(builtGear.data.cl, 8);
+assert.equal(builtGear.data.aura, 'moderate transmutation');
+assert.equal('slot' in builtGear.data, false);
+assert.equal(buildGearData(emptyGearForm()).data.weight, 0);
+for (const change of [{ cl: '31' }, { cl: '5th' }, { slot: 'tail' }, { weight: '-1' }, { weight: '100001' }, { aura: 'x'.repeat(81) }, { cost: 'x'.repeat(121) }]) {
+  assert.equal(buildGearData({ ...gearForm, ...change }).ok, false);
+}
+assert.equal(parseCreateInput({ kind: 'gear', name: 'Legacy gear', data: { weight: 1, cost: '1 gp', description: 'x' } }).ok, true);
+assert.equal(parseCreateInput({ kind: 'gear', name: 'Invalid gear', data: { cl: 31 } }).ok, false);
+console.log('ok   gear form & legacy validation');
+
 // normalizer + summary
 assert.equal(normalizeNameKey('  Magic   Missile\t'), 'magic missile');
 assert.equal(normalizeNameKey('FIREBALL'), 'fireball');
@@ -77,6 +111,101 @@ deq(filtered.base.AND, [
 assert.equal(lib.searchWhere(searchQuerySchema.parse({ q: 'fire' })).base.AND, undefined);
 assert.equal(lib.searchWhere(searchQuerySchema.parse({ kind: 'rule', school: 'evocation' })).base.AND, undefined);
 console.log('ok   validation');
+
+// Armor/weapon schemas and hand-entry conversion.
+const armorData = { slot: 'shield', acBonus: 2, maxDex: null, checkPenalty: -1, spellFailure: 15, cost: '20 gp', weight: 5, description: 'Shield.' };
+const weaponData = { category: 'melee', ability: 'str', damage: '1d8', crit: '19-20/x2', range: 0, type: 'S', hands: 'two', cost: '15 gp', weight: 4, description: 'Sword.' };
+assert.equal(parseCreateInput({ kind: 'armor', name: 'Shield', data: armorData }).ok, true);
+assert.equal(parseCreateInput({ kind: 'weapon', name: 'Sword', data: weaponData }).ok, true);
+for (const data of [{ ...armorData, checkPenalty: 1 }, { ...armorData, spellFailure: 101 }]) {
+  assert.equal(parseCreateInput({ kind: 'armor', name: 'Shield', data }).ok, false);
+}
+assert.equal(parseCreateInput({ kind: 'weapon', name: 'Sword', data: { ...weaponData, hands: 'three' } }).ok, false);
+const weaponPatch = parsePatchInput('weapon', { data: { ...weaponData, hands: 'two' } });
+assert.equal(weaponPatch.ok, true);
+assert.equal(weaponPatch.value.data.hands, 'two');
+const { buildHandData } = load('lib/library-hand-form.ts', { './library': lib });
+const handArmor = buildHandData('armor', 'shield', { acBonus: '2', maxDex: '', checkPenalty: '-1', spellFailure: '15', weight: '5', cost: '20 gp' });
+assert.equal(handArmor.ok, true);
+assert.equal(handArmor.data.maxDex, null);
+assert.equal(handArmor.data.slot, 'shield');
+assert.equal(handArmor.data.acBonus, 2);
+assert.equal(buildHandData('armor', 'armor', { spellFailure: '101' }).ok, false);
+const handWeapon = buildHandData('weapon', undefined, { damage: '1d8', hands: '' });
+assert.equal(handWeapon.ok, true);
+assert.equal('hands' in handWeapon.data, false);
+assert.equal(buildHandData('weapon', undefined, { damage: 'bad' }).ok, false);
+for (const [kind, form] of [
+  ['armor', { acBonus: '1.5' }], ['armor', { maxDex: '-101' }],
+  ['armor', { checkPenalty: '1' }], ['weapon', { range: '0.5' }],
+  ['weapon', { weight: '-1' }], ['weapon', { weight: 'NaN' }],
+]) assert.equal(buildHandData(kind, undefined, form).ok, false);
+assert.equal(buildHandData('weapon', undefined, { category: 'ranged' }).data.ability, 'dex');
+assert.equal(buildHandData('weapon', undefined, { category: 'ranged', ability: 'str' }).data.ability, 'str');
+console.log('ok   armor/weapon validation & hand forms');
+
+// Shared feat form conversion and validation.
+const { buildFeatData, emptyFeatForm } = load('lib/library-feat-form.ts', { './library': lib });
+deq(emptyFeatForm({ featType: 'Custom', benefit: 'Bonus' }), {
+  featType: 'Custom', prerequisites: '', benefit: 'Bonus', description: '',
+});
+const fullFeat = buildFeatData(emptyFeatForm({
+  featType: ' Combat ', prerequisites: ' Str 13 ', benefit: ' Extra damage. ', description: ' Separate text. ',
+}));
+assert.equal(fullFeat.ok, true);
+deq(fullFeat.data, { featType: 'Combat', prerequisites: 'Str 13', benefit: 'Extra damage.', description: 'Separate text.' });
+assert.equal(parseCreateInput({ kind: 'feat', name: 'X', data: fullFeat.data }).ok, true);
+for (const [key, length, label] of [
+  ['featType', 80, 'Feat type'], ['prerequisites', 500, 'Prerequisites'],
+  ['benefit', 4000, 'Benefit'], ['description', 20000, 'Description'],
+]) {
+  assert.equal(buildFeatData(emptyFeatForm({ [key]: 'x'.repeat(length) })).ok, true);
+  const result = buildFeatData(emptyFeatForm({ [key]: 'x'.repeat(length + 1) }));
+  assert.equal(result.ok, false);
+  assert.equal(result.error, `${label} must be at most ${length} characters.`);
+}
+assert.equal(buildFeatData(emptyFeatForm({ featType: 'Homebrew' })).ok, true);
+console.log('ok   shared feat form');
+
+// Shared spell form conversion and validation.
+const { buildSpellBody, emptySpellForm, spellSaveError } = load('lib/library-spell-form.ts', { './library': lib });
+const spellForm = {
+  ...emptySpellForm(), name: ' Fireball ', school: ' Evocation ', subschool: ' Fire ',
+  descriptors: ' fire, force, , ', castingTime: ' 1 standard action ', components: ' V, S ',
+  range: ' Long ', areaTargetEffect: ' 20-ft. spread ', duration: ' Instantaneous ',
+  savingThrow: ' Reflex half ', spellResistance: ' Yes ', description: ' Spell text. ',
+  levels: [{ cls: ' Wizard ', level: '3' }, { cls: ' ', level: ' ' }],
+};
+const spellBody = buildSpellBody(spellForm);
+assert.equal(spellBody.ok, true);
+deq(spellBody.body, {
+  kind: 'spell', name: 'Fireball', data: {
+    school: 'Evocation', subschool: 'Fire', descriptors: ['fire', 'force'], castingTime: '1 standard action',
+    components: 'V, S', range: 'Long', areaTargetEffect: '20-ft. spread', duration: 'Instantaneous',
+    savingThrow: 'Reflex half', spellResistance: 'Yes', description: 'Spell text.',
+  }, spellLevels: [{ cls: 'wizard', level: 3 }],
+});
+for (const [change, message] of [
+  [{ name: ' ' }, /Name is required/],
+  [{ levels: [{ cls: 'wizard', level: '10' }] }, /integer between 0 and 9/],
+  [{ levels: [{ cls: 'Wizard', level: '3' }, { cls: 'wizard', level: '4' }] }, /Duplicate class/],
+  [{ levels: [{ cls: 'wizard', level: '' }] }, /integer between 0 and 9/],
+  [{ levels: [{ cls: '', level: '3' }] }, /class name/],
+  [{ levels: [{ cls: 'wizard', level: '3.5' }] }, /integer between 0 and 9/],
+  [{ school: 'x'.repeat(41) }, /^school: /],
+  [{ levels: [{ cls: '@', level: '3' }] }, /^0.cls: /],
+]) {
+  const result = buildSpellBody({ ...spellForm, ...change });
+  assert.equal(result.ok, false);
+  assert.match(result.error, message);
+}
+const prefilledSpell = emptySpellForm({ name: 'Light', school: 'evocation', description: 'Glow.', level: 0 });
+assert.equal(prefilledSpell.name, 'Light');
+assert.equal(prefilledSpell.school, 'evocation');
+assert.equal(prefilledSpell.description, 'Glow.');
+deq(prefilledSpell.levels, [{ cls: '', level: '0' }]);
+assert.equal(spellSaveError(409, { error: 'x' }), 'x');
+console.log('ok   shared spell form');
 
 // permissions
 const alice = { id: 'alice', isAdmin: false }, bob = { id: 'bob', isAdmin: false }, admin = { id: 'root', isAdmin: true };

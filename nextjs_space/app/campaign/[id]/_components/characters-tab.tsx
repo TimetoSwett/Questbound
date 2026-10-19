@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
 import { CharacterSheet } from './character-sheet';
+import { CompanionNavProvider } from '@/components/characters/companion-nav';
+import { groupCompanions } from '@/lib/companions';
 
 interface CharSummary {
   id: string;
@@ -15,6 +17,8 @@ interface CharSummary {
   hpMax: number;
   hpCurrent: number;
   userId: string;
+  ownerCharacterId?: string | null;
+  companionType?: string;
   user?: { displayName: string };
 }
 
@@ -75,11 +79,13 @@ export function CharactersTab({ campaignId, role, userId, initialCharacterId }: 
     const isOwner = ch?.userId === userId;
     const canEdit = isOwner || role === 'dm';
     return (
-      <div className="max-w-6xl mx-auto px-4 py-4">
+      <div className="w-full px-4 py-4">
         <Button variant="ghost" size="sm" onClick={() => { setSelectedId(null); load(); }} className="mb-4">
           <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to list
         </Button>
-        <CharacterSheet characterId={selectedId} editable={canEdit} />
+        <CompanionNavProvider onOpen={setSelectedId} onChanged={load}>
+          <CharacterSheet key={selectedId} characterId={selectedId} editable={canEdit} />
+        </CompanionNavProvider>
       </div>
     );
   }
@@ -113,7 +119,7 @@ export function CharactersTab({ campaignId, role, userId, initialCharacterId }: 
       ) : (
         <Stagger staggerDelay={0.06}>
           <div className="grid gap-3">
-            {(characters ?? []).map((ch: CharSummary) => {
+            {groupCompanions(characters ?? []).map(({ item: ch, depth, isCompanion }) => {
               let classStr = '';
               try {
                 const cls = typeof ch.classes === 'string' ? JSON.parse(ch.classes) : (ch.classes ?? []);
@@ -122,15 +128,15 @@ export function CharactersTab({ campaignId, role, userId, initialCharacterId }: 
               const isOwner = ch.userId === userId;
               return (
                 <StaggerItem key={ch.id}>
-                  <HoverLift>
+                  <HoverLift className={depth ? 'ml-6' : undefined}>
                     <div className="flex items-center gap-3 bg-card p-4 rounded-lg border border-border hover:border-primary/30 transition-colors cursor-pointer" style={{ boxShadow: 'var(--shadow-sm)' }} onClick={() => setSelectedId(ch.id)}>
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-display font-semibold truncate">{ch.name ?? 'Unnamed'}</h3>
+                        <h3 className="font-display font-semibold truncate">{ch.name ?? 'Unnamed'}{isCompanion && <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 align-middle text-xs font-normal text-muted-foreground">{ch.companionType || 'Companion'}</span>}</h3>
                         <p className="text-sm text-muted-foreground">{ch.race} {classStr ? `• ${classStr}` : ''}</p>
                         {role === 'dm' && <p className="text-xs text-muted-foreground mt-0.5">Player: {ch.user?.displayName ?? 'Unknown'}</p>}
                       </div>
                       <div className="text-right shrink-0">
-                        <p className="text-sm font-mono"><span className="text-green-700">{ch.hpCurrent ?? 0}</span>/{ch.hpMax ?? 0} HP</p>
+                        <p className="text-sm font-mono"><span className="text-success">{ch.hpCurrent ?? 0}</span>/{ch.hpMax ?? 0} HP</p>
                       </div>
                       {(isOwner || role === 'dm') && (
                         <Button variant="ghost" size="icon-sm" onClick={(e: React.MouseEvent) => { e.stopPropagation(); deleteChar(ch.id, ch.name); }}>

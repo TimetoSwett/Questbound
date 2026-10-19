@@ -6,16 +6,14 @@ import { ChevronRight, BookOpen, Plus, Trash2, Lock, ArrowUpFromLine } from 'luc
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { CreatureLootEditor } from '../../../_components/loot-editor';
 import type { ImportDraft } from '@/lib/statblock-import';
 import { FadeIn } from '@/components/ui/animate';
 import { AutoLinkText } from '@/components/library/auto-link-text';
-
-// Only the stat block's Special Attacks / SQ lines get library auto-links.
-const isSaSqLine = (name: unknown) => typeof name === 'string' && /^(special attacks|sq|special qualities)$/i.test(name.trim());
+import { CampaignEventsProvider, useCampaignTopic } from '@/hooks/use-campaign-events';
+import { PlayerUnlocks } from './player-unlocks';
 
 // Keys the PUT endpoint accepts (creatureInputSchema, strict). Never send anything else.
 const SAVE_KEYS = [
@@ -24,21 +22,13 @@ const SAVE_KEYS = [
   'fort', 'ref', 'will',
   'str', 'dex', 'con', 'int', 'wis', 'cha', 'speed',
   'attacks', 'skills', 'feats', 'specialAbilities', 'spells', 'gear',
-  'wikiPageId', 'gmNotes', 'playerNotes', 'revealLevel', 'unlockedSections',
+  'wikiPageId', 'gmNotes', 'playerNotes', 'revealLevel',
 ] as const;
 
+// For the GM, revealLevel is party-wide visibility only (hidden / visible);
+// per-player unlocks live in PlayerUnlocks. For a player, the API sends the
+// level derived from their own unlocks.
 const REVEAL_LEVELS = ['hidden', 'unknown', 'named', 'full'] as const;
-
-// Sections unlockable one at a time at the "unknown"/"named" reveal levels.
-const REVEAL_SECTIONS = [
-  { key: 'name', label: 'Name' },
-  { key: 'defense', label: 'Defense' },
-  { key: 'offense', label: 'Offense' },
-  { key: 'statistics', label: 'Statistics' },
-  { key: 'specialAbilities', label: 'Special Abilities' },
-  { key: 'playerNotes', label: 'Player Notes' },
-  { key: 'wiki', label: 'Wiki Page' },
-] as const;
 
 const SIZES = ['Fine', 'Diminutive', 'Tiny', 'Small', 'Medium', 'Large', 'Huge', 'Gargantuan', 'Colossal'];
 
@@ -101,23 +91,26 @@ export function CreatureDetail({ campaignId, creatureId, role, initialDraft, onC
   const dataRef = useRef<any>(null);
   useEffect(() => { dataRef.current = data; }, [data]);
 
+  // 'missing' = 404 (deleted, or now hidden from this player); null = transient failure.
+  const requestCreature = useCallback(async (): Promise<any | 'missing' | null> => {
+    const res = await fetch(`/api/creatures?id=${creatureId}`);
+    if (res.status === 404) return 'missing';
+    return res.ok ? normalize(await res.json()) : null;
+  }, [creatureId]);
+  const applyCreature = useCallback((result: any | 'missing' | null) => {
+    if (result === 'missing') setNotFound(true);
+    else if (result) setData(result);
+  }, []);
+  const fetchCreature = useCallback(() => {
+    requestCreature().then(applyCreature).catch(() => { /* ignore */ });
+  }, [requestCreature, applyCreature]);
+
   useEffect(() => {
     if (initialDraft) return;
     let active = true;
-    fetch(`/api/creatures?id=${creatureId}`)
-      .then(async (res) => {
-        if (res.status === 404) {
-          if (active) setNotFound(true);
-          return;
-        }
-        if (res.ok) {
-          const creature = normalize(await res.json());
-          if (active) setData(creature);
-        }
-      })
-      .catch(() => { /* ignore */ });
+    requestCreature().then((result) => { if (active) applyCreature(result); }).catch(() => { /* ignore */ });
     return () => { active = false; };
-  }, [creatureId, initialDraft]);
+  }, [requestCreature, applyCreature, initialDraft]);
 
   // GM-only: wiki pages for the link picker.
   useEffect(() => {
@@ -244,8 +237,16 @@ export function CreatureDetail({ campaignId, creatureId, role, initialDraft, onC
     );
   }
 
-  // Players only ever see the basic card the API returns.
-  if (!isDM) return <PlayerCard data={data} onBack={() => router.push(`/campaign/${campaignId}?tab=bestiary`)} />;
+  // Players only ever see the card the API returns, filtered by their own
+  // unlocks; it refreshes live when the GM changes them (or edits the creature).
+  if (!isDM) {
+    return (
+      <CampaignEventsProvider campaignId={campaignId}>
+        <LiveRefresh topics={['bestiary']} onChange={fetchCreature} />
+        <PlayerCard data={data} onBack={() => router.push(`/campaign/${campaignId}?tab=bestiary`)} />
+      </CampaignEventsProvider>
+    );
+  }
 
   const wikiTitle = (wikiPages ?? []).find((p) => p?.id === data.wikiPageId)?.title ?? data?.wikiPage?.title;
 
@@ -296,38 +297,18 @@ export function CreatureDetail({ campaignId, creatureId, role, initialDraft, onC
                     </SelectContent>
                   </Select>
                   <label className="text-xs text-muted-foreground ml-1">Reveal</label>
-                  <Select value={data.revealLevel ?? 'hidden'} onValueChange={(v: string) => updateAndSave('revealLevel', v)}>
-                    <SelectTrigger className="h-7 w-[110px] text-xs"><SelectValue /></SelectTrigger>
+                  <Select
+                    value={data.revealLevel === 'hidden' ? 'hidden' : 'unknown'}
+                    onValueChange={(v: string) => { update('revealLevel', v); void saveNow({ revealLevel: v }); }}
+                  >
+                    <SelectTrigger className="h-7 w-[110px] text-xs" title="Whether players see this creature in their Bestiary at all"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="hidden">Hidden</SelectItem>
-                      <SelectItem value="unknown">Unknown</SelectItem>
-                      <SelectItem value="named">Named</SelectItem>
-                      <SelectItem value="full">Full</SelectItem>
+                      <SelectItem value="unknown">Visible</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                {(data.revealLevel === 'named' || data.revealLevel === 'unknown') && (
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3 pt-3 border-t border-border">
-                    <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Unlock sections:</span>
-                    {REVEAL_SECTIONS.map((s) => {
-                      const on = (data.unlockedSections ?? []).includes(s.key);
-                      return (
-                        <label key={s.key} className="flex items-center gap-1.5 text-xs cursor-pointer">
-                          <Switch
-                            checked={on}
-                            onCheckedChange={() => {
-                              const cur: string[] = data.unlockedSections ?? [];
-                              const next = on ? cur.filter((k: string) => k !== s.key) : [...cur, s.key];
-                              update('unlockedSections', next);
-                              void saveNow({ unlockedSections: next });
-                            }}
-                          />
-                          {s.label}
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
+                {!initialDraft && <PlayerUnlocks creatureId={creatureId} hidden={data.revealLevel === 'hidden'} />}
               </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
@@ -501,8 +482,8 @@ export function CreatureDetail({ campaignId, creatureId, role, initialDraft, onC
           {/* ---- Player notes (GM only editor; shown to players when unlocked) ---- */}
           <Section title="Player Notes" subtle>
             <p className="text-xs text-muted-foreground mb-2">
-              Weaknesses, rumors, lore the party could learn. Players see this only when the
-              Player Notes section is unlocked (Named) or the reveal level is Full.
+              Weaknesses, rumors, lore the party could learn. Each player sees this only once
+              you unlock Notes (or All) for them under Player unlocks.
             </p>
             <textarea
               value={data.playerNotes ?? ''}
@@ -819,7 +800,7 @@ function EntryEditor({ items, columns, onEdit, onAdd, onRemove, addLabel, notesK
 
 // GM view: read-only Special Attacks / SQ lines with library auto-links, shown below the editors (never inside inputs).
 function SaSqRulesPreview({ items }: { items: any[] }) {
-  const lines = (items ?? []).filter((a: any) => isSaSqLine(a?.name) && typeof a?.description === 'string' && a.description.trim());
+  const lines = (items ?? []).filter((a: any) => typeof a?.description === 'string' && a.description.trim());
   if (lines.length === 0) return null;
   return (
     <div className="mt-3 rounded-md border border-dashed p-2 text-sm" aria-label="Rule links for special attacks and qualities">
@@ -829,4 +810,15 @@ function SaSqRulesPreview({ items }: { items: any[] }) {
       ))}
     </div>
   );
+}
+
+/** Refetch on live invalidations of `topics`, polling as the fallback (see useCampaignTopic). */
+function LiveRefresh({ topics, onChange }: { topics: Array<'bestiary' | 'battle'>; onChange: () => void }) {
+  const pollMs = useCampaignTopic(topics, onChange);
+  useEffect(() => {
+    if (pollMs === null) return;
+    const t = setInterval(onChange, pollMs);
+    return () => clearInterval(t);
+  }, [onChange, pollMs]);
+  return null;
 }

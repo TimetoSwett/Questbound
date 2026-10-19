@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { CreatureImportDialog } from './creature-import-dialog';
 import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
+import { useCampaignTopic } from '@/hooks/use-campaign-events';
 
 interface CreatureSummary {
   id: string;
@@ -39,12 +40,15 @@ function crValue(cr: string): number {
   return Number.isFinite(v) ? v : 999;
 }
 
-const LEVEL_LABEL: Record<string, string> = { hidden: 'Hidden', unknown: 'Unknown', named: 'Named', full: 'Full' };
+// GM badge: party-wide visibility. What each player can read is per player
+// (set on the creature page). named/full are pre-migration values.
+const LEVEL_LABEL: Record<string, string> = { hidden: 'Hidden', unknown: 'Visible', named: 'Visible', full: 'Visible' };
+const VISIBLE_CLASS = 'text-accent border-accent/40';
 const LEVEL_CLASS: Record<string, string> = {
   hidden: 'text-muted-foreground',
-  unknown: 'text-amber-600 border-amber-600/40',
-  named: 'text-blue-600 border-blue-600/40',
-  full: 'text-green-700 border-green-700/40',
+  unknown: VISIBLE_CLASS,
+  named: VISIBLE_CLASS,
+  full: VISIBLE_CLASS,
 };
 
 export function BestiaryTab({ campaignId, role }: { campaignId: string; role: string }) {
@@ -66,6 +70,14 @@ export function BestiaryTab({ campaignId, role }: { campaignId: string; role: st
     .then((data) => { if (data) setCreatures(data); })
     .catch(() => { /* ignore */ })
     .finally(() => setLoading(false)), [fetchCreatures]);
+
+  // Live: creature edits, and (for a player) their own unlocks changing.
+  const pollMs = useCampaignTopic(['bestiary'], load);
+  useEffect(() => {
+    if (pollMs === null) return;
+    const t = setInterval(load, pollMs);
+    return () => clearInterval(t);
+  }, [load, pollMs]);
 
   useEffect(() => {
     let active = true;
@@ -241,7 +253,7 @@ export function BestiaryTab({ campaignId, role }: { campaignId: string; role: st
                     </div>
                     {isDM && typeof c.hpMax === 'number' && (
                       <div className="text-right shrink-0 hidden sm:block">
-                        <p className="text-sm font-mono"><span className="text-green-700">{c.hpCurrent ?? 0}</span>/{c.hpMax ?? 0} HP</p>
+                        <p className="text-sm font-mono"><span className="text-success">{c.hpCurrent ?? 0}</span>/{c.hpMax ?? 0} HP</p>
                       </div>
                     )}
                     {isDM && (

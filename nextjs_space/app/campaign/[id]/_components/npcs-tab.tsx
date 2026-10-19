@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
 import { CharacterSheet } from './character-sheet';
+import { CompanionNavProvider } from '@/components/characters/companion-nav';
 
 interface NpcSummary {
   id: string;
@@ -23,7 +24,8 @@ interface NpcSummary {
   portraitUrl?: string;
 }
 
-const LEVEL_LABEL: Record<string, string> = { hidden: 'Hidden', unknown: 'Unknown', named: 'Named', full: 'Full' };
+// Party-wide visibility; per-player unlocks are set on the creature page.
+const LEVEL_LABEL: Record<string, string> = { hidden: 'Hidden', unknown: 'Visible', named: 'Visible', full: 'Visible' };
 
 // GM-only. Lists Bestiary creatures flagged as NPCs. Hidden NPCs are fine here:
 // this tab never renders for players.
@@ -114,11 +116,13 @@ export function NpcsTab({ campaignId }: { campaignId: string }) {
 
   if (selectedCharId) {
     return (
-      <div className="max-w-6xl mx-auto px-4 py-4">
+      <div className="w-full px-4 py-4">
         <Button variant="ghost" size="sm" onClick={() => { setSelectedCharId(null); load(); }} className="mb-4">
           <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to NPCs
         </Button>
-        <CharacterSheet characterId={selectedCharId} editable={true} />
+        <CompanionNavProvider onOpen={setSelectedCharId}>
+          <CharacterSheet key={selectedCharId} characterId={selectedCharId} editable={true} />
+        </CompanionNavProvider>
       </div>
     );
   }
@@ -179,7 +183,7 @@ export function NpcsTab({ campaignId }: { campaignId: string }) {
                     </div>
                     {typeof c.hpMax === 'number' && (
                       <div className="text-right shrink-0 hidden sm:block">
-                        <p className="text-sm font-mono"><span className="text-green-700">{c.hpCurrent ?? 0}</span>/{c.hpMax ?? 0} HP</p>
+                        <p className="text-sm font-mono"><span className="text-success">{c.hpCurrent ?? 0}</span>/{c.hpMax ?? 0} HP</p>
                       </div>
                     )}
                     <Button

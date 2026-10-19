@@ -32,5 +32,7 @@ export async function POST(request: Request) {
     include: { wikiPage: { select: { id: true, title: true, visibility: true } } },
   });
   publish(src.campaignId, 'battle');
-  return NextResponse.json(await presentCreature(copy, role));
+  publish(src.campaignId, 'bestiary');
+  // GM-only route; the copy starts hidden with no per-player unlocks.
+  return NextResponse.json(await presentCreature(copy, role, null));
 }

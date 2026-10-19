@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Coins, Plus, Pencil, Trash2, Split, ArrowRightLeft, Backpack, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { FadeIn } from '@/components/ui/animate';
+import { useCampaignTopic } from '@/hooks/use-campaign-events';
 import { breakdownCoins } from '@/lib/coins';
 import { LootTableEditor } from './loot-editor';
 
@@ -29,6 +30,7 @@ interface LootItem {
 
 interface LootData {
   partyCp: number;
+  sharedPurse: boolean;
   items: LootItem[];
   characters: LootCharacter[];
   role: string;
@@ -43,23 +45,45 @@ export function LootTab({ campaignId, role, userId }: { campaignId: string; role
   const [data, setData] = useState<LootData | null>(null);
   const [loading, setLoading] = useState(true);
   const isDM = role === 'dm';
+  const campaignRef = useRef(campaignId);
+  // Bumped when the DM flips the purse so an in-flight loot GET from before the write can't snap it back.
+  const purseGen = useRef(0);
+  useEffect(() => { campaignRef.current = campaignId; }, [campaignId]);
 
   const load = useCallback(async () => {
+    const id = campaignId;
+    const gen = purseGen.current;
     try {
-      const res = await fetch(`/api/loot?campaignId=${campaignId}`);
-      if (res.ok) setData(await res.json());
-    } catch { /* ignore */ } finally { setLoading(false); }
+      const res = await fetch(`/api/loot?campaignId=${id}`, { cache: 'no-store' });
+      if (!res.ok || campaignRef.current !== id || purseGen.current !== gen) return;
+      setData(await res.json());
+    } catch { /* ignore */ }
   }, [campaignId]);
 
   useEffect(() => {
     let active = true;
-    fetch(`/api/loot?campaignId=${campaignId}`)
+    const gen = purseGen.current;
+    fetch(`/api/loot?campaignId=${campaignId}`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (active && d) setData(d); })
+      .then((d) => { if (active && d && purseGen.current === gen) setData(d); })
       .catch(() => { /* ignore */ })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [campaignId]);
+  // DM purse toggles publish `loot`. Refetch on that invalidation (and poll if the stream drops)
+  // so every open loot tab updates without a reload.
+  const onLive = useCallback(() => { void load(); }, [load]);
+  const pollMs = useCampaignTopic(['loot'], onLive);
+  useEffect(() => {
+    if (pollMs === null) return;
+    const id = setInterval(() => { void load(); }, pollMs);
+    return () => clearInterval(id);
+  }, [pollMs, load]);
+
+  const setSharedPurse = useCallback((sharedPurse: boolean) => {
+    purseGen.current += 1;
+    setData((prev) => (prev ? { ...prev, sharedPurse } : prev));
+  }, []);
 
   if (loading) return <p className="text-muted-foreground py-10 text-center">Loading loot...</p>;
   if (!data) return <p className="text-muted-foreground py-10 text-center">Could not load loot.</p>;
@@ -89,7 +113,7 @@ export function LootTab({ campaignId, role, userId }: { campaignId: string; role
         </h2>
       </FadeIn>
 
-      <CoinsCard partyCp={data.partyCp} campaignId={campaignId} isDM={isDM} onChange={load} />
+      <CoinsCard sharedPurse={data.sharedPurse} partyCp={data.partyCp} campaignId={campaignId} isDM={isDM} onChange={load} onSharedPurse={setSharedPurse} />
 
       <div className="mt-8">
         <div className="flex items-center justify-between mb-3">
@@ -152,16 +176,16 @@ function GroupTotals({ value, weight }: { value: number; weight: number }) {
   );
 }
 
-function CoinsCard({ partyCp, campaignId, isDM, onChange }: { partyCp: number; campaignId: string; isDM: boolean; onChange: () => void }) {
-  const { gp, sp, cp } = breakdownCoins(partyCp);
-  const [adj, setAdj] = useState({ gp: '', sp: '', cp: '' });
+function CoinsCard({ partyCp, sharedPurse, campaignId, isDM, onChange, onSharedPurse }: { sharedPurse: boolean; partyCp: number; campaignId: string; isDM: boolean; onChange: () => void; onSharedPurse: (shared: boolean) => void }) {
+  const { pp, gp, sp, cp } = breakdownCoins(partyCp);
+  const [adj, setAdj] = useState({ pp: '', gp: '', sp: '', cp: '' });
   const [busy, setBusy] = useState(false);
 
   const adjust = async (sign: 1 | -1) => {
     // Each field must be blank or a whole, non-negative number of coins.
-    const parts = (['gp', 'sp', 'cp'] as const).map((k) => adj[k].trim() === '' ? 0 : Number(adj[k]));
+    const parts = (['pp', 'gp', 'sp', 'cp'] as const).map((k) => adj[k].trim() === '' ? 0 : Number(adj[k]));
     if (parts.some((n) => !Number.isInteger(n) || n < 0)) { toast.error('Coin amounts must be whole, non-negative numbers'); return; }
-    const deltaCp = parts[0] * 100 + parts[1] * 10 + parts[2];
+    const deltaCp = parts[0] * 1000 + parts[1] * 100 + parts[2] * 10 + parts[3];
     if (deltaCp <= 0) { toast.error('Enter an amount first'); return; }
     setBusy(true);
     try {
@@ -172,7 +196,7 @@ function CoinsCard({ partyCp, campaignId, isDM, onChange }: { partyCp: number; c
       });
       if (res.ok) {
         toast.success(sign === 1 ? 'Coins added' : 'Coins removed');
-        setAdj({ gp: '', sp: '', cp: '' });
+        setAdj({ pp: '', gp: '', sp: '', cp: '' });
         onChange();
       } else {
         const d = await res.json().catch(() => null);
@@ -185,7 +209,42 @@ function CoinsCard({ partyCp, campaignId, isDM, onChange }: { partyCp: number; c
 
   return (
     <div className="bg-card rounded-lg border border-border p-5" style={{ boxShadow: 'var(--shadow-sm)' }}>
+      <div className="mb-3 text-sm">
+        {isDM ? (
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={sharedPurse} disabled={busy} onChange={async e => {
+              const enabled = e.target.checked;
+              const previous = sharedPurse;
+              onSharedPurse(enabled);
+              setBusy(true);
+              try {
+                const res = await fetch(`/api/campaigns/${campaignId}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ sharedPurse: enabled }),
+                });
+                if (!res.ok) throw new Error('Could not update shared purse');
+                const body = await res.json().catch(() => null);
+                if (body && typeof body.sharedPurse === 'boolean') onSharedPurse(body.sharedPurse);
+                onChange();
+              } catch {
+                onSharedPurse(previous);
+                toast.error('Could not update shared purse');
+              } finally {
+                setBusy(false);
+              }
+            }} />
+            Shared party purse
+          </label>
+        ) : <p>Shared party purse: {sharedPurse ? 'On' : 'Off'}</p>}
+        <p className="mt-2 text-xs text-muted-foreground">
+          {sharedPurse
+            ? "Gold and platinum are shared by the party; silver and copper stay on each character's sheet."
+            : "Party loot pool, not shared to sheets. Each character tracks their own coins; the DM can still adjust this total and hand it out."}
+        </p>
+      </div>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <Coin label="pp" value={pp} />
         <Coin label="gp" value={gp} />
         <Coin label="sp" value={sp} />
         <Coin label="cp" value={cp} />
@@ -193,7 +252,7 @@ function CoinsCard({ partyCp, campaignId, isDM, onChange }: { partyCp: number; c
       </div>
       {isDM && (
         <div className="flex flex-wrap items-end gap-2 mt-4 pt-4 border-t border-border">
-          {(['gp', 'sp', 'cp'] as const).map((k) => (
+          {(['pp', 'gp', 'sp', 'cp'] as const).map((k) => (
             <label key={k} className="flex flex-col gap-1">
               <span className="text-[11px] text-muted-foreground font-mono">{k}</span>
               <Input

@@ -138,22 +138,28 @@ assert.equal(writes, beforeWrites); assert.equal(added.length, 1);
 balance = 0; failItem = true;
 assert.equal((await roll.POST(req({ campaignId: 'campaign' }), context)).status, 500);
 assert.equal(balance, 0); assert.equal(writes, beforeWrites); assert.equal(added.length, 1);
-// Existing creature APIs must also keep loot private, including full reveal.
+// Existing creature APIs must also keep loot private, even for a player who has unlocked everything.
 const creatures = load('lib/creatures.ts', { '@/lib/s3': { getFileUrl: async () => null } });
 const row = { id: 'creature', campaignId: 'campaign', name: 'Beast', lootTableId: 'secret-table', lootList: [item], lootTable: table, gmNotes: 'Secret', unlockedSections: [] };
 for (const revealLevel of ['hidden', 'unknown', 'named', 'full']) {
-  const presented = await creatures.presentCreature({ ...row, revealLevel }, 'player');
+  const presented = await creatures.presentCreature({ ...row, revealLevel }, 'player', { sections: [], full: true });
   if (revealLevel === 'hidden') assert.equal(presented, null);
   else for (const key of ['lootTableId', 'lootList', 'lootTable', 'gmNotes']) assert.equal(key in presented, false);
 }
-assert.equal((await creatures.presentCreature({ ...row, revealLevel: 'full' }, 'dm')).lootTableId, 'secret-table');
+assert.equal((await creatures.presentCreature({ ...row, revealLevel: 'full' }, 'dm', null)).lootTableId, 'secret-table');
+const creaturePrisma = {
+  creature: { findUnique: async () => ({ ...row, revealLevel: 'unknown' }), findMany: async () => [{ ...row, revealLevel: 'unknown' }] },
+  creatureReveal: { findMany: async () => [{ creatureId: 'creature', sections: [], full: true }] },
+};
+const creatureReveals = load('lib/creature-reveals.ts', { '@/lib/prisma': { prisma: creaturePrisma }, '@/lib/creatures': creatures });
 const creatureRoutes = load('app/api/creatures/route.ts', {
   '@/lib/realtime': realtimeMock,
   'next/server': responseMock,
   '@/auth': { auth: async () => ({ user: { id: 'player' } }) },
-  '@/lib/prisma': { prisma: { creature: { findUnique: async () => ({ ...row, revealLevel: 'full' }), findMany: async () => [{ ...row, revealLevel: 'full' }] } } },
+  '@/lib/prisma': { prisma: creaturePrisma },
   '@/lib/campaign-helpers': { getUserRole: async () => 'player' },
   '@/lib/creatures': creatures,
+  '@/lib/creature-reveals': creatureReveals,
 });
 for (const query of ['id=creature', 'campaignId=campaign']) {
   const response = await creatureRoutes.GET(new Request(`https://test/api?${query}`));
@@ -163,3 +169,72 @@ for (const query of ['id=creature', 'campaignId=campaign']) {
 }
 assert.ok(published.length > 0 && published.every((e) => e.topic === 'battle' && !e.gmOnly), 'loot writes publish battle invalidations');
 console.log('Loot dice, weights, coins, validation, GM access, campaign scoping, player privacy, balance limits, and transaction rollback tests passed.');
+
+// Shared purse and existing coin routes: exercise the actual auth gates.
+let routeUser = 'gm', routeRole = 'dm';
+const campaignCalls = [];
+const routePublished = [];
+const routeMocks = {
+  'next/server': { NextResponse: { json: (body, options) => ({ status: options?.status ?? 200, body }) } },
+  '@/auth': { auth: async () => routeUser ? { user: { id: routeUser } } : null },
+  '@/lib/campaign-helpers': { getUserRole: async () => routeRole },
+  '@/lib/realtime': { publish: (...args) => routePublished.push(args) },
+  '@/lib/prisma': { prisma: { campaign: {
+    update: async args => { campaignCalls.push(args); return { sharedPurse: args.data.sharedPurse }; },
+    updateMany: async args => { campaignCalls.push(args); return { count: 1 }; },
+    findUnique: async args => { campaignCalls.push(args); return { partyCp: 100 }; },
+  } } },
+};
+const campaignRoute = load('app/api/campaigns/[id]/route.ts', routeMocks);
+const coinRoute = load('app/api/loot/coins/route.ts', routeMocks);
+const campaignContext = { params: Promise.resolve({ id: 'campaign' }) };
+assert.deepEqual(Object.keys(campaignRoute).filter(key => ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].includes(key)), ['PATCH', 'DELETE']);
+routeUser = null;
+assert.equal((await campaignRoute.PATCH(req({ sharedPurse: true }, 'PATCH'), campaignContext)).status, 401);
+routeUser = 'player';
+for (const deniedRole of ['player', null]) {
+  routeRole = deniedRole;
+  assert.equal((await campaignRoute.PATCH(req({ sharedPurse: true }, 'PATCH'), campaignContext)).status, 403);
+}
+routeRole = 'player';
+assert.equal((await coinRoute.POST(req({ campaignId: 'campaign', deltaCp: 100 }))).status, 403);
+assert.equal(campaignCalls.length, 0);
+routeUser = 'gm'; routeRole = 'dm';
+for (const body of [{ sharedPurse: 'yes' }, { sharedPurse: true, extra: 1 }, null, [], {}]) {
+  assert.equal((await campaignRoute.PATCH(req(body, 'PATCH'), campaignContext)).status, 400);
+}
+assert.equal(campaignCalls.length, 0);
+const enabled = await campaignRoute.PATCH(req({ sharedPurse: true }, 'PATCH'), campaignContext);
+assert.equal(enabled.status, 200);
+assert.equal(enabled.body.sharedPurse, true);
+assert.equal(JSON.stringify(campaignCalls[0]), JSON.stringify({
+  where: { id: 'campaign' }, data: { sharedPurse: true }, select: { sharedPurse: true },
+}));
+const disabled = await campaignRoute.PATCH(req({ sharedPurse: false }, 'PATCH'), campaignContext);
+assert.equal(disabled.status, 200);
+assert.equal(disabled.body.sharedPurse, false);
+assert.equal((await coinRoute.POST(req({ campaignId: 'campaign', deltaCp: 100 }))).status, 200);
+assert.equal(routePublished.length, 3);
+assert.deepEqual(routePublished.map(([id, topic]) => [id, topic]), [
+  ['campaign', 'loot'],
+  ['campaign', 'loot'],
+  ['campaign', 'battle'],
+]);
+// Campaign DELETE: only the campaign's DM (Campaign.dmUserId) may delete it.
+const deleteCalls = [];
+const deleteRoute = load('app/api/campaigns/[id]/route.ts', { ...routeMocks,
+  '@/lib/campaign-helpers': { getUserRole: async () => routeRole, detachCampaignCharacters: async () => [] },
+  '@/lib/prisma': { prisma: {
+    campaign: { findUnique: async () => ({ dmUserId: 'gm' }) },
+    $transaction: async fn => { deleteCalls.push('tx'); return fn({ campaign: { delete: async args => deleteCalls.push(args) } }); },
+  } },
+});
+routeUser = null;
+assert.equal((await deleteRoute.DELETE(req(null, 'DELETE'), campaignContext)).status, 401);
+routeUser = 'player'; routeRole = 'dm'; // a 'dm' membership row alone isn't enough
+assert.equal((await deleteRoute.DELETE(req(null, 'DELETE'), campaignContext)).status, 403);
+assert.equal(deleteCalls.length, 0);
+routeUser = 'gm';
+assert.equal((await deleteRoute.DELETE(req(null, 'DELETE'), campaignContext)).status, 200);
+assert.equal(JSON.stringify(deleteCalls), JSON.stringify(['tx', { where: { id: 'campaign' } }]));
+console.log('Shared purse PATCH validation, DM authorization, coin POST authorization, and campaign DELETE authorization tests passed.');

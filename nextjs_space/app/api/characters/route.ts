@@ -4,9 +4,15 @@ import type { Prisma } from '@prisma/client';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
+import { sanitizeSkills } from '@/lib/skills-validation';
+import { sanitizeSpellsExtras } from '@/lib/spells-extras';
+import { canAccessCharacter, redactHiddenOwnerIds } from '@/lib/companions';
 import { equippedSchema } from '@/lib/equipment-validation';
-import { equipmentEffects, manualBonusAfterChange, type Equipped } from '@/lib/equipment';
+import { ABILITIES, equipmentEffects, manualBonusAfterChange, type Equipped } from '@/lib/equipment';
+import { libraryIdsIn, stripMissingLibraryIds } from '@/lib/library';
 import { removeCharacterTokens } from '@/lib/battle-map';
+import { sanitizeSpellsPsionics } from '@/lib/psionics';
+import { sanitizeSpellsPathOfWar } from '@/lib/path-of-war';
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -32,10 +38,13 @@ export async function GET(request: Request) {
       select: { id: true, name: true },
     });
     const campaignsById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
+    // A companion's ownerCharacterId is only exposed when its owner is in this list too.
+    const vaultIds = new Set(characters.map((character) => character.id));
     return NextResponse.json(characters.map((character) => {
       const campaign = character.campaignId ? campaignsById.get(character.campaignId) ?? null : null;
       return {
         ...character,
+        ownerCharacterId: character.ownerCharacterId && vaultIds.has(character.ownerCharacterId) ? character.ownerCharacterId : null,
         // Preserve assignment state without exposing a campaign the caller cannot access.
         isAssigned: character.campaignId !== null,
         campaignId: campaign?.id ?? null,
@@ -58,7 +67,7 @@ export async function GET(request: Request) {
     orderBy: { createdAt: 'asc' },
   });
 
-  return NextResponse.json(characters);
+  return NextResponse.json(await redactHiddenOwnerIds(prisma, session.user.id, characters));
 }
 
 export async function POST(request: Request) {
@@ -96,6 +105,9 @@ export async function PUT(request: Request) {
   if (Object.prototype.hasOwnProperty.call(body, 'equipped') && Buffer.byteLength(JSON.stringify(body.equipped)) > 64 * 1024) {
     return NextResponse.json({ error: 'Equipped equipment exceeds the 64 KiB size limit' }, { status: 413 });
   }
+  if (Object.prototype.hasOwnProperty.call(body, 'spells') && Buffer.byteLength(JSON.stringify(body.spells)) > 4 * 1024 * 1024) {
+    return NextResponse.json({ error: 'Spells exceed the 4 MiB size limit' }, { status: 413 });
+  }
   const { id } = body;
   if (!id) return NextResponse.json({ error: 'Character id required' }, { status: 400 });
 
@@ -105,7 +117,7 @@ export async function PUT(request: Request) {
   // Only owner can edit (or DM for campaign characters)
   const isOwner = character.userId === session.user.id;
   const role = character.campaignId ? await getUserRole(session.user.id, character.campaignId) : null;
-  if (!isOwner && role !== 'dm') {
+  if (!canAccessCharacter(character, session.user.id, role)) {
     return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
   }
 
@@ -115,6 +127,10 @@ export async function PUT(request: Request) {
     if (!targetId) return NextResponse.json({ error: 'campaignId required' }, { status: 400 });
     if (character.campaignId) {
       return NextResponse.json({ error: 'Character already assigned to a campaign' }, { status: 400 });
+    }
+    // Companion links must stay within one campaign: unlink first.
+    if (character.ownerCharacterId || await prisma.character.count({ where: { ownerCharacterId: id } })) {
+      return NextResponse.json({ error: 'Unlink companions before assigning this character to a campaign' }, { status: 400 });
     }
     const targetRole = await getUserRole(session.user.id, targetId);
     if (!targetRole) return NextResponse.json({ error: 'Not a member of target campaign' }, { status: 403 });
@@ -126,7 +142,8 @@ export async function PUT(request: Request) {
   }
 
   // Only sheet fields may be updated; ownership, identifiers, timestamps and
-  // relation objects must never be taken from the request.
+  // relation objects must never be taken from the request. ownerCharacterId and
+  // companionType are deliberately absent: they change only via /api/characters/companions.
   const editableFields = [
     'name', 'portraitPath', 'portraitIsPublic',
     'race', 'alignment', 'deity', 'size', 'gender', 'age', 'height', 'weight', 'homeland',
@@ -142,6 +159,53 @@ export async function PUT(request: Request) {
   );
 
   if (Object.prototype.hasOwnProperty.call(data, 'equipped')) {
+    // Normalize the optional flags without making legacy saves fail validation.
+    const rawEquipped = data.equipped;
+    if (rawEquipped && typeof rawEquipped === 'object' && !Array.isArray(rawEquipped)) {
+      const rawSheet = (rawEquipped as Record<string, unknown>).sheet;
+      if (rawSheet && typeof rawSheet === 'object' && !Array.isArray(rawSheet)) {
+        const options = rawSheet as Record<string, unknown>;
+        if (typeof options.backstory === 'string') {
+          options.backstory = Array.from(options.backstory)
+            .filter(char => char >= ' ' || char === '\n' || char === '\r' || char === '\t')
+            .join('').slice(0, 20000);
+        } else {
+          delete options.backstory;
+        }
+        const rawSenses = options.senses;
+        if (rawSenses && typeof rawSenses === 'object' && !Array.isArray(rawSenses)) {
+          const source = rawSenses as Record<string, unknown>;
+          const senses: Record<string, unknown> = {};
+          for (const key of ['darkvision', 'blindsense', 'blindsight', 'tremorsense']) {
+            const value = source[key];
+            if (typeof value === 'number' && !Number.isNaN(value)) {
+              senses[key] = Math.max(0, Math.min(1000, Math.trunc(value)));
+            }
+          }
+          for (const key of ['lowLight', 'scent']) {
+            if (typeof source[key] === 'boolean') senses[key] = source[key];
+          }
+          if (Array.isArray(source.custom)) {
+            senses.custom = source.custom.filter((value): value is string => typeof value === 'string')
+              .map(value => value.trim().slice(0, 80).trim()).filter(Boolean).slice(0, 20);
+          }
+          options.senses = senses;
+        } else {
+          delete options.senses;
+        }
+        if (typeof options.nonlethal === 'number' && !Number.isNaN(options.nonlethal)) {
+          options.nonlethal = Math.max(0, Math.min(10000, Math.trunc(options.nonlethal)));
+        } else {
+          delete options.nonlethal;
+        }
+      }
+      if (rawSheet && typeof rawSheet === 'object' && !Array.isArray(rawSheet) && Object.prototype.hasOwnProperty.call(rawSheet, 'noScore')) {
+        const options = rawSheet as Record<string, unknown>;
+        options.noScore = Array.isArray(options.noScore)
+          ? [...new Set(options.noScore.filter((ability): ability is typeof ABILITIES[number] => ABILITIES.some(key => key === ability)))].slice(0, 6)
+          : [];
+      }
+    }
     const result = equippedSchema.safeParse(data.equipped);
     if (!result.success) return NextResponse.json({ error: 'Invalid equipped equipment', details: result.error.flatten() }, { status: 400 });
     const equipped = result.data;
@@ -195,7 +259,12 @@ export async function PUT(request: Request) {
   if (typeof data.spells === 'string') {
     try { data.spells = JSON.parse(data.spells); } catch { /* unparseable: stored as before, no ids to honour */ }
   }
+  // Psionics lives under spells.psionics; clamp/validate it (other spells keys pass through).
+  data.spells = sanitizeSpellsPsionics(data.spells);
+  // Path of War lives under spells.pathOfWar; clamp/validate it too.
+  data.spells = sanitizeSpellsPathOfWar(data.spells);
   if (data.spells !== undefined && data.spells !== null && typeof data.spells === 'object') {
+    sanitizeSpellsExtras(data.spells as Record<string, unknown>);
     const known = (data.spells as { known?: unknown })?.known;
     if (Array.isArray(known)) {
       const ids = [...new Set(
@@ -205,7 +274,12 @@ export async function PUT(request: Request) {
       const existing = ids.length
         ? new Set((await prisma.libraryEntry.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((e) => e.id))
         : new Set<string>();
-      for (const s of known as Array<{ libraryEntryId?: unknown }>) {
+      for (const s of known as Array<{ libraryEntryId?: unknown; clientId?: unknown }>) {
+        if (s && typeof s === 'object' && 'clientId' in s) {
+          if (typeof s.clientId !== 'string' || s.clientId.length < 1 || s.clientId.length > 100) {
+            delete s.clientId;
+          }
+        }
         if (s && typeof s === 'object' && 'libraryEntryId' in s) {
           if (typeof s.libraryEntryId !== 'string' || !existing.has(s.libraryEntryId)) {
             delete s.libraryEntryId;
@@ -213,6 +287,19 @@ export async function PUT(request: Request) {
         }
       }
     }
+  }
+
+  for (const field of ['feats', 'equipment', 'skills'] as const) {
+    if (typeof data[field] === 'string') {
+      try { data[field] = JSON.parse(data[field] as string); } catch { /* stored as text; no ids to check */ }
+    }
+  }
+  if (Array.isArray(data.skills)) data.skills = sanitizeSkills(data.skills);
+  const linked = [data.feats, data.equipment, data.equipped].filter((value) => value && typeof value === 'object');
+  const linkedIds = libraryIdsIn(linked);
+  if (linkedIds.length) {
+    const existing = new Set((await prisma.libraryEntry.findMany({ where: { id: { in: linkedIds } }, select: { id: true } })).map((entry) => entry.id));
+    for (const value of linked) stripMissingLibraryIds(value, existing);
   }
 
   // Stringify JSON fields if they are objects
@@ -225,7 +312,8 @@ export async function PUT(request: Request) {
 
   try {
     const updated = await prisma.character.update({ where: { id }, data });
-    return NextResponse.json(updated);
+    const [visible] = await redactHiddenOwnerIds(prisma, session.user.id, [updated]);
+    return NextResponse.json(visible);
   } catch (err) {
     // Character.creatureId is unique: an NPC can be linked to only one sheet.
     if ((err as { code?: string })?.code === 'P2002') {
@@ -249,10 +337,8 @@ export async function DELETE(request: Request) {
   const character = await prisma.character.findUnique({ where: { id } });
   if (!character) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  if (character.userId !== session.user.id) {
-    const role = character.campaignId ? await getUserRole(session.user.id, character.campaignId) : null;
-    if (role !== 'dm') return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
-  }
+  const role = character.campaignId ? await getUserRole(session.user.id, character.campaignId) : null;
+  if (!canAccessCharacter(character, session.user.id, role)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
 
   await prisma.$transaction(async (tx) => {
     if (character.campaignId) {

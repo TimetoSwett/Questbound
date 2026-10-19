@@ -2,6 +2,7 @@
 // Hover (with Ctrl/Cmd held) or focus + Enter to preview a library term. All text renders as plain text.
 import * as React from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
+import { classLabel } from '@/components/library/types';
 import { ExternalLink } from 'lucide-react';
 import { clearHoveredTerm, setHoveredTerm } from '@/components/library/term-hover-store';
 import { entryText, fetchLibraryEntry, type FullEntry } from '@/lib/library-terms-client';
@@ -52,6 +53,11 @@ export function LibraryTermPopover({ term, entryId, children }: Props) {
 
   const m = entry.value;
   const fullText = entryText(m);
+  const spellData = m?.kind === 'spell' && m.data && typeof m.data === 'object' ? m.data as { school?: unknown } : null;
+  const spellDetails = m?.kind === 'spell' ? [
+    typeof spellData?.school === 'string' ? spellData.school : '',
+    (m.spellLevels ?? []).map(({ cls, level }) => `${classLabel(cls)} ${level}`).join(' / '),
+  ].filter(Boolean).join(' · ') : '';
   const href = safeHref(m?.sourceUrl);
 
   return (
@@ -104,6 +110,7 @@ export function LibraryTermPopover({ term, entryId, children }: Props) {
                 <p className="font-semibold">{String(m.name)}</p>
                 <span className="text-xs uppercase tracking-wide text-muted-foreground">{String(m.kind)}</span>
               </div>
+              {spellDetails && <p className="text-xs text-muted-foreground">{spellDetails}</p>}
               {typeof m.summary === 'string' && m.summary ? <p className="whitespace-pre-wrap">{m.summary}</p> : null}
               <div className="flex items-center gap-3 text-xs">
                 <button type="button" className="underline text-primary" aria-expanded={expanded} aria-controls={fullId} onClick={toggleFull}>

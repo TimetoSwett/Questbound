@@ -23,6 +23,25 @@
     --border: 33 26% 56%;
     --input: 34 30% 68%;
     --ring: 15 60% 40%;
+    --success: 140 45% 28%;
+    --success-foreground: 40 50% 95%;
+    --warning: 32 85% 28%;
+    --warning-foreground: 40 50% 95%;
+    --texture-1: 28 45% 30%;
+    --texture-2: 20 45% 28%;
+    --texture-3: 30 40% 30%;
+    --texture-4: 24 40% 28%;
+    --texture-5: 30 30% 30%;
+    --texture-6: 28 40% 25%;
+    --texture-7: 30 40% 55%;
+    --texture-8: 25 40% 50%;
+    --texture-9: 38 30% 74%;
+    --texture-10: 33 26% 52%;
+    --texture-11: 15 55% 42%;
+    --texture-12: 15 60% 40%;
+    --texture-13: 38 30% 78%;
+    --texture-14: 38 30% 80%;
+    --texture-15: 33 26% 56%;
     --radius: 0.625rem;
     --chart-1: 15 60% 45%;
     --chart-2: 193 42% 38%;
@@ -44,7 +63,11 @@
     --spacing-3xl: 64px;
   }
 
-  .dark {
+  /* Levels use endpoint HSL interpolation, with midpoint text flips and
+     contrast-adjusted middle surfaces/status colors to maintain readable pairs.
+     Level 1 intentionally preserves the original palette, including its
+     existing muted/background contrast of 4.23:1 (muted/muted: 3.63:1). */
+  html[data-brightness="1"], html[data-brightness="1"].dark {
     --background: 39 40% 83%;
     --foreground: 25 40% 18%;
     --card: 40 48% 91%;
@@ -64,6 +87,199 @@
     --border: 33 26% 56%;
     --input: 34 30% 68%;
     --ring: 15 60% 40%;
+    --chart-1: 15 60% 45%;
+    --chart-2: 193 42% 38%;
+    --chart-3: 95 30% 38%;
+    --chart-4: 40 70% 45%;
+    --chart-5: 275 30% 48%;
+    --success: 140 45% 28%;
+    --success-foreground: 40 50% 95%;
+    --warning: 32 85% 28%;
+    --warning-foreground: 40 50% 95%;
+  }
+
+  html[data-brightness="2"], html[data-brightness="2"].dark {
+    --texture-1: var(--background);
+    --texture-2: var(--background);
+    --texture-3: var(--background);
+    --texture-4: var(--background);
+    --texture-5: var(--border);
+    --texture-6: var(--background);
+    --texture-7: var(--border);
+    --texture-8: var(--border);
+    --texture-9: var(--muted);
+    --texture-10: var(--border);
+    --texture-11: var(--primary);
+    --texture-12: var(--primary);
+    --texture-13: var(--muted);
+    --texture-14: var(--muted);
+    --texture-15: var(--border);
+    --background: 35.5 35% 64.75%;
+    --foreground: 25 40% 10%;
+    --card: 36.25 40.5% 71.75%;
+    --card-foreground: 25 40% 10%;
+    --popover: 36.25 40.5% 73.75%;
+    --popover-foreground: 25 40% 10%;
+    --primary: 16.25 61.25% 22%;
+    --primary-foreground: 40 50% 95%;
+    --secondary: 34 29% 59.5%;
+    --secondary-foreground: 25 40% 10%;
+    --muted: 35.5 27% 62.75%;
+    --muted-foreground: 25 40% 10%;
+    --accent: 193 40.25% 22%;
+    --accent-foreground: 40 50% 96%;
+    --destructive: 2 65.25% 22%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 32.25 25% 52.5%;
+    --input: 32.5 27.5% 59%;
+    --ring: 16.25 61.25% 47%;
+    --chart-1: 16.25 61.25% 50.75%;
+    --chart-2: 193 42% 45.5%;
+    --chart-3: 95 31.25% 45%;
+    --chart-4: 40 70% 50.5%;
+    --chart-5: 275 32.5% 54.25%;
+    --success: 140 45% 20%;
+    --success-foreground: 40 50% 95%;
+    --warning: 33.5 85% 20%;
+    --warning-foreground: 40 50% 95%;
+  }
+
+  html[data-brightness="3"], html[data-brightness="3"].dark {
+    --texture-1: var(--background);
+    --texture-2: var(--background);
+    --texture-3: var(--background);
+    --texture-4: var(--background);
+    --texture-5: var(--border);
+    --texture-6: var(--background);
+    --texture-7: var(--border);
+    --texture-8: var(--border);
+    --texture-9: var(--muted);
+    --texture-10: var(--border);
+    --texture-11: var(--primary);
+    --texture-12: var(--primary);
+    --texture-13: var(--muted);
+    --texture-14: var(--muted);
+    --texture-15: var(--border);
+    --background: 32 30% 46.5%;
+    --foreground: 25 40% 6%;
+    --card: 32.5 33% 52.5%;
+    --card-foreground: 25 40% 6%;
+    --popover: 32.5 33% 54.5%;
+    --popover-foreground: 25 40% 6%;
+    --primary: 17.5 62.5% 6%;
+    --primary-foreground: 40 50% 95%;
+    --secondary: 32 26% 47%;
+    --secondary-foreground: 25 40% 6%;
+    --muted: 33 24% 48.5%;
+    --muted-foreground: 25 40% 6%;
+    --accent: 193 38.5% 82%;
+    --accent-foreground: 25 40% 10%;
+    --destructive: 2 68.5% 6%;
+    --destructive-foreground: 40 50% 95%;
+    --border: 31.5 26% 33%;
+    --input: 31 26% 36%;
+    --ring: 17.5 62.5% 54%;
+    --chart-1: 17.5 62.5% 56.5%;
+    --chart-2: 193 42% 53%;
+    --chart-3: 95 32.5% 52%;
+    --chart-4: 40 70% 56%;
+    --chart-5: 275 35% 60.5%;
+    --success: 140 45% 6%;
+    --success-foreground: 40 50% 95%;
+    --warning: 35 85% 6%;
+    --warning-foreground: 40 50% 95%;
+  }
+
+  html[data-brightness="4"], html[data-brightness="4"].dark {
+    --texture-1: var(--background);
+    --texture-2: var(--background);
+    --texture-3: var(--background);
+    --texture-4: var(--background);
+    --texture-5: var(--border);
+    --texture-6: var(--background);
+    --texture-7: var(--border);
+    --texture-8: var(--border);
+    --texture-9: var(--muted);
+    --texture-10: var(--border);
+    --texture-11: var(--primary);
+    --texture-12: var(--primary);
+    --texture-13: var(--muted);
+    --texture-14: var(--muted);
+    --texture-15: var(--border);
+    --background: 28.5 25% 28.25%;
+    --foreground: 38 35% 88%;
+    --card: 28.75 25.5% 33.25%;
+    --card-foreground: 38 35% 88%;
+    --popover: 28.75 25.5% 35.25%;
+    --popover-foreground: 38 35% 88%;
+    --primary: 18.75 63.75% 84%;
+    --primary-foreground: 25 40% 10%;
+    --secondary: 30 23% 34.5%;
+    --secondary-foreground: 38 35% 88%;
+    --muted: 30.5 21% 34.25%;
+    --muted-foreground: 38 25% 88%;
+    --accent: 193 36.75% 78%;
+    --accent-foreground: 25 40% 10%;
+    --destructive: 2 71.75% 88%;
+    --destructive-foreground: 25 40% 10%;
+    --border: 30.75 23% 50%;
+    --input: 29.5 22.5% 47%;
+    --ring: 18.75 63.75% 61%;
+    --chart-1: 18.75 63.75% 62.25%;
+    --chart-2: 193 42% 60.5%;
+    --chart-3: 95 33.75% 59%;
+    --chart-4: 40 70% 61.5%;
+    --chart-5: 275 37.5% 66.75%;
+    --success: 140 45% 78%;
+    --success-foreground: 25 40% 10%;
+    --warning: 36.5 85% 78%;
+    --warning-foreground: 25 40% 10%;
+  }
+
+  html[data-brightness="5"], html[data-brightness="5"].dark {
+    --texture-1: var(--background);
+    --texture-2: var(--background);
+    --texture-3: var(--background);
+    --texture-4: var(--background);
+    --texture-5: var(--border);
+    --texture-6: var(--background);
+    --texture-7: var(--border);
+    --texture-8: var(--border);
+    --texture-9: var(--muted);
+    --texture-10: var(--border);
+    --texture-11: var(--primary);
+    --texture-12: var(--primary);
+    --texture-13: var(--muted);
+    --texture-14: var(--muted);
+    --texture-15: var(--border);
+    --background: 25 20% 10%;
+    --foreground: 38 35% 88%;
+    --card: 25 18% 14%;
+    --card-foreground: 38 35% 88%;
+    --popover: 25 18% 16%;
+    --popover-foreground: 38 35% 88%;
+    --primary: 20 65% 68%;
+    --primary-foreground: 25 40% 10%;
+    --secondary: 28 20% 22%;
+    --secondary-foreground: 38 35% 88%;
+    --muted: 28 18% 20%;
+    --muted-foreground: 38 25% 78%;
+    --accent: 193 35% 65%;
+    --accent-foreground: 25 40% 10%;
+    --destructive: 2 75% 72%;
+    --destructive-foreground: 25 40% 10%;
+    --border: 30 22% 42%;
+    --input: 28 20% 32%;
+    --ring: 20 65% 68%;
+    --chart-1: 20 65% 68%;
+    --chart-2: 193 42% 68%;
+    --chart-3: 95 35% 66%;
+    --chart-4: 40 70% 67%;
+    --chart-5: 275 40% 73%;
+    --success: 140 45% 72%;
+    --success-foreground: 25 40% 10%;
+    --warning: 38 85% 72%;
+    --warning-foreground: 25 40% 10%;
   }
 }
 
@@ -76,15 +292,15 @@
     background-color: hsl(var(--background));
     background-image:
       /* soft aged blotches / coffee stains */
-      radial-gradient(ellipse at 12% 18%, hsl(28 45% 30% / 0.10), transparent 42%),
-      radial-gradient(ellipse at 88% 12%, hsl(20 45% 28% / 0.09), transparent 40%),
-      radial-gradient(ellipse at 78% 82%, hsl(30 40% 30% / 0.10), transparent 45%),
-      radial-gradient(ellipse at 25% 88%, hsl(24 40% 28% / 0.08), transparent 45%),
+      radial-gradient(ellipse at 12% 18%, hsl(var(--texture-1) / 0.10), transparent 42%),
+      radial-gradient(ellipse at 88% 12%, hsl(var(--texture-2) / 0.09), transparent 40%),
+      radial-gradient(ellipse at 78% 82%, hsl(var(--texture-3) / 0.10), transparent 45%),
+      radial-gradient(ellipse at 25% 88%, hsl(var(--texture-4) / 0.08), transparent 45%),
       /* faint cartographer grid lines */
-      repeating-linear-gradient(0deg, hsl(30 30% 30% / 0.05) 0 1px, transparent 1px 40px),
-      repeating-linear-gradient(90deg, hsl(30 30% 30% / 0.05) 0 1px, transparent 1px 40px),
+      repeating-linear-gradient(0deg, hsl(var(--texture-5) / 0.05) 0 1px, transparent 1px 40px),
+      repeating-linear-gradient(90deg, hsl(var(--texture-5) / 0.05) 0 1px, transparent 1px 40px),
       /* darkened aged edges (vignette) */
-      radial-gradient(ellipse at 50% 50%, transparent 55%, hsl(28 40% 25% / 0.22) 100%);
+      radial-gradient(ellipse at 50% 50%, transparent 55%, hsl(var(--texture-6) / 0.22) 100%);
     background-attachment: fixed;
   }
 }
@@ -92,8 +308,8 @@
 /* Parchment texture for cards */
 .parchment-bg {
   background-image:
-    radial-gradient(ellipse at 20% 50%, hsl(30 40% 55% / 0.12), transparent 70%),
-    radial-gradient(ellipse at 80% 30%, hsl(25 40% 50% / 0.10), transparent 60%);
+    radial-gradient(ellipse at 20% 50%, hsl(var(--texture-7) / 0.12), transparent 70%),
+    radial-gradient(ellipse at 80% 30%, hsl(var(--texture-8) / 0.10), transparent 60%);
 }
 
 /* Scrollbar styling */
@@ -102,14 +318,14 @@
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: hsl(38 30% 74%);
+  background: hsl(var(--texture-9));
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(33 26% 52%);
+  background: hsl(var(--texture-10));
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(15 55% 42%);
+  background: hsl(var(--texture-11));
 }
 
 /* TipTap Editor styling */
@@ -124,15 +340,15 @@
 .tiptap-editor .ProseMirror p { margin-bottom: 0.5rem; }
 .tiptap-editor .ProseMirror ul { list-style: disc; padding-left: 1.5rem; margin-bottom: 0.5rem; }
 .tiptap-editor .ProseMirror ol { list-style: decimal; padding-left: 1.5rem; margin-bottom: 0.5rem; }
-.tiptap-editor .ProseMirror blockquote { border-left: 3px solid hsl(15 60% 40%); padding-left: 1rem; margin: 0.5rem 0; opacity: 0.85; }
-.tiptap-editor .ProseMirror code { background: hsl(38 30% 78%); padding: 2px 6px; border-radius: 4px; font-family: var(--font-mono); font-size: 0.9em; }
-.tiptap-editor .ProseMirror pre { background: hsl(38 30% 80%); padding: 1rem; border-radius: 8px; margin-bottom: 0.5rem; overflow-x: auto; }
-.tiptap-editor .ProseMirror a { color: hsl(15 60% 40%); text-decoration: underline; }
-.tiptap-editor .ProseMirror hr { border-color: hsl(33 26% 56%); margin: 1rem 0; }
+.tiptap-editor .ProseMirror blockquote { border-left: 3px solid hsl(var(--texture-12)); padding-left: 1rem; margin: 0.5rem 0; opacity: 0.85; }
+.tiptap-editor .ProseMirror code { background: hsl(var(--texture-13)); padding: 2px 6px; border-radius: 4px; font-family: var(--font-mono); font-size: 0.9em; }
+.tiptap-editor .ProseMirror pre { background: hsl(var(--texture-14)); padding: 1rem; border-radius: 8px; margin-bottom: 0.5rem; overflow-x: auto; }
+.tiptap-editor .ProseMirror a { color: hsl(var(--texture-12)); text-decoration: underline; }
+.tiptap-editor .ProseMirror hr { border-color: hsl(var(--texture-15)); margin: 1rem 0; }
 
 /* Wiki link styling */
 .wiki-link {
-  color: hsl(15 60% 40%);
+  color: hsl(var(--texture-12));
   cursor: pointer;
   text-decoration: underline;
   text-decoration-style: dotted;

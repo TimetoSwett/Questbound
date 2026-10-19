@@ -1,0 +1,44 @@
+export const dynamic = 'force-dynamic';
+import { NextResponse } from 'next/server';
+import { isSpellItemSource, parseSpellItemImport, spellItemOptionsSchema } from '@/lib/spell-item-import';
+import { parseAonCatalogPage } from '@/lib/aon-catalog-parser';
+import { D20PFSRD_UNSUPPORTED, HINT, d20pfsrdKindForUrl, isD20pfsrdUrl, parseD20pfsrdDrafts } from '@/lib/d20pfsrd-parser';
+import { d20pfsrdArmorIndexPages } from '@/lib/d20pfsrd/armor';
+import { parseCreateInput } from '@/lib/library';
+import { readBoundedJson, requireActor } from '@/lib/library-api';
+import { importRateLimited } from '@/lib/statblock-rate-limit';
+import { fetchStatblockHtml } from '@/lib/statblock-fetch';
+
+// POST /api/library/import { url } — one Archives of Nethys or d20pfsrd (spell, feat, magic item, weapon, armor or gear) page, returned as a draft. Nothing is saved.
+export async function POST(request: Request) {
+  const a = await requireActor();
+  if ('res' in a) return a.res;
+  if (importRateLimited(a.actor.id)) return NextResponse.json({ error: 'Too many imports. Try again in a minute.' }, { status: 429 });
+  const b = await readBoundedJson(request);
+  if ('res' in b) return b.res;
+  const body = b.body as { url?: unknown; itemType?: unknown; cl?: unknown; charges?: unknown; componentCostGp?: unknown } | null;
+  const url = body?.url;
+  if (typeof url !== 'string' || !url.trim() || url.length > 2048) return NextResponse.json({ error: 'Provide one HTTPS Archives of Nethys or d20pfsrd link.' }, { status: 400 });
+  const link = url.trim();
+  const options = body?.itemType === undefined ? undefined : spellItemOptionsSchema.safeParse(body);
+  if (options && !options.success) return NextResponse.json({ error: 'Choose scroll or wand, a caster level from 1 to 30, and wand charges from 0 to 50. Component cost must be nonnegative.' }, { status: 400 });
+  if (options && !isSpellItemSource(link)) return NextResponse.json({ error: 'For a scroll or wand, use a single Archives of Nethys or d20pfsrd spell link.' }, { status: 400 });
+  const d20 = isD20pfsrdUrl(link);
+  if (d20 && !d20pfsrdKindForUrl(link)) return NextResponse.json({ error: `${D20PFSRD_UNSUPPORTED}${HINT}` }, { status: 400 });
+  try {
+    const source = await fetchStatblockHtml(link);
+    const indexPages = d20 ? await d20pfsrdArmorIndexPages(link, source.html, (u) => fetchStatblockHtml(u)) : [];
+    const drafts = [];
+    const imported = options?.success ? [parseSpellItemImport(source.html, link, options.data)]
+      : d20 ? parseD20pfsrdDrafts(source.html, link, indexPages) : [parseAonCatalogPage(source.html, link)];
+    for (const raw of imported) {
+      const parsed = parseCreateInput(raw);
+      if (!parsed.ok) return NextResponse.json({ error: parsed.error, issues: parsed.issues }, { status: 400 });
+      const v = parsed.value;
+      drafts.push({ kind: v.kind, system: v.system, name: v.name, summary: v.summary, sourceUrl: v.sourceUrl, data: v.data, ...(v.kind === 'spell' ? { spellLevels: v.spellLevels } : {}) });
+    }
+    return NextResponse.json({ draft: drafts[0], ...(drafts.length > 1 ? { drafts } : {}) });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Import failed.' }, { status: 400 });
+  }
+}

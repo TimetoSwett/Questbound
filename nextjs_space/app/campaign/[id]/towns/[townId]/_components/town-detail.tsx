@@ -31,9 +31,9 @@ const TOWN_SECTION_DEFS = [
 const LEVEL_LABEL: Record<string, string> = { hidden: 'Hidden', unknown: 'Unknown', named: 'Named', full: 'Full' };
 const LEVEL_CLASS: Record<string, string> = {
   hidden: 'text-muted-foreground',
-  unknown: 'text-amber-600 border-amber-600/40',
-  named: 'text-blue-600 border-blue-600/40',
-  full: 'text-green-700 border-green-700/40',
+  unknown: 'text-warning border-warning/40',
+  named: 'text-accent border-accent/40',
+  full: 'text-success border-success/40',
 };
 
 interface ResidentCandidate {

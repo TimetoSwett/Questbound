@@ -4,7 +4,7 @@ import { z } from 'zod';
 // Pure helpers + DB helpers that take a Prisma-like client (so tests can mock
 // it and the future AoN importer can pass a transaction).
 
-export const LIBRARY_KINDS = ['spell', 'rule'] as const;
+export const LIBRARY_KINDS = ['spell', 'rule', 'weapon', 'armor', 'gear', 'feat', 'ability'] as const;
 export type LibraryKind = (typeof LIBRARY_KINDS)[number];
 export const LIBRARY_SYSTEMS = ['pf1e', 'dnd35'] as const;
 export type LibrarySystem = (typeof LIBRARY_SYSTEMS)[number];
@@ -74,7 +74,95 @@ export const ruleDataSchema = z.object({
 }).strict();
 export type RuleData = z.infer<typeof ruleDataSchema>;
 
-export const dataSchemas: Record<LibraryKind, z.ZodTypeAny> = { spell: spellDataSchema, rule: ruleDataSchema };
+export const WEAPON_CATEGORIES = ['melee', 'ranged', 'thrown', 'composite'] as const;
+export const WEAPON_HANDS = ['one', 'two', 'off'] as const;
+const pounds = z.number().min(0).max(100_000).default(0);
+const cost = str(120);
+export const weaponDataSchema = z.object({
+  category: z.enum(WEAPON_CATEGORIES).default('melee'),
+  hands: z.enum(WEAPON_HANDS).optional(),
+  ability: z.enum(['str', 'dex']).default('str'),
+  damage: str(40),
+  crit: str(40),
+  range: z.number().int().min(0).max(100_000).default(0),
+  type: str(40),
+  weight: pounds,
+  cost,
+  description: str(20_000),
+}).strict();
+export type WeaponData = z.infer<typeof weaponDataSchema>;
+
+export const armorDataSchema = z.object({
+  slot: z.enum(['armor', 'shield']).default('armor'),
+  acBonus: z.number().int().min(-100).max(100).default(0),
+  maxDex: z.number().int().min(-100).max(100).nullable().default(null),
+  checkPenalty: z.number().int().min(-100).max(0).default(0),
+  spellFailure: z.number().int().min(0).max(100).default(0),
+  weight: pounds,
+  cost,
+  description: str(20_000),
+}).strict();
+export type ArmorData = z.infer<typeof armorDataSchema>;
+
+// Body slots with ring1/ring2 collapsed to ring, plus shields and slotless gear.
+export const GEAR_SLOTS = ['head', 'headband', 'eyes', 'shoulders', 'neck', 'chest', 'body', 'armor', 'shield', 'belt', 'wrists', 'hands', 'ring', 'feet', 'slotless'] as const;
+
+export const spellItemDataSchema = z.object({
+  type: z.enum(['scroll', 'wand']),
+  spellLevel: z.number().int().min(0).max(9),
+  charges: z.number().int().min(0).max(50),
+  componentCostGp: z.number().min(0).max(1_000_000).default(0),
+}).strict().superRefine((item, ctx) => {
+  if (item.type === 'wand' && item.spellLevel > 4) ctx.addIssue({ code: 'custom', path: ['spellLevel'], message: 'Wands require a spell of level 4 or lower' });
+  if (item.type === 'scroll' && item.charges > 1) ctx.addIssue({ code: 'custom', path: ['charges'], message: 'Scrolls have only one charge' });
+});
+export type SpellItemData = z.infer<typeof spellItemDataSchema>;
+
+/** PF1e market value, including material components per use, rounded to copper. */
+export function spellItemValueGp(item: SpellItemData, casterLevel: number): number {
+  const level = item.spellLevel === 0 ? 0.5 : item.spellLevel;
+  const fullCharges = item.type === 'wand' ? 50 : 1;
+  const rate = item.type === 'wand' ? 750 : 25;
+  return Math.round((level * casterLevel * rate + item.componentCostGp * fullCharges) * item.charges / fullCharges * 100) / 100;
+}
+export function spellItemCost(item: SpellItemData, casterLevel: number): string {
+  return `${spellItemValueGp(item, casterLevel).toLocaleString('en-US', { maximumFractionDigits: 2 })} gp`;
+}
+
+export const gearDataSchema = z.object({
+  spellItem: spellItemDataSchema.optional(),
+  slot: z.enum(GEAR_SLOTS).optional(),
+  aura: z.string().trim().max(80).optional(),
+  cl: z.number().int().min(0).max(30).optional(),
+  weight: pounds,
+  cost,
+  description: str(20_000),
+}).strict().superRefine((data, ctx) => {
+  if (data.spellItem && (!data.cl || data.cl < 1)) ctx.addIssue({ code: 'custom', path: ['cl'], message: 'Scrolls and wands require a caster level from 1 to 30' });
+});
+export type GearData = z.infer<typeof gearDataSchema>;
+
+export const featDataSchema = z.object({
+  featType: str(80),
+  prerequisites: str(500),
+  benefit: str(4_000),
+  description: str(20_000),
+}).strict();
+export type FeatData = z.infer<typeof featDataSchema>;
+
+export const ABILITY_TAG_KEYS = ['ex', 'su', 'sp'] as const;
+
+export const abilityDataSchema = z.object({
+  tag: z.enum(ABILITY_TAG_KEYS).optional(),
+  uses: z.string().trim().max(60).optional(),
+  description: str(20_000),
+}).strict();
+export type AbilityData = z.infer<typeof abilityDataSchema>;
+
+export const dataSchemas: Record<LibraryKind, z.ZodTypeAny> = {
+  spell: spellDataSchema, rule: ruleDataSchema, weapon: weaponDataSchema, armor: armorDataSchema,
+  gear: gearDataSchema, feat: featDataSchema, ability: abilityDataSchema,
+};
 
 /** Long text of an entry's data (spell description / rule text), for default summaries. */
 export function dataLongText(d: unknown): unknown {
@@ -214,6 +302,8 @@ export const searchQuerySchema = z.object({
   q: z.string().max(NAME_MAX).optional().default(''),
   cls: z.string().trim().toLowerCase().max(40).optional(),
   level: z.coerce.number().int().min(0).max(9).optional(),
+  slot: z.enum(GEAR_SLOTS).optional(),
+  itemType: z.enum(['mundane', 'wondrous']).optional(),
   school: facet(40),
   subschool: facet(60),
   descriptor: facet(40),
@@ -267,14 +357,27 @@ export function searchWhere(query: SearchQuery) {
     : {};
   // Spell stats live in data JSON. School is exact; subschool/duration/range are substrings
   // (subschool can be "healing, creation"; range is "medium (100 ft. + 10 ft./level)").
-  const dataFilters = query.kind === 'spell' ? [
-    query.school ? { data: { path: ['school'], equals: query.school } } : null,
-    query.subschool ? { data: { path: ['subschool'], string_contains: query.subschool } } : null,
-    query.descriptor ? { data: { path: ['descriptors'], array_contains: [query.descriptor] } } : null,
-    query.duration ? { data: { path: ['duration'], string_contains: query.duration } } : null,
-    query.range ? { data: { path: ['range'], string_contains: query.range } } : null,
-  ].filter((filter): filter is NonNullable<typeof filter> => filter !== null) : [];
+  const dataFilters = [
+    ...(query.kind === 'spell' ? [
+      query.school ? { data: { path: ['school'], equals: query.school } } : null,
+      query.subschool ? { data: { path: ['subschool'], string_contains: query.subschool } } : null,
+      query.descriptor ? { data: { path: ['descriptors'], array_contains: [query.descriptor] } } : null,
+      query.duration ? { data: { path: ['duration'], string_contains: query.duration } } : null,
+      query.range ? { data: { path: ['range'], string_contains: query.range } } : null,
+    ] : []),
+    (query.kind === 'armor' || query.kind === 'gear') && query.slot ? { data: { path: ['slot'], equals: query.slot } } : null,
+  ].filter((filter): filter is NonNullable<typeof filter> => filter !== null);
   return { key, base: { kind: query.kind, system: query.system, ...levelFilter, ...(dataFilters.length ? { AND: dataFilters } : {}) } };
+}
+
+/** Legacy gear has no type column. Magic imports carry slots, aura/CL, or a magic-item source URL. */
+export function gearItemType(entry: { data?: unknown; sourceUrl?: string | null }): 'mundane' | 'wondrous' {
+  const data = (entry.data && typeof entry.data === 'object' ? entry.data : {}) as Record<string, unknown>;
+  const magic = (typeof data.slot === 'string' && GEAR_SLOTS.some((slot) => slot === data.slot))
+    || (typeof data.aura === 'string' && Boolean(data.aura.trim()))
+    || (typeof data.cl === 'number' && data.cl > 0)
+    || /(?:\/magic-items\/|\/Magic(?:Wondrous|Rings|Rods|Staves)Display\.aspx)/i.test(entry.sourceUrl ?? '');
+  return magic ? 'wondrous' : 'mundane';
 }
 
 export async function searchLibrary(db: Db, query: SearchQuery) {
@@ -283,7 +386,14 @@ export async function searchLibrary(db: Db, query: SearchQuery) {
 
 /** One page of matches, in the same order as searchLibrary, plus the total match count. */
 export async function searchLibraryPage(db: Db, query: SearchQuery): Promise<{ results: LibraryEntryRow[]; total: number }> {
-  const { key, base } = searchWhere(query);
+  const { key, base: untypedBase } = searchWhere(query);
+  // Resolve legacy JSON metadata before counting/paging, so totals and every page agree.
+  const typedIds = query.kind === 'gear' && query.itemType
+    ? (await db.libraryEntry.findMany({ where: untypedBase, select: { id: true, data: true, sourceUrl: true } }))
+      .filter((entry: { data: unknown; sourceUrl: string | null }) => gearItemType(entry) === query.itemType)
+      .map((entry: { id: string }) => entry.id)
+    : null;
+  const base = { ...untypedBase, ...(typedIds ? { id: { in: typedIds } } : {}) };
   const keys = [key, numeralAltKey(key)].filter((k): k is string => k !== null);
   const likes = keys.map(escapeLike);
   const anyOf = (op: 'startsWith' | 'contains') => (likes.length === 1 ? { nameKey: { [op]: likes[0] } } : { OR: likes.map((l) => ({ nameKey: { [op]: l } })) });
@@ -297,7 +407,7 @@ export async function searchLibraryPage(db: Db, query: SearchQuery): Promise<{ r
     exactWhere ? { where: exactWhere } : null,
     { where: prefixWhere },
     containsWhere ? { where: containsWhere } : null,
-  ].filter((bucket): bucket is { where: object } => bucket !== null);
+  ].filter((bucket): bucket is NonNullable<typeof bucket> => bucket !== null);
   const counts = await Promise.all(buckets.map((bucket) => db.libraryEntry.count({ where: bucket.where })));
   const total = counts.reduce((sum: number, count: number) => sum + count, 0);
   let skip = (query.page - 1) * query.limit;
@@ -443,4 +553,29 @@ export async function lookupTerms(db: Db, input: z.infer<typeof lookupInputSchem
     const b = best.get(keys[i]);
     return { term, match: b ? { id: b.r.id, name: b.r.name, kind: b.r.kind, summary: b.r.summary, sourceUrl: b.r.sourceUrl } : null };
   });
+}
+
+/** Ids referenced by sheet JSON. Used to drop links that don't point at a real library row. */
+export function libraryIdsIn(value: unknown): string[] {
+  const ids: string[] = [];
+  const walk = (v: unknown) => {
+    if (!v || typeof v !== 'object') return;
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    const rec = v as Record<string, unknown>;
+    if (typeof rec.libraryEntryId === 'string' && rec.libraryEntryId) ids.push(rec.libraryEntryId);
+    for (const child of Object.values(rec)) walk(child);
+  };
+  walk(value);
+  return [...new Set(ids)];
+}
+
+export function stripMissingLibraryIds(value: unknown, existing: Set<string>): void {
+  const walk = (v: unknown) => {
+    if (!v || typeof v !== 'object') return;
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    const rec = v as Record<string, unknown>;
+    if ('libraryEntryId' in rec && (typeof rec.libraryEntryId !== 'string' || !existing.has(rec.libraryEntryId))) delete rec.libraryEntryId;
+    for (const child of Object.values(rec)) walk(child);
+  };
+  walk(value);
 }

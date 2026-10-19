@@ -10,21 +10,22 @@ datasource db {
 }
 
 model User {
-  id             String               @id @default(cuid())
-  email          String               @unique
-  password       String
-  displayName    String               @default("Adventurer")
-  emailVerified  DateTime?
-  image          String?
-  accounts       Account[]
-  sessions       Session[]
-  memberships    CampaignMembership[]
-  characters     Character[]
-  diceRolls      DiceRoll[]
-  isAdmin        Boolean              @default(false)
-  libraryEntries LibraryEntry[]
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  id              String               @id @default(cuid())
+  email           String               @unique
+  password        String
+  displayName     String               @default("Adventurer")
+  emailVerified   DateTime?
+  image           String?
+  accounts        Account[]
+  sessions        Session[]
+  memberships     CampaignMembership[]
+  characters      Character[]
+  diceRolls       DiceRoll[]
+  creatureReveals CreatureReveal[]
+  isAdmin         Boolean              @default(false)
+  libraryEntries  LibraryEntry[]
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
 }
 
 model Account {
@@ -84,6 +85,7 @@ model Campaign {
   diceRolls             DiceRoll[]
   towns                 Town[]
   partyCp               Int                  @default(0) // party coin total in copper (1 gp = 100 cp)
+  sharedPurse           Boolean              @default(false) // DM-only: when true, gp/pp come from partyCp; sp/cp stay per character
   inventoryItems        InventoryItem[]
   lootTables            LootTable[]
 }
@@ -198,8 +200,16 @@ model Character {
   creature       Creature?       @relation("CharacterCreature", fields: [creatureId], references: [id], onDelete: SetNull)
   inventoryItems InventoryItem[]
 
+  // Companion sheets (animal companion, familiar, eidolon...) point at their owner
+  // sheet. Visibility is NOT inherited through this link; see lib/companions.ts.
+  ownerCharacterId String?
+  owner            Character?  @relation("CharacterCompanions", fields: [ownerCharacterId], references: [id], onDelete: SetNull)
+  companions       Character[] @relation("CharacterCompanions")
+  companionType    String      @default("")
+
   @@index([campaignId])
   @@index([userId])
+  @@index([ownerCharacterId])
 }
 
 model WikiPage {
@@ -327,15 +337,20 @@ model Creature {
 
   wikiPageId String?
 
-  gmNotes          String @default("")
+  gmNotes          String           @default("")
   // Player-facing notes (weaknesses, rumors) — visible when the playerNotes
   // section is unlocked (named) or everything is revealed (full). gmNotes is GM-only.
-  playerNotes      String @default("")
-  // GM-set knowledge reveal level, party-wide: hidden | unknown | named | full
-  revealLevel      String @default("hidden")
-  // Section keys unlocked at the "named" level: defense, offense, statistics,
-  // specialAbilities, playerNotes, wiki
-  unlockedSections Json   @default("[]")
+  playerNotes      String           @default("")
+  // Party-wide visibility only: "hidden" keeps the creature out of every
+  // player's Bestiary; any other value (new writes use "unknown") lists it.
+  // What each player can READ is per player, in CreatureReveal.
+  revealLevel      String           @default("hidden")
+  // DEPRECATED, no longer read: the old party-wide unlocks. Copied into
+  // CreatureReveal by prisma/sql/2026-10-19_per_player_creature_reveals.sql,
+  // which then empties it. Kept so `prisma db push` can't drop it before that
+  // copy runs; remove in a later change.
+  unlockedSections Json             @default("[]")
+  reveals          CreatureReveal[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -533,4 +548,26 @@ model SpellLevel {
 
   @@id([entryId, cls])
   @@index([cls, level])
+}
+
+// What one player has learned about one Bestiary creature (e.g. from a
+// Knowledge roll). The GM grants and revokes these per player; players only
+// ever receive the sections in their own row. No row = nothing unlocked.
+model CreatureReveal {
+  id         String   @id @default(cuid())
+  creatureId String
+  userId     String
+  // Unlocked section keys (lib/creatures.ts REVEAL_SECTIONS): name, defense,
+  // offense, statistics, specialAbilities, playerNotes, wiki
+  sections   Json     @default("[]")
+  // Everything, including type/size/CR/alignment (the old "full" level)
+  full       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  creature Creature @relation(fields: [creatureId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([creatureId, userId])
+  @@index([userId])
 }

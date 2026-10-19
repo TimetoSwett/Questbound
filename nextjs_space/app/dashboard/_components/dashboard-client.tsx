@@ -1,10 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { signOut } from 'next-auth/react';
-import { Shield, Plus, LogOut, Scroll, Swords, Users, ArrowRight, ChevronRight, Trash2, FolderPlus } from 'lucide-react';
+import { Plus, Scroll, Swords, Users, ArrowRight, ChevronRight, Trash2, FolderPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,6 +11,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from 'sonner';
 import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
 import { CharacterSheet } from '@/app/campaign/[id]/_components/character-sheet';
+import { CompanionNavProvider } from '@/components/characters/companion-nav';
+import { groupCompanions } from '@/lib/companions';
+import { SiteHeader } from '@/components/site-header';
 
 interface Campaign {
   id: string;
@@ -28,32 +30,14 @@ interface VaultChar {
   campaignId: string | null;
   campaign: { id: string; name: string } | null;
   isAssigned: boolean;
+  ownerCharacterId?: string | null;
+  companionType?: string;
   name: string;
   race: string;
   classes: any;
   hpMax: number;
   hpCurrent: number;
   createdAt: string;
-}
-
-function Header({ userName }: { userName: string }) {
-  return (
-    <header className="sticky top-0 z-50 bg-card/80 backdrop-blur-md border-b border-border">
-      <div className="max-w-5xl mx-auto flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2 cursor-pointer" onClick={ () => window.location.href = '/dashboard'}>
-          <Shield className="w-7 h-7 text-primary" />
-          <span className="font-display text-xl font-bold text-primary tracking-tight">Questbound</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button asChild variant="ghost" size="sm"><Link href="/library">Library</Link></Button>
-          <span className="text-sm text-muted-foreground hidden sm:block">Welcome, <span className="text-foreground font-medium">{userName}</span></span>
-          <Button variant="ghost" size="sm" onClick={async () => { await signOut({ redirect: false }); window.location.href = '/login'; }}>
-            <LogOut className="w-4 h-4 mr-1" /> Sign Out
-          </Button>
-        </div>
-      </div>
-    </header>
-  );
 }
 
 function classSummary(classes: any): string {
@@ -65,7 +49,7 @@ function classSummary(classes: any): string {
 
 export function DashboardClient({ userId, userName }: { userId: string; userName: string }) {
   const router = useRouter();
-  const [view, setView] = useState<'campaigns' | 'vault'>('campaigns');
+  const view = useSearchParams().get('view') === 'vault' ? 'vault' : 'campaigns';
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
@@ -77,6 +61,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
   const [vault, setVault] = useState<VaultChar[]>([]);
   const [vaultLoading, setVaultLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const navCurrent = editingId || view === 'vault' ? '/dashboard?view=vault' : '/dashboard';
   const [attachChar, setAttachChar] = useState<VaultChar | null>(null);
 
   const requestCampaigns = useCallback(async () => {
@@ -208,12 +193,14 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
   if (editingId) {
     return (
       <div className="min-h-screen bg-background">
-        <Header userName={userName} />
-        <main className="max-w-6xl mx-auto px-4 py-4">
+        <SiteHeader userName={userName} current={navCurrent} />
+        <main className="w-full px-4 py-4">
           <Button variant="ghost" size="sm" onClick={() => { setEditingId(null); fetchVault(); }} className="mb-4">
             <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to vault
           </Button>
-          <CharacterSheet characterId={editingId} editable={true} />
+          <CompanionNavProvider onOpen={setEditingId} onChanged={fetchVault}>
+            <CharacterSheet key={editingId} characterId={editingId} editable={true} />
+          </CompanionNavProvider>
         </main>
       </div>
     );
@@ -221,7 +208,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
 
   return (
     <div className="min-h-screen bg-background">
-      <Header userName={userName} />
+      <SiteHeader userName={userName} current={navCurrent} />
 
       <main className="max-w-5xl mx-auto px-4 py-8">
         <FadeIn>
@@ -262,16 +249,6 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
             </div>
           </div>
         </FadeIn>
-
-        {/* View toggle */}
-        <div className="flex gap-2 mb-6">
-          <Button variant={view === 'campaigns' ? 'default' : 'secondary'} size="sm" onClick={() => setView('campaigns')}>
-            <Swords className="w-4 h-4 mr-1" /> Campaigns
-          </Button>
-          <Button variant={view === 'vault' ? 'default' : 'secondary'} size="sm" onClick={() => setView('vault')}>
-            <Scroll className="w-4 h-4 mr-1" /> Character Vault
-          </Button>
-        </div>
 
         {view === 'campaigns' ? (
           loading ? (
@@ -333,14 +310,14 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
           ) : (
             <Stagger key="vault" staggerDelay={0.06}>
               <div className="grid gap-3">
-                {(vault ?? []).map((ch: VaultChar) => {
+                {groupCompanions(vault ?? []).map(({ item: ch, depth, isCompanion }) => {
                   const cls = classSummary(ch.classes);
                   return (
                     <StaggerItem key={ch.id}>
-                      <HoverLift>
+                      <HoverLift className={depth ? 'ml-6' : undefined}>
                         <div className="flex items-center gap-3 bg-card p-4 rounded-lg border border-border hover:border-primary/30 transition-colors" style={{ boxShadow: 'var(--shadow-sm)' }}>
                           <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setEditingId(ch.id)}>
-                            <h3 className="font-display font-semibold truncate">{ch.name ?? 'Unnamed'}</h3>
+                            <h3 className="font-display font-semibold truncate">{ch.name ?? 'Unnamed'}{isCompanion && <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 align-middle text-xs font-normal text-muted-foreground">{ch.companionType || 'Companion'}</span>}</h3>
                             {ch.campaign ? (
                               <Link
                                 href={`/campaign/${ch.campaign.id}`}
@@ -356,7 +333,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
                             <p className="text-xs text-muted-foreground mt-0.5">Created {ch.createdAt ? new Date(ch.createdAt).toLocaleDateString() : ''}</p>
                           </div>
                           <div className="text-right shrink-0 hidden sm:block">
-                            <p className="text-sm font-mono"><span className="text-green-700">{ch.hpCurrent ?? 0}</span>/{ch.hpMax ?? 0} HP</p>
+                            <p className="text-sm font-mono"><span className="text-success">{ch.hpCurrent ?? 0}</span>/{ch.hpMax ?? 0} HP</p>
                           </div>
                           {!ch.isAssigned && (
                             <Button variant="secondary" size="sm" onClick={() => setAttachChar(ch)} disabled={(campaigns?.length ?? 0) === 0} title={(campaigns?.length ?? 0) === 0 ? 'Join a campaign first' : 'Add to a campaign'}>
