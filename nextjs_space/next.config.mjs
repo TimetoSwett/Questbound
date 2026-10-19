@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
-const path = require('path');
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const nextConfig = {
   distDir: process.env.NEXT_DIST_DIR || '.next',
@@ -29,7 +33,6 @@ const nextConfig = {
   allowedDevOrigins: ['127.0.0.1', '157f35be07.na122.preview.abacusai.app'],
 };
 
-const fs = require('fs');
 const userConfigPath = path.join(__dirname, 'next.config.user.json');
 const userConfigAllowedKeys = { skipTrailingSlashRedirect: 'boolean', trailingSlash: 'boolean' };
 if (fs.existsSync(userConfigPath)) {
@@ -42,5 +45,4 @@ if (fs.existsSync(userConfigPath)) {
   }
 }
 
-module.exports = nextConfig;
-
+export default nextConfig;
