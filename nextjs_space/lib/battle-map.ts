@@ -52,7 +52,8 @@ export function collectFileKeys(state: Record<string, any>): Set<string> {
 
 /**
  * Player view of tokens linked to bestiary creatures (token.creatureId).
- * Applies the same reveal rules as the Bestiary via presentCreature:
+ * Applies the same reveal rules as the Bestiary via presentCreature, using
+ * the viewing player's own unlocks (userId):
  *  - creature at reveal level "hidden": the token stays on the board but is
  *    anonymized: label "???", no portrait, HP, conditions or creatureId
  *    (no bestiary link), and its turn entries are relabelled "???";
@@ -66,6 +67,7 @@ export function collectFileKeys(state: Record<string, any>): Set<string> {
 export async function filterLinkedTokensForPlayer(
   state: Record<string, any>,
   campaignId: string,
+  userId: string,
   fullTokens: any[] = Array.isArray(state.tokens) ? state.tokens : [],
 ): Promise<Record<string, any>> {
   const tokens: any[] = Array.isArray(state.tokens) ? state.tokens : [];
@@ -74,9 +76,10 @@ export async function filterLinkedTokensForPlayer(
   const cards = new Map<string, Record<string, any> | null>();
   if (linkedIds.length > 0) {
     const { prisma } = await import('@/lib/prisma');
-    const { presentCreature } = await import('@/lib/creatures');
+    const { presentCreaturesFor } = await import('@/lib/creature-reveals');
     const creatures = await prisma.creature.findMany({ where: { id: { in: linkedIds }, campaignId } });
-    for (const c of creatures) cards.set(c.id, await presentCreature({ ...c, wikiPage: null } as any, 'player'));
+    const presented = await presentCreaturesFor(creatures.map((c) => ({ ...c, wikiPage: null })), 'player', userId);
+    creatures.forEach((c, i) => cards.set(c.id, presented[i]));
   }
   return applyCreatureCardsForPlayer(state, cards, all);
 }

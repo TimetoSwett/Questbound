@@ -7,7 +7,7 @@ import { createContext, createElement, useCallback, useContext, useEffect, useMe
 // per-viewer-filtered REST routes. Polling stays on as a fallback and slows
 // down while the stream is healthy.
 
-export type CampaignTopic = 'battle' | 'rolls' | 'characters' | 'loot' | 'resync';
+export type CampaignTopic = 'battle' | 'rolls' | 'characters' | 'loot' | 'bestiary' | 'resync';
 export type CampaignEvent = { topic: CampaignTopic; version?: number };
 type Listener = (evt: CampaignEvent) => void;
 

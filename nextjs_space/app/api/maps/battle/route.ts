@@ -26,7 +26,7 @@ export async function GET(request: Request) {
 
     // Tokens linked to bestiary creatures go through the Bestiary reveal rules
     // (presentCreature); see filterLinkedTokensForPlayer.
-    state = await filterLinkedTokensForPlayer(state, campaignId, Array.isArray(raw.tokens) ? raw.tokens : []);
+    state = await filterLinkedTokensForPlayer(state, campaignId, session.user.id, Array.isArray(raw.tokens) ? raw.tokens : []);
   }
 
   // Attach linked wiki article titles to battle pins, mirroring the world-pins
