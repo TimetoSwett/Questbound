@@ -5,7 +5,7 @@ import { emptyGearForm, buildGearData, GEAR_SLOT_LABELS, type GearFormState } fr
 
 type FeatEntry = Partial<FeatFormState> & { libraryEntryId?: string; summary?: string };
 type AbilityEntry = { tag?: AbilityTag; uses?: string; description?: string };
-type GearItem = { slot?: string; aura?: string; cl?: number; value?: string; weight?: number; notes?: string };
+type GearItem = { spellItem?: GearFormState['spellItem']; slot?: string; aura?: string; cl?: number; value?: string; weight?: number; notes?: string };
 
 export function featFormFromEntry(entry: FeatEntry): FeatFormState {
   return emptyFeatForm(entry);
@@ -44,7 +44,7 @@ export function abilityMeta(entry: AbilityEntry) {
 }
 
 export function gearFormFromItem(item: GearItem): GearFormState {
-  return emptyGearForm({ slot: item.slot, aura: item.aura, cl: item.cl?.toString(),
+  return emptyGearForm({ spellItem: item.spellItem, slot: item.slot, aura: item.aura, cl: item.cl?.toString(),
     cost: item.value, weight: item.weight?.toString(), description: item.notes });
 }
 
@@ -58,7 +58,7 @@ export function gearPatchFromForm(form: GearFormState) {
 
 export function gearMetaExtras(item: GearItem) {
   const slot = item.slot && GEAR_SLOT_LABELS[item.slot as keyof typeof GEAR_SLOT_LABELS];
-  return [slot, item.aura, item.cl !== undefined ? `CL ${item.cl}` : ''].filter(Boolean).join(' · ');
+  return [slot, item.spellItem ? `${item.spellItem.charges}/${item.spellItem.type === 'wand' ? 50 : 1} charges · spell level ${item.spellItem.spellLevel}` : '', item.aura, item.cl !== undefined ? `CL ${item.cl}` : ''].filter(Boolean).join(' · ');
 }
 
 /** Preserve invalid typing until the draft can accept an external update. */

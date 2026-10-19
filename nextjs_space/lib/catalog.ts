@@ -35,7 +35,8 @@ export function slotFromLibrary(name: string, data: { description?: string }, li
 
 export function gearItemFields(data: GearData) {
   return {
-    weight: data.weight || 0, value: data.cost || '', notes: sheetNotes(data.description || ''),
+    weight: data.weight || 0, value: data.cost || '', notes: data.spellItem ? (data.description || '').slice(0, 20_000) : sheetNotes(data.description || ''),
+    ...(data.spellItem ? { spellItem: { ...data.spellItem } } : {}),
     ...(data.slot !== undefined ? { slot: data.slot } : {}),
     ...(data.aura !== undefined ? { aura: data.aura } : {}),
     ...(data.cl !== undefined ? { cl: data.cl } : {}),

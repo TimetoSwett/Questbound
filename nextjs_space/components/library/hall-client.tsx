@@ -182,6 +182,10 @@ function HandStats({ kind, slot, form, onChange }: {
 export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: string; kind: string; slot?: string; label?: string }; onClose: () => void; onSaved: () => void }) {
   const [mode, setMode] = useState<'link' | 'hand'>(filter.kind === 'spell' ? 'hand' : 'link');
   const [url, setUrl] = useState('');
+  const [itemType, setItemType] = useState('');
+  const [itemCl, setItemCl] = useState('');
+  const [itemCharges, setItemCharges] = useState('50');
+  const [componentCost, setComponentCost] = useState('0');
   const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
   const [drafts, setDrafts] = useState<Array<Record<string, unknown>>>([]);
   const [saved, setSaved] = useState<string[]>([]);
@@ -197,7 +201,7 @@ export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: stri
   async function loadLink() {
     setBusy(true); setError(''); setDraft(null); setDrafts([]); setSaved([]);
     try {
-      const response = await fetch('/api/library/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+      const response = await fetch('/api/library/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, ...(filter.kind === 'gear' && itemType ? { itemType, cl: Number(itemCl), charges: itemType === 'wand' ? Number(itemCharges) : 1, componentCostGp: Number(componentCost) } : {}) }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'Import failed.');
       setDraft(body.draft);
@@ -271,8 +275,21 @@ export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: stri
         <button type="button" className={`rounded px-3 py-1 text-sm ${mode === 'hand' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`} onClick={() => setMode('hand')}>By hand</button>
       </div>
       {mode === 'link' ? <div className="space-y-3">
-        <div><Label htmlFor="import-url">Archives of Nethys or d20pfsrd link</Label><Input id="import-url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder={LINK_PLACEHOLDER[filter.kind] ?? LINK_PLACEHOLDER.feat} /></div>
-        <Button type="button" disabled={busy || !url.trim()} onClick={() => void loadLink()}>{busy ? 'Reading…' : 'Read link'}</Button>
+        {filter.kind === 'gear' && <>
+          <div><Label htmlFor="import-item-type">Import as</Label><select id="import-item-type" value={itemType} disabled={busy} onChange={(event) => { setItemType(event.target.value); setDraft(null); setDrafts([]); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+            <option value="">Item page</option><option value="scroll">Scroll from a spell</option><option value="wand">Wand from a spell</option>
+          </select></div>
+          {itemType && <>
+            <p className="text-sm text-muted-foreground">Use an Archives of Nethys or d20pfsrd spell link. Enter caster level{itemType === 'wand' ? ' and remaining charges' : ''}. Value uses PF1e pricing and the lowest spell level listed on the page (cantrips count as half a level).</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label htmlFor="import-item-cl">Caster level</Label><Input id="import-item-cl" type="number" min={1} max={30} step={1} value={itemCl} disabled={busy} onChange={(event) => { setItemCl(event.target.value); setDraft(null); }} /></div>
+              {itemType === 'wand' && <div><Label htmlFor="import-item-charges">Charges remaining</Label><Input id="import-item-charges" type="number" min={0} max={50} step={1} value={itemCharges} disabled={busy} onChange={(event) => { setItemCharges(event.target.value); setDraft(null); }} /></div>}
+              <div><Label htmlFor="import-component-cost">Material component cost per use (gp)</Label><Input id="import-component-cost" type="number" min={0} max={1000000} step="0.01" value={componentCost} disabled={busy} onChange={(event) => { setComponentCost(event.target.value); setDraft(null); }} /></div>
+            </div>
+          </>}
+        </>}
+        <div><Label htmlFor="import-url">Archives of Nethys or d20pfsrd link</Label><Input id="import-url" type="url" value={url} disabled={busy} onChange={(event) => { setUrl(event.target.value); setDraft(null); setDrafts([]); }} placeholder={itemType ? LINK_PLACEHOLDER.spell : LINK_PLACEHOLDER[filter.kind] ?? LINK_PLACEHOLDER.feat} /></div>
+        <Button type="button" disabled={busy || !url.trim() || Boolean(itemType && (!itemCl || (itemType === 'wand' && !itemCharges.trim())))} onClick={() => void loadLink()}>{busy ? 'Reading…' : 'Read link'}</Button>
         {drafts.length > 1 ? <div className="space-y-2">
           {drafts.map((d) => <div key={String(d.name)} className="rounded-md border p-3 text-sm">
             <p className="font-semibold">{String(d.name)}{(d.data as { cost?: unknown } | undefined)?.cost ? ` — ${String((d.data as { cost?: unknown }).cost)}` : ''}</p>
@@ -282,6 +299,7 @@ export function ImportDialog({ filter, onClose, onSaved }: { filter: { id?: stri
           <Button type="button" disabled={busy || drafts.every((d) => saved.includes(String(d.name)))} onClick={() => void saveVersions(drafts.filter((d) => !saved.includes(String(d.name))))}>Save all {drafts.length}</Button>
         </div> : draft && <div className="rounded-md border p-3 text-sm">
           <p className="font-semibold">{String(draft.name)}</p>
+          {itemType && <p>{String((draft.data as { cost?: string })?.cost ?? '')} · {itemType === 'wand' ? itemCharges : '1'} charge(s) · spell level {String((draft.data as { spellItem?: { spellLevel?: number } })?.spellItem?.spellLevel ?? '')}</p>}
           <p className="text-muted-foreground">{String(draft.kind)} — {String(draft.summary || '')}</p>
           <Button type="button" className="mt-2" disabled={busy} onClick={() => void saveDraft()}>Save to catalog</Button>
         </div>}

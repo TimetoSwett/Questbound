@@ -1,13 +1,13 @@
 // d20pfsrd.com magic items: wondrous items, rings, rods, staves, specific magic
-// weapons, specific magic armor/shields, and potions (core and 3rd party).
+// weapons, specific magic armor/shields, potions, scrolls, and wands (core and 3rd party).
 // Circular import with ../d20pfsrd-parser is safe: neither module uses the other's bindings at module top level.
 
 import { GEAR_SLOTS, sanitizeSummary, summaryFromDescription } from '../library';
 import { D20PFSRD_UNSUPPORTED, HINT, blockText, clip, isSkippable, oneLine } from '../d20pfsrd-parser';
 import type { Block, D20pfsrdDraft } from '../d20pfsrd-parser';
 
-type MagicItemCategory = 'wondrous' | 'ring' | 'rod' | 'staff' | 'magic-weapon' | 'magic-armor' | 'magic-shield' | 'potion';
-const CATEGORIES: Record<string, MagicItemCategory> = { 'wondrous-items': 'wondrous', rings: 'ring', rods: 'rod', staves: 'staff' };
+type MagicItemCategory = 'wondrous' | 'ring' | 'rod' | 'staff' | 'magic-weapon' | 'magic-armor' | 'magic-shield' | 'potion' | 'scroll' | 'wand';
+const CATEGORIES: Record<string, MagicItemCategory> = { 'wondrous-items': 'wondrous', rings: 'ring', rods: 'rod', staves: 'staff', scrolls: 'scroll', wands: 'wand' };
 
 /** Magic item category of a lowercase path (core or 3rd party), else null. */
 export function magicItemCategory(seg: string[]): MagicItemCategory | null {
@@ -15,6 +15,9 @@ export function magicItemCategory(seg: string[]): MagicItemCategory | null {
   if (seg[1] === 'wondrous-items') return seg.length === 4 && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(seg[2]) ? 'wondrous' : null;
   if (seg[1] === 'rods' && seg[2] === 'metamagic-rods') return isMetamagicRodPath(seg) ? 'rod' : null;
   if (seg[1] === 'rings' || seg[1] === 'rods' || seg[1] === 'staves') return seg.length === 3 ? CATEGORIES[seg[1]] : null;
+  if (seg[1] === 'scrolls' || seg[1] === 'wands') {
+    return seg.length === 3 && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(seg[2]) ? CATEGORIES[seg[1]] : null;
+  }
   // Specific magic weapons: /magic-items/magic-weapons/specific-magic-weapons/<name>/
   if (seg[1] === 'magic-weapons' && seg[2] === 'specific-magic-weapons') {
     return seg.length === 4 && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(seg[3]) ? 'magic-weapon' : null;
@@ -32,7 +35,7 @@ export function magicItemCategory(seg: string[]): MagicItemCategory | null {
     return seg.length === 4 && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(seg[3]) ? 'potion' : null;
   }
   if (seg[1] === '3rd-party-magic-items') {
-    const m = /^3rd-party-(wondrous-items|rings|rods|staves)$/.exec(seg[2] ?? '');
+    const m = /^3rd-party-(wondrous-items|rings|rods|staves|scrolls|wands)$/.exec(seg[2] ?? '');
     return m && seg.length === 5 ? CATEGORIES[m[1]] : null;
   }
   return null;
@@ -88,7 +91,7 @@ export function parseD20pfsrdMagicItem(title: string, blocks: Block[], sourceUrl
   let slot = SLOT_ALIASES[rawSlot] ?? rawSlot;
   if (!GEAR_SLOTS.some((v) => v === slot)) {
     slot = category === 'ring' ? 'ring'
-      : category === 'rod' || category === 'staff' || category === 'magic-weapon' || category === 'potion' ? 'slotless'
+      : category === 'rod' || category === 'staff' || category === 'magic-weapon' || category === 'potion' || category === 'scroll' || category === 'wand' ? 'slotless'
       : category === 'magic-armor' ? 'armor'
       : category === 'magic-shield' ? 'shield'
       : '';

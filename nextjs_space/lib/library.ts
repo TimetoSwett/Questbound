@@ -104,17 +104,42 @@ export const armorDataSchema = z.object({
 }).strict();
 export type ArmorData = z.infer<typeof armorDataSchema>;
 
-// Mirrors BODY_SLOTS in lib/equipment.ts with ring1/ring2 collapsed to ring, plus slotless.
-export const GEAR_SLOTS = ['head', 'headband', 'eyes', 'shoulders', 'neck', 'chest', 'body', 'armor', 'belt', 'wrists', 'hands', 'ring', 'feet', 'slotless'] as const;
+// Body slots with ring1/ring2 collapsed to ring, plus shields and slotless gear.
+export const GEAR_SLOTS = ['head', 'headband', 'eyes', 'shoulders', 'neck', 'chest', 'body', 'armor', 'shield', 'belt', 'wrists', 'hands', 'ring', 'feet', 'slotless'] as const;
+
+export const spellItemDataSchema = z.object({
+  type: z.enum(['scroll', 'wand']),
+  spellLevel: z.number().int().min(0).max(9),
+  charges: z.number().int().min(0).max(50),
+  componentCostGp: z.number().min(0).max(1_000_000).default(0),
+}).strict().superRefine((item, ctx) => {
+  if (item.type === 'wand' && item.spellLevel > 4) ctx.addIssue({ code: 'custom', path: ['spellLevel'], message: 'Wands require a spell of level 4 or lower' });
+  if (item.type === 'scroll' && item.charges > 1) ctx.addIssue({ code: 'custom', path: ['charges'], message: 'Scrolls have only one charge' });
+});
+export type SpellItemData = z.infer<typeof spellItemDataSchema>;
+
+/** PF1e market value, including material components per use, rounded to copper. */
+export function spellItemValueGp(item: SpellItemData, casterLevel: number): number {
+  const level = item.spellLevel === 0 ? 0.5 : item.spellLevel;
+  const fullCharges = item.type === 'wand' ? 50 : 1;
+  const rate = item.type === 'wand' ? 750 : 25;
+  return Math.round((level * casterLevel * rate + item.componentCostGp * fullCharges) * item.charges / fullCharges * 100) / 100;
+}
+export function spellItemCost(item: SpellItemData, casterLevel: number): string {
+  return `${spellItemValueGp(item, casterLevel).toLocaleString('en-US', { maximumFractionDigits: 2 })} gp`;
+}
 
 export const gearDataSchema = z.object({
+  spellItem: spellItemDataSchema.optional(),
   slot: z.enum(GEAR_SLOTS).optional(),
   aura: z.string().trim().max(80).optional(),
   cl: z.number().int().min(0).max(30).optional(),
   weight: pounds,
   cost,
   description: str(20_000),
-}).strict();
+}).strict().superRefine((data, ctx) => {
+  if (data.spellItem && (!data.cl || data.cl < 1)) ctx.addIssue({ code: 'custom', path: ['cl'], message: 'Scrolls and wands require a caster level from 1 to 30' });
+});
 export type GearData = z.infer<typeof gearDataSchema>;
 
 export const featDataSchema = z.object({
@@ -277,7 +302,7 @@ export const searchQuerySchema = z.object({
   q: z.string().max(NAME_MAX).optional().default(''),
   cls: z.string().trim().toLowerCase().max(40).optional(),
   level: z.coerce.number().int().min(0).max(9).optional(),
-  slot: z.enum([...GEAR_SLOTS, 'shield']).optional(),
+  slot: z.enum(GEAR_SLOTS).optional(),
   itemType: z.enum(['mundane', 'wondrous']).optional(),
   school: facet(40),
   subschool: facet(60),

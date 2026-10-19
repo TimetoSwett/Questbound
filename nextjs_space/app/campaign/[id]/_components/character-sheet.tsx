@@ -35,6 +35,7 @@ import { AddSpellSearchDialog } from './add-spell-search-dialog';
 import { CatalogSearchDialog } from '@/components/library/catalog-search-dialog';
 import { CompanionSwitcher } from '@/components/characters/companion-switcher';
 import { CompanionPanel } from '@/components/characters/companion-panel';
+import { spellItemCost } from '@/lib/library';
 import { ABILITY_TAGS, abilityTag, featFromLibrary, gearFromLibrary } from '@/lib/catalog';
 import { abilityMeta, featCardBody, gearMetaExtras } from '@/lib/sheet-entry-forms';
 import { SheetFeatEditor, SheetAbilityEditor, SheetGearEditor } from './sheet-entry-editors';
@@ -46,7 +47,7 @@ const ALIGNMENTS = ['LG', 'NG', 'CG', 'LN', 'N', 'CN', 'LE', 'NE', 'CE'];
 type DrRow = NonNullable<SheetOptions['dr']>[number];
 type ResistRow = NonNullable<SheetOptions['resist']>[number];
 
-interface EquipItem { id?: string; slot?: string; aura?: string; cl?: number; name: string; weight: number; quantity: number; value: string; notes: string; summary?: string; libraryEntryId?: string; sourceUrl?: string | null; }
+interface EquipItem { spellItem?: GearData['spellItem']; id?: string; slot?: string; aura?: string; cl?: number; name: string; weight: number; quantity: number; value: string; notes: string; summary?: string; libraryEntryId?: string; sourceUrl?: string | null; }
 interface FeatEntry { id?: string; uses?: string; featType?: string; prerequisites?: string; benefit?: string; name: string; description: string; summary?: string; kind?: 'feat' | 'ability'; tag?: AbilityTag; libraryEntryId?: string; sourceUrl?: string | null; bonuses?: ItemBonus[]; }
 interface ClassEntry { name: string; level: number; }
 
@@ -819,10 +820,11 @@ export function CharacterSheet({ characterId, editable, initialSection }: { char
                 const patch = (partial: Partial<EquipItem>) => {
                   const arr = [...(data?.equipment ?? [])];
                   arr[i] = { ...(arr[i] ?? {}), ...partial };
+                  if (arr[i].spellItem && arr[i].cl) arr[i].value = spellItemCost(arr[i].spellItem, arr[i].cl);
                   update('equipment', arr);
                   autoSave();
                 };
-                return <EntryCard key={item?.id ?? i} name={item?.name ?? ''} unnamed="Unnamed item" meta={itemMeta(item)} body={item?.summary || item?.notes} libraryEntryId={item?.libraryEntryId} sourceUrl={item?.sourceUrl} editable={editable}
+                return <EntryCard key={item?.id ?? i} name={item?.name ?? ''} unnamed="Unnamed item" meta={itemMeta(item)} body={item?.summary || item?.notes} actions={item.spellItem && <Button type="button" variant="outline" size="sm" disabled={item.spellItem.charges === 0} onClick={() => patch({ spellItem: { ...item.spellItem!, charges: Math.max(0, item.spellItem!.charges - 1) } })}>{item.spellItem.type === 'scroll' ? 'Use scroll' : 'Use charge'}</Button>} libraryEntryId={item?.libraryEntryId} sourceUrl={item?.sourceUrl} editable={editable}
                   onDelete={() => { const arr = [...(data?.equipment ?? [])]; arr.splice(i, 1); update('equipment', arr); autoSave(); }}>
                   <Input value={item?.name ?? ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ name: e.target.value, libraryEntryId: undefined, sourceUrl: null, summary: undefined })} className="h-7 text-xs" placeholder="Item name" />
                   <label className="text-xs text-muted-foreground">Qty<Input type="number" value={item?.quantity ?? 1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => patch({ quantity: parseInt(e.target.value) || 1 })} className="h-7 text-xs text-center font-mono" /></label>
