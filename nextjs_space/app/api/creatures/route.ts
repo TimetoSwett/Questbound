@@ -6,6 +6,7 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
 import { creatureInputSchema, creatureWhereFor, presentCreature, type CreatureInput } from '@/lib/creatures';
+import { presentCreatureFor, presentCreaturesFor } from '@/lib/creature-reveals';
 
 const wikiSelect = { wikiPage: { select: { id: true, title: true, visibility: true } } } as const;
 
@@ -16,7 +17,7 @@ async function validWikiPage(input: CreatureInput, campaignId: string): Promise<
 }
 
 // GET ?campaignId=... lists a campaign's creatures; GET ?id=... returns one.
-// Non-DMs only see revealed creatures, as a basic card (see lib/creatures.ts).
+// Players only see non-hidden creatures, filtered by their OWN unlocks (lib/creature-reveals.ts).
 export async function GET(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -29,7 +30,7 @@ export async function GET(request: Request) {
     if (!creature) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     const role = await getUserRole(session.user.id, creature.campaignId);
     if (!role) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
-    const out = await presentCreature(creature, role);
+    const out = await presentCreatureFor(creature, role, session.user.id);
     // Unrevealed creatures look identical to missing ones for players.
     if (!out) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json(out);
@@ -44,7 +45,7 @@ export async function GET(request: Request) {
     // Players: don't order by the real name, or the list order leaks locked names.
     orderBy: role === 'dm' ? { name: 'asc' } : { createdAt: 'asc' },
   });
-  const out = (await Promise.all(creatures.map((c) => presentCreature(c, role)))).filter(Boolean);
+  const out = (await presentCreaturesFor(creatures, role, session.user.id)).filter(Boolean);
   return NextResponse.json(out);
 }
 
@@ -62,7 +63,8 @@ export async function POST(request: Request) {
   if (!(await validWikiPage(parsed.data, campaignId))) return NextResponse.json({ error: 'Wiki page not in campaign' }, { status: 400 });
   const creature = await prisma.creature.create({ data: { ...parsed.data, campaignId } as Prisma.CreatureUncheckedCreateInput, include: wikiSelect });
   publish(campaignId, 'battle');
-  return NextResponse.json(await presentCreature(creature, role));
+  publish(campaignId, 'bestiary');
+  return NextResponse.json(await presentCreature(creature, role, null));
 }
 
 // PUT {id, ...fields} — DM only, partial update.
@@ -81,7 +83,8 @@ export async function PUT(request: Request) {
   if (!(await validWikiPage(parsed.data, existing.campaignId))) return NextResponse.json({ error: 'Wiki page not in campaign' }, { status: 400 });
   const updated = await prisma.creature.update({ where: { id }, data: parsed.data as Prisma.CreatureUncheckedUpdateInput, include: wikiSelect });
   publish(existing.campaignId, 'battle');
-  return NextResponse.json(await presentCreature(updated, role));
+  publish(existing.campaignId, 'bestiary');
+  return NextResponse.json(await presentCreature(updated, role, null));
 }
 
 // DELETE ?id=... — DM only.
@@ -97,5 +100,6 @@ export async function DELETE(request: Request) {
   if (role !== 'dm') return NextResponse.json({ error: 'Only DM' }, { status: 403 });
   await prisma.creature.delete({ where: { id } });
   publish(existing.campaignId, 'battle');
+  publish(existing.campaignId, 'bestiary');
   return NextResponse.json({ ok: true });
 }

@@ -4,7 +4,9 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
 import { TOWN_SECTIONS, parseTownInput, presentTown } from '@/lib/towns';
-import { REVEAL_LEVELS, presentCreature } from '@/lib/creatures';
+import { REVEAL_LEVELS } from '@/lib/creatures';
+import { loadReveals } from '@/lib/creature-reveals';
+import { presentCreature } from '@/lib/creatures';
 
 async function getTown(id: string) {
   return prisma.town.findUnique({
@@ -19,8 +21,9 @@ async function getTown(id: string) {
 }
 
 // GET /api/towns/[id] — GM gets everything; players get the reveal card
-// (hidden town = 404, like creatures). Resident NPCs go through
-// presentCreature; only revealed places are shown.
+// (hidden town = 404, like creatures). Resident NPCs and shopkeepers go
+// through presentCreature with the viewer's own unlocks; only revealed places
+// are shown.
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -35,6 +38,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const card = presentTown({ ...town, wikiPage: town.wikiPage });
   if (!card) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   const unlocked = card.unlockedSections as string[];
+  const reveals = await loadReveals(session.user.id, [
+    ...town.residents.map((r) => r.creatureId),
+    ...town.places.flatMap((p) => (p.shopkeeper ? [p.shopkeeper.id] : [])),
+  ]);
 
   const residents = unlocked.includes('residents')
     ? (
@@ -43,7 +50,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
             id: r.id,
             role: r.role,
             disposition: r.disposition,
-            creature: await presentCreature({ ...r.creature, wikiPage: null } as any, 'player'),
+            creature: await presentCreature({ ...r.creature, wikiPage: null }, 'player', reveals.get(r.creatureId) ?? null),
           })),
         )
       ).filter((r) => r.creature)
@@ -60,7 +67,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
               type: p.type,
               description: p.description,
               shopkeeper: p.shopkeeper
-                ? await presentCreature({ ...p.shopkeeper, wikiPage: null } as any, 'player')
+                ? await presentCreature({ ...p.shopkeeper, wikiPage: null }, 'player', reveals.get(p.shopkeeper.id) ?? null)
                 : null,
             })),
         )

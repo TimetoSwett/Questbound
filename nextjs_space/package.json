@@ -7,6 +7,7 @@
     "start": "next start",
     "lint": "eslint .",
     "test:reveal": "node scripts/test-reveal-levels.mjs",
+    "test:creature-reveals": "node scripts/test-creature-reveals.mjs",
     "test:import": "node scripts/test-statblock-import.mjs",
     "test:loot": "node scripts/test-loot.mjs",
     "test:realtime": "node scripts/test-realtime.mjs",

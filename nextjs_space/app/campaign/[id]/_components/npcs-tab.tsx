@@ -24,7 +24,8 @@ interface NpcSummary {
   portraitUrl?: string;
 }
 
-const LEVEL_LABEL: Record<string, string> = { hidden: 'Hidden', unknown: 'Unknown', named: 'Named', full: 'Full' };
+// Party-wide visibility; per-player unlocks are set on the creature page.
+const LEVEL_LABEL: Record<string, string> = { hidden: 'Hidden', unknown: 'Visible', named: 'Visible', full: 'Visible' };
 
 // GM-only. Lists Bestiary creatures flagged as NPCs. Hidden NPCs are fine here:
 // this tab never renders for players.

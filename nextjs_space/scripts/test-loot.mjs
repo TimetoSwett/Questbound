@@ -138,22 +138,28 @@ assert.equal(writes, beforeWrites); assert.equal(added.length, 1);
 balance = 0; failItem = true;
 assert.equal((await roll.POST(req({ campaignId: 'campaign' }), context)).status, 500);
 assert.equal(balance, 0); assert.equal(writes, beforeWrites); assert.equal(added.length, 1);
-// Existing creature APIs must also keep loot private, including full reveal.
+// Existing creature APIs must also keep loot private, even for a player who has unlocked everything.
 const creatures = load('lib/creatures.ts', { '@/lib/s3': { getFileUrl: async () => null } });
 const row = { id: 'creature', campaignId: 'campaign', name: 'Beast', lootTableId: 'secret-table', lootList: [item], lootTable: table, gmNotes: 'Secret', unlockedSections: [] };
 for (const revealLevel of ['hidden', 'unknown', 'named', 'full']) {
-  const presented = await creatures.presentCreature({ ...row, revealLevel }, 'player');
+  const presented = await creatures.presentCreature({ ...row, revealLevel }, 'player', { sections: [], full: true });
   if (revealLevel === 'hidden') assert.equal(presented, null);
   else for (const key of ['lootTableId', 'lootList', 'lootTable', 'gmNotes']) assert.equal(key in presented, false);
 }
-assert.equal((await creatures.presentCreature({ ...row, revealLevel: 'full' }, 'dm')).lootTableId, 'secret-table');
+assert.equal((await creatures.presentCreature({ ...row, revealLevel: 'full' }, 'dm', null)).lootTableId, 'secret-table');
+const creaturePrisma = {
+  creature: { findUnique: async () => ({ ...row, revealLevel: 'unknown' }), findMany: async () => [{ ...row, revealLevel: 'unknown' }] },
+  creatureReveal: { findMany: async () => [{ creatureId: 'creature', sections: [], full: true }] },
+};
+const creatureReveals = load('lib/creature-reveals.ts', { '@/lib/prisma': { prisma: creaturePrisma }, '@/lib/creatures': creatures });
 const creatureRoutes = load('app/api/creatures/route.ts', {
   '@/lib/realtime': realtimeMock,
   'next/server': responseMock,
   '@/auth': { auth: async () => ({ user: { id: 'player' } }) },
-  '@/lib/prisma': { prisma: { creature: { findUnique: async () => ({ ...row, revealLevel: 'full' }), findMany: async () => [{ ...row, revealLevel: 'full' }] } } },
+  '@/lib/prisma': { prisma: creaturePrisma },
   '@/lib/campaign-helpers': { getUserRole: async () => 'player' },
   '@/lib/creatures': creatures,
+  '@/lib/creature-reveals': creatureReveals,
 });
 for (const query of ['id=creature', 'campaignId=campaign']) {
   const response = await creatureRoutes.GET(new Request(`https://test/api?${query}`));

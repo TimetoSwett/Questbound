@@ -3,9 +3,16 @@ import { z } from 'zod';
 import type { Creature } from '@prisma/client';
 import { getFileUrl } from '@/lib/s3';
 
-// GM-set knowledge reveal levels, party-wide (not per player).
+// Knowledge reveal levels. On a creature, revealLevel is party-wide and only
+// decides whether players see it at all ('hidden' or not). What a player can
+// read is per player (CreatureReveal): the level a player sees is derived from
+// their own unlocks by playerRevealLevel(). Towns reuse these level names.
 export const REVEAL_LEVELS = ['hidden', 'unknown', 'named', 'full'] as const;
 export type RevealLevel = (typeof REVEAL_LEVELS)[number];
+
+/** One player's unlocks for one creature (a CreatureReveal row, normalized). */
+export type PlayerReveal = { sections: RevealSection[]; full: boolean };
+export const NO_REVEAL: PlayerReveal = Object.freeze({ sections: [], full: false }) as PlayerReveal;
 
 // Sections the GM can unlock one at a time (at "unknown" or "named" level).
 // "name" covers the creature's name (and portrait); the other card fields stay
@@ -30,6 +37,27 @@ const SECTION_LABELS: Record<RevealSection, string> = {
   playerNotes: 'Player Notes',
   wiki: 'Wiki Page',
 };
+
+export function isRevealSection(v: unknown): v is RevealSection {
+  return typeof v === 'string' && (REVEAL_SECTIONS as readonly string[]).includes(v);
+}
+
+/** A CreatureReveal row (or nothing) as a PlayerReveal; unknown section keys are dropped. */
+export function normalizeReveal(row: { sections?: unknown; full?: unknown } | null | undefined): PlayerReveal {
+  if (!row) return NO_REVEAL;
+  const sections = Array.isArray(row.sections) ? [...new Set(row.sections.filter(isRevealSection))] : [];
+  return { sections, full: row.full === true };
+}
+
+/**
+ * The level one player sees: null when the creature is hidden from players,
+ * else 'full' (everything unlocked), 'named' (name unlocked) or 'unknown'.
+ */
+export function playerRevealLevel(creatureLevel: unknown, reveal: PlayerReveal): Exclude<RevealLevel, 'hidden'> | null {
+  if (creatureLevel === 'hidden' || !REVEAL_LEVELS.includes(creatureLevel as RevealLevel)) return null;
+  if (reveal.full) return 'full';
+  return reveal.sections.includes('name') ? 'named' : 'unknown';
+}
 
 export function revealSectionLabel(section: string): string {
   return (SECTION_LABELS as Record<string, string>)[section] ?? section;
@@ -133,15 +161,19 @@ export function asUnlocked(v: unknown): string[] {
 }
 
 /**
- * Player view of a creature, sanitized server-side.
- * - hidden: null (indistinguishable from missing for players)
- * - unknown / named: sections (incl. "name", which also gates the portrait)
- *   readable only when unlocked; everything else scrambled to runic filler
- * - full: everything readable except gmNotes
+ * A creature as one viewer may see it, sanitized server-side.
+ * GM: everything. Player: filtered by THAT player's own unlocks (`reveal`,
+ * their CreatureReveal row; null = nothing unlocked). Required on purpose, so
+ * every caller has to say whose unlocks apply.
+ * - creature hidden from players: null (indistinguishable from missing)
+ * - otherwise: sections (incl. "name", which also gates the portrait) readable
+ *   only when that player unlocked them; everything else scrambled to runic
+ *   filler; `full` makes everything readable except GM-only fields
  */
 export async function presentCreature(
   c: Creature & { wikiPage?: WikiRef },
   role: string,
+  reveal: PlayerReveal | null,
 ): Promise<Record<string, unknown> | null> {
   const portraitUrl = c.portraitPath ? await getFileUrl(c.portraitPath) : null;
   const pg = c.wikiPage;
@@ -155,22 +187,17 @@ export async function presentCreature(
     };
   }
 
-  const rawLevel = (c as unknown as Record<string, unknown>).revealLevel;
-  const level: RevealLevel = REVEAL_LEVELS.includes(rawLevel as RevealLevel)
-    ? (rawLevel as RevealLevel)
-    : 'hidden';
-  if (level === 'hidden') return null;
+  const mine = normalizeReveal(reveal);
+  const level = playerRevealLevel(c.revealLevel, mine);
+  if (!level) return null;
 
   const seedBase = `${c.id}:${level}`;
   const rec = c as unknown as Record<string, unknown>;
 
-  // unknown | named | full. The name is readable at "full" or when the "name"
-  // section is unlocked (at "unknown" or "named"; existing named creatures get
-  // 'name' via prisma/migrate-reveal-name-unlock.sql); otherwise it is scrambled
-  // like everything else. Other identity fields stay scrambled until "full".
-  // Sections are unlockable at "unknown" and "named"; "unknown" just means
-  // nothing is unlocked by default.
-  const unlocked: string[] = level === 'full' ? [...REVEAL_SECTIONS] : asUnlocked(rec.unlockedSections);
+  // This player's unlocks only; the creature's own unlockedSections column is
+  // deprecated and never read. The name is readable at "full" or when "name"
+  // is unlocked; other identity fields stay scrambled until "full".
+  const unlocked: string[] = level === 'full' ? [...REVEAL_SECTIONS] : mine.sections;
   const shows = (section: RevealSection) => unlocked.includes(section);
   const nameReadable = level === 'full' || shows('name');
   const card: Record<string, unknown> = {
@@ -258,8 +285,49 @@ export const creatureInputSchema = z.object({
   wikiPageId: z.string().nullable(),
   gmNotes: z.string().max(100_000),
   playerNotes: z.string().max(100_000),
-  revealLevel: z.enum(REVEAL_LEVELS),
+  // Party-wide visibility only. 'named'/'full' are accepted from older clients
+  // and stored as 'unknown': unlocks are per player now (CreatureReveal).
+  revealLevel: z.enum(REVEAL_LEVELS).transform((v) => (v === 'hidden' ? 'hidden' : 'unknown')),
+  // Deprecated party-wide unlocks: still accepted (stat block import drafts,
+  // older clients) but never saved. Use /api/creatures/[id]/reveals.
   unlockedSections: z.array(z.string().max(40)).max(REVEAL_SECTIONS.length),
-}).partial().strict();
+}).partial().strict().transform(({ unlockedSections: _ignored, ...rest }) => rest);
 
 export type CreatureInput = z.infer<typeof creatureInputSchema>;
+
+const sectionList = z.array(z.enum(REVEAL_SECTIONS)).max(REVEAL_SECTIONS.length);
+
+/**
+ * GM body for PUT /api/creatures/[id]/reveals, applied to each listed player:
+ * `sections` replaces their unlocked sections, then `grant` adds and `revoke`
+ * removes sections; `full` sets "everything". Omitted fields leave that
+ * player's current value alone.
+ */
+export const revealUpdateSchema = z.object({
+  userIds: z.array(z.string().min(1).max(100)).min(1).max(100),
+  sections: sectionList.optional(),
+  grant: sectionList.optional(),
+  revoke: sectionList.optional(),
+  full: z.boolean().optional(),
+}).strict().refine(
+  (v) => v.sections !== undefined || v.grant !== undefined || v.revoke !== undefined || v.full !== undefined,
+  'sections, grant, revoke or full required',
+);
+export type RevealUpdate = z.infer<typeof revealUpdateSchema>;
+
+/**
+ * One player's unlocks after applying a GM update (see revealUpdateSchema).
+ * Revoking a section from a player who has everything (full) leaves them every
+ * other section, but no longer full.
+ */
+export function applyRevealUpdate(current: PlayerReveal, update: Omit<RevealUpdate, 'userIds'>): PlayerReveal {
+  const revoking = (update.revoke?.length ?? 0) > 0;
+  const fromFull = current.full && revoking && update.full === undefined && update.sections === undefined;
+  const set = new Set<RevealSection>(update.sections ?? (fromFull ? REVEAL_SECTIONS : current.sections));
+  for (const s of update.grant ?? []) set.add(s);
+  for (const s of update.revoke ?? []) set.delete(s);
+  return {
+    sections: REVEAL_SECTIONS.filter((s) => set.has(s)),
+    full: update.full ?? (fromFull ? false : current.full),
+  };
+}

@@ -80,7 +80,7 @@ async function canAccess(userId: string, key: string): Promise<boolean> {
       const mine = await prisma.character.findMany({ where: { campaignId: id, userId }, select: { id: true } });
       const full = state.tokens;
       state = sanitizeForPlayer(state, mine.map((c) => c.id));
-      state = await filterLinkedTokensForPlayer(state, id, full);
+      state = await filterLinkedTokensForPlayer(state, id, userId, full);
     }
     if (collectFileKeys(state).has(key)) return true;
   }
