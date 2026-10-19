@@ -31,7 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: `(function(){var level='1';try{var saved=localStorage.getItem('qb:brightness');level=/^[1-5]$/.test(saved||'')?saved:(matchMedia('(prefers-color-scheme: dark)').matches?'5':'1');}catch(e){level='1';}document.documentElement.dataset.brightness=level;document.documentElement.style.colorScheme=Number(level)>=3?'dark':'light';})();` }} />
-        <script src="https://apps.abacus.ai/chatllm/appllm-lib.js" />
+        <script async src="https://apps.abacus.ai/chatllm/appllm-lib.js" />
       </head>
       <body className={`${dmSans.variable} ${jakartaSans.variable} ${jetbrainsMono.variable} font-sans`}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
