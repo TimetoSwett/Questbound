@@ -6,7 +6,7 @@ import type { CatalogDraft } from './aon-catalog-parser';
 import { sanitizeSummary, summaryFromDescription } from './library';
 import { isMetamagicRodUrl, magicItemCategory, parseD20pfsrdMagicItem, parseD20pfsrdMetamagicRod } from './d20pfsrd/magic-items';
 import { weaponPath, parseD20pfsrdWeapon } from './d20pfsrd/weapons';
-import { parseD20pfsrdGearPage } from './d20pfsrd/gear';
+import { parseD20pfsrdGearDrafts, parseD20pfsrdGearPage } from './d20pfsrd/gear';
 import { isArmorItemPath, parseD20pfsrdArmor } from './d20pfsrd/armor';
 
 import { D20PFSRD_UNSUPPORTED, HINT } from './d20pfsrd/messages';
@@ -226,9 +226,16 @@ export function parseD20pfsrdPage(html: string, sourceUrl: string, indexPages: s
   return kind === 'spell' ? parseSpell(title, blocks, sourceUrl) : parseFeat(title, blocks, sourceUrl);
 }
 
-/** Like parseD20pfsrdPage, but a metamagic rod page yields one draft per version (or the one picked by #lesser/#normal/#greater). */
+/** Like parseD20pfsrdPage, but a metamagic rod page yields one draft per version (or the one picked by #lesser/#normal/#greater), and a mundane gear page with a size table yields one draft per size row. */
 export function parseD20pfsrdDrafts(html: string, sourceUrl: string, indexPages: string[] = []): D20pfsrdDraft[] {
-  if (!isMetamagicRodUrl(sourceUrl) || d20pfsrdKindForUrl(sourceUrl) !== 'gear') return [parseD20pfsrdPage(html, sourceUrl, indexPages)];
+  if (!isMetamagicRodUrl(sourceUrl) || d20pfsrdKindForUrl(sourceUrl) !== 'gear') {
+    // Mundane gear with size tables yields multiple drafts
+    const gearPath = (() => { try { return new URL(sourceUrl).pathname.toLowerCase(); } catch { return ''; } })();
+    if (d20pfsrdKindForUrl(sourceUrl) === 'gear' && (gearPath.startsWith('/equipment/goods-and-services/') || gearPath.startsWith('/equipment/3rd-party-equipment/3rd-party-goods-and-services/'))) {
+      return parseD20pfsrdGearDrafts(html, sourceUrl);
+    }
+    return [parseD20pfsrdPage(html, sourceUrl, indexPages)];
+  }
   const { title, blocks } = entryBlocks(html, 'gear');
   return parseD20pfsrdMetamagicRod(title, blocks, sourceUrl);
 }

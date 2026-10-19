@@ -241,6 +241,33 @@ function sectionVariantTable(html: string, ids: string[] = []): PriceWeight | nu
   return null;
 }
 
+/**
+ * All rows of a size table inside the section (Chest: Small/Medium/Large/Huge).
+ * A size table is one whose first-column header is Type/Size/Variant/Kind (not Item),
+ * with Price and Weight columns. Returns each row's label, price, and weight.
+ */
+function sectionSizeRows(html: string): Array<{ label: string; price: string; weight: number }> {
+  const t = /<table\b[^>]*>([\s\S]*?)<\/table>/i.exec(html.split(/<h5\b/i)[0]);
+  if (!t) return [];
+  const rows = [...t[1].matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map((r) => rowCells(r[1]));
+  const hd = tableHeader(rows);
+  if (!hd) return [];
+  // Check if first column header is a size/type label (not "Item")
+  const firstHeader = rows[hd.hi][0]?.text.toLowerCase() ?? '';
+  if (!/^(type|size|variant|kind)$/.test(firstHeader)) return [];
+  const result: Array<{ label: string; price: string; weight: number }> = [];
+  for (let i = hd.hi + 1; i < rows.length; i++) {
+    const c = rows[i];
+    if (hd.pi >= c.length) continue;
+    const label = c[0]?.text ?? '';
+    if (!label) continue;
+    const price = parsePrice(c[hd.pi].text);
+    const weight = hd.wi >= 0 && hd.wi < c.length ? parseWeight(c[hd.wi].text) : 0;
+    if (price || weight) result.push({ label, price, weight });
+  }
+  return result;
+}
+
 const stripParen = (n: string) => n.replace(/\s*\([^)]*\)\s*$/, '');
 const ambiguous = (item: ItemSection, rows: PriceEntry[]) => new Error(
   `${D20PFSRD_UNSUPPORTED} "${item.name}" matches several price rows on that page (${rows.slice(0, 4).map((r) => `${r.name}: ${r.price || '—'}`).join('; ')}${rows.length > 4 ? '; …' : ''}), so the price is ambiguous. Link the exact row instead (e.g. #${normAnchor(rows[0].name)}) or add it by hand.`);
@@ -434,4 +461,116 @@ export function parseD20pfsrdGearPage(html: string, sourceUrl: string): CatalogD
       description: clip(desc, 20_000),
     },
   };
+}
+
+/** Build a draft from parts (shared by single and multi-draft paths). */
+function buildGearDraft(name: string, desc: string, price: string, weight: number, sourceUrl: string): CatalogDraft {
+  const n = clip(name, 120);
+  return {
+    kind: 'gear', name: n,
+    summary: summaryFromDescription(desc) || sanitizeSummary(n),
+    sourceUrl,
+    data: {
+      slot: 'slotless',
+      weight,
+      cost: price || '0 gp',
+      description: clip(desc, 20_000),
+    },
+  };
+}
+
+/**
+ * Parse one d20pfsrd mundane gear item into one or more drafts.
+ * Items with a size table (Chest: Small/Medium/Large/...) return one draft per
+ * size row, each named "Chest (small)" with its own cost and weight.
+ * A fragment naming a specific size (#chest-small) returns just that row.
+ */
+export function parseD20pfsrdGearDrafts(html: string, sourceUrl: string): CatalogDraft[] {
+  if (isServicesGearPath(sourceUrl)) throw new Error(`${D20PFSRD_UNSUPPORTED} ${NOT_GEAR}`);
+  let fragment = '';
+  try { fragment = decodeURIComponent(new URL(sourceUrl).hash.replace(/^#/, '')).toLowerCase(); }
+  catch { fragment = ''; }
+  const fragNorm = normAnchor(fragment);
+
+  // Find the item section (same logic as parseD20pfsrdGearPage)
+  let item: ItemSection | undefined | null;
+  let orphanRow: PriceEntry | null = null; // table row whose #link matches no heading
+  if (isSingleItemUrl(sourceUrl)) {
+    item = singlePageSection(html);
+    if (!item) throw new Error(`${D20PFSRD_UNSUPPORTED} That page has no gear entry.${HINT}`);
+  } else {
+    const sections = itemSections(html);
+    const pageMapForFragment = pagePriceMap(html);
+    if (fragment) {
+      item = sections.find((s) => s.ids.includes(fragment)) ?? sections.find((s) => s.ids.includes(fragNorm));
+      // Don't use rowByFragment here; size-row fragments handled below
+      if (!item) {
+        // Check if fragment names a size row (e.g., #chest-small)
+        const sec = sections.find((s) => {
+          const rows = sectionSizeRows(s.html);
+          return rows.some((r) => normAnchor(`${s.name}-${r.label}`) === fragNorm || normAnchor(`${s.name} ${r.label}`) === fragNorm);
+        });
+        if (sec) item = sec;
+      }
+      // Fallback: fragment matches a table row's #link but no heading.
+      // Import from the row alone, matching a description by name if possible.
+      if (!item) {
+        for (const rows of pageMapForFragment.values()) {
+          const hit = rows.find((r) => normAnchor(r.link) === fragNorm || normAnchor(r.link) === fragment);
+          if (hit) { orphanRow = hit; break; }
+        }
+        if (orphanRow) {
+          // Try to find a description by fuzzy name match against headings
+          const rowNameNorm = normAnchor(orphanRow.name);
+          item = sections.find((s) =>
+            normAnchor(s.name) === rowNameNorm ||
+            normAnchor(stripParen(s.name)) === normAnchor(stripParen(orphanRow!.name)) ||
+            wordKey(s.name) === wordKey(orphanRow!.name)
+          ) ?? null;
+        }
+      }
+      if (!item && !orphanRow) throw new Error(`${D20PFSRD_UNSUPPORTED} No item "#${fragment}" on that page.${HINT}`);
+    } else if (sections.length === 1) {
+      item = sections[0];
+    } else if (!sections.length) {
+      throw new Error(`${D20PFSRD_UNSUPPORTED} That page has no gear entries.${HINT}`);
+    } else {
+      throw new Error(`${D20PFSRD_UNSUPPORTED} That page lists ${sections.length} items. Copy the link with the #item anchor for the one you want.${HINT}`);
+    }
+  }
+  // Orphan row: table row with no matching heading and no description found.
+  // Import from the row alone.
+  if (orphanRow && !item) {
+    const name = clip(orphanRow.name, 120);
+    const desc = `Price ${orphanRow.price || '—'}${orphanRow.weight ? `, Weight ${orphanRow.weight} lb.` : ''}. Imported from the equipment table; no description section exists on the source page.`;
+    return [buildGearDraft(name, desc, orphanRow.price, orphanRow.weight, sourceUrl)];
+  }
+  if (!item) throw new Error(`${D20PFSRD_UNSUPPORTED} No item "#${fragment}" on that page.${HINT}`);
+  if (SERVICE_HEADING.test(item.name)) throw new Error(`${D20PFSRD_UNSUPPORTED} "${item.name}" is a service, not gear.${HINT}`);
+
+  const desc = description(item.html);
+  if (!desc) throw new Error(`${D20PFSRD_UNSUPPORTED} Could not read a description for "${item.name}".${HINT}`);
+
+  // Check for size table
+  const sizeRows = sectionSizeRows(item.html);
+  if (sizeRows.length > 1) {
+    // If fragment specifies a size, return just that row
+    if (fragment) {
+      const match = sizeRows.find((r) =>
+        normAnchor(`${item!.name}-${r.label}`) === fragNorm ||
+        normAnchor(`${item!.name} ${r.label}`) === fragNorm ||
+        normAnchor(r.label) === fragNorm
+      );
+      if (match) {
+        return [buildGearDraft(`${item.name} (${match.label.toLowerCase()})`, desc, match.price, match.weight, sourceUrl)];
+      }
+    }
+    // Return one draft per size row
+    return sizeRows.map((r) =>
+      buildGearDraft(`${item!.name} (${r.label.toLowerCase()})`, desc, r.price, r.weight, sourceUrl)
+    );
+  }
+
+  // Single draft (existing behavior)
+  return [parseD20pfsrdGearPage(html, sourceUrl)];
 }
