@@ -1,4 +1,4 @@
-// Turn one Archives of Nethys feat, equipment, or magic item (wondrous/ring/rod/staff) page into a library draft.
+// Turn one Archives of Nethys feat, equipment, or magic item (including specific weapons, armor/shields, and potions) page into a library draft.
 // Pure string parsing. This does not crawl indexes — the caller passes one page.
 
 import { htmlToText } from './aon-spell-parser';
@@ -13,6 +13,9 @@ const PAGES: Record<string, LibraryKind> = {
   'magicringsdisplay.aspx': 'gear',
   'magicrodsdisplay.aspx': 'gear',
   'magicstavesdisplay.aspx': 'gear',
+  'magicweaponsdisplay.aspx': 'gear',
+  'magicarmordisplay.aspx': 'gear',
+  'magicpotionsdisplay.aspx': 'gear',
   'umr.aspx': 'ability',
 };
 
@@ -136,15 +139,19 @@ export function parseAonCatalogPage(html: string, sourceUrl: string): CatalogDra
     };
   }
   if (kind === 'gear') {
+    // Only header labels are item stats; construction can repeat Price/Cost.
+    const fields = labeled(block.split(/<h[2-6]\b/i)[0]);
+    const file = pageFile(sourceUrl);
     const rawSlot = (fields.slot ?? '').toLowerCase().trim().replace(/[;:,.!?]+$/, '').trim();
-    const aliases: Record<string, string> = { none: 'slotless', '—': 'slotless', '-': 'slotless', 'no slot': 'slotless', rings: 'ring', shoulder: 'shoulders', wrist: 'wrists', hand: 'hands' };
+    const aliases: Record<string, string> = { none: 'slotless', '—': 'slotless', '–': 'slotless', '-': 'slotless', 'no slot': 'slotless', rings: 'ring', shoulder: 'shoulders', wrist: 'wrists', hand: 'hands' };
     let slot = aliases[rawSlot] ?? rawSlot;
     if (!GEAR_SLOTS.some((value) => value === slot)) {
-      const file = pageFile(sourceUrl);
       if (file === 'magicringsdisplay.aspx') slot = 'ring';
-      else if (file === 'magicrodsdisplay.aspx' || file === 'magicstavesdisplay.aspx') slot = 'slotless';
+      else if (['magicrodsdisplay.aspx', 'magicstavesdisplay.aspx', 'magicweaponsdisplay.aspx', 'magicpotionsdisplay.aspx'].includes(file)) slot = 'slotless';
+      else if (file === 'magicarmordisplay.aspx') slot = /\b(?:shield|buckler)\b/i.test(title) ? 'shield' : 'armor';
     }
-    const aura = clip(fields.aura ?? '', 80).replace(/[;\s]+$/, '');
+    const auraRaw = clip(fields.aura ?? '', 80).replace(/[;\s]+$/, '');
+    const aura = /no aura/i.test(auraRaw) ? '' : auraRaw;
     const clMatch = /[+-]?\d+/.exec(fields.cl ?? '');
     const cl = clMatch ? Number(clMatch[0]) : undefined;
     const prose = sectionText(block, 'Description');

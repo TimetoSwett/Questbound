@@ -28,7 +28,7 @@ export function isD20pfsrdUrl(raw: string): boolean {
   return parseUrl(raw) !== null;
 }
 
-/** Spell, feat, and magic item (wondrous/ring/rod/staff) page URLs only; indexes, categories and everything else return null. */
+/** Spell, feat, and supported magic item page URLs only; indexes, categories and everything else return null. */
 export function d20pfsrdKindForUrl(raw: string): 'spell' | 'feat' | 'gear' | 'weapon' | 'armor' | null {
   const u = parseUrl(raw);
   if (!u) return null;

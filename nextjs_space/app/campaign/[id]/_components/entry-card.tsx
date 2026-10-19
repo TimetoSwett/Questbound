@@ -19,9 +19,10 @@ type Props = {
   editable: boolean;
   onDelete: () => void;
   children: ReactNode;
+  actions?: ReactNode;
 };
 
-export function EntryCard({ name, unnamed, meta, note, body, libraryEntryId, sourceUrl, editable, onDelete, children }: Props) {
+export function EntryCard({ name, unnamed, meta, note, body, libraryEntryId, sourceUrl, editable, onDelete, children, actions }: Props) {
   const [editing, setEditing] = useState(editable && !name);
   const href = rulesUrl(sourceUrl);
   return <div className="min-h-[300px] flex flex-col gap-3 bg-muted/50 rounded-lg p-3 border border-border">
@@ -33,7 +34,8 @@ export function EntryCard({ name, unnamed, meta, note, body, libraryEntryId, sou
     <div className="flex-1"><p className="line-clamp-3 whitespace-pre-line text-xs text-muted-foreground">{body}</p></div>
     {href && <a href={href} target="_blank" rel="noopener noreferrer" className="inline-block text-xs text-primary hover:underline">See full rules</a>}
     {editable && <>
-      <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1">
+        {actions}
         <Button variant="ghost" size="sm" aria-expanded={editing} onClick={() => setEditing(value => !value)}><Pencil className="w-3 h-3" /> Edit</Button>
         <Button variant="ghost" size="icon-sm" aria-label={`Delete ${name || unnamed}`} onClick={onDelete}><Trash2 className="w-3 h-3 text-destructive" /></Button>
       </div>

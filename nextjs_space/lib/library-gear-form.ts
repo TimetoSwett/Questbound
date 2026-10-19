@@ -1,6 +1,8 @@
-import { GEAR_SLOTS, gearDataSchema, type GearData } from './library';
+import { GEAR_SLOTS, gearDataSchema, spellItemCost, type GearData } from './library';
 
 export type GearFormState = {
+  spellItem?: GearData['spellItem'];
+  charges?: string;
   slot: string;
   aura: string;
   cl: string;
@@ -11,12 +13,13 @@ export type GearFormState = {
 
 export const GEAR_SLOT_LABELS: Record<(typeof GEAR_SLOTS)[number], string> = {
   head: 'Head', headband: 'Headband', eyes: 'Eyes', shoulders: 'Shoulders', neck: 'Neck',
-  chest: 'Chest', body: 'Body', armor: 'Armor', belt: 'Belt', wrists: 'Wrists', hands: 'Hands',
+  chest: 'Chest', body: 'Body', armor: 'Armor', shield: 'Shield', belt: 'Belt', wrists: 'Wrists', hands: 'Hands',
   ring: 'Ring', feet: 'Feet', slotless: 'Slotless',
 };
 
 export function emptyGearForm(prefill?: Partial<GearFormState>): GearFormState {
   return {
+    ...(prefill?.spellItem ? { spellItem: prefill.spellItem, charges: prefill.charges ?? String(prefill.spellItem.charges) } : {}),
     slot: prefill?.slot ?? '', aura: prefill?.aura ?? '', cl: prefill?.cl ?? '',
     cost: prefill?.cost ?? '', weight: prefill?.weight ?? '', description: prefill?.description ?? '',
   };
@@ -38,7 +41,10 @@ export function buildGearData(form: GearFormState):
   if (cl && (!/^\d+$/.test(cl) || Number(cl) > 30)) {
     return { ok: false, error: 'CL must be a whole number from 0 to 30.' };
   }
+  if (form.spellItem && !/^\d+$/.test(form.charges ?? '')) return { ok: false, error: 'Enter a whole number of charges.' };
+  const spellItem = form.spellItem ? { ...form.spellItem, charges: Number(form.charges) } : undefined;
   const parsed = gearDataSchema.safeParse({
+    ...(spellItem ? { spellItem } : {}),
     weight, cost, description: form.description.trim(),
     ...(slot ? { slot } : {}), ...(aura ? { aura } : {}), ...(cl ? { cl: Number(cl) } : {}),
   });
@@ -46,5 +52,7 @@ export function buildGearData(form: GearFormState):
     const issue = parsed.error.issues[0];
     return { ok: false, error: `${issue.path.join('.')}: ${issue.message}` };
   }
-  return { ok: true, data: parsed.data };
+  const data = parsed.data;
+  if (data.spellItem) data.cost = spellItemCost(data.spellItem, data.cl!);
+  return { ok: true, data };
 }

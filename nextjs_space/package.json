@@ -29,7 +29,16 @@
     "test:battle-visibility": "tsx scripts/test-battle-visibility.mjs",
     "test:fog": "node scripts/test-fog.mjs",
     "test:dice-paging": "tsx scripts/test-dice-paging.mjs",
-    "test:pick-fields": "tsx scripts/test-pick-fields.mjs"
+    "test:pick-fields": "tsx scripts/test-pick-fields.mjs",
+    "test:aon-magic-weapons": "tsx scripts/test-aon-magic-weapons.mjs",
+    "test:aon-magic-armor": "tsx scripts/test-aon-magic-armor.mjs",
+    "test:aon-magic-shields": "tsx scripts/test-aon-magic-shields.mjs",
+    "test:aon-potions": "tsx scripts/test-aon-potions.mjs",
+    "test:aon-scrolls": "tsx scripts/test-aon-scrolls.mjs",
+    "test:aon-wands": "tsx scripts/test-aon-wands.mjs",
+    "test:d20pfsrd-scrolls": "tsx scripts/test-d20pfsrd-scrolls.mjs",
+    "test:d20pfsrd-wands": "tsx scripts/test-d20pfsrd-wands.mjs",
+    "test:spell-item-import": "tsx scripts/test-spell-item-import.mjs"
   },
   "prisma": {
     "seed": "tsx --require dotenv/config scripts/safe-seed.ts"
