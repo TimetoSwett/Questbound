@@ -32,10 +32,10 @@ export function WorldTab({ campaignId, role, initialSubTab }: { campaignId: stri
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-4">
-      <div className="flex gap-1 mb-4 bg-card/50 p-1 rounded-lg w-fit">
+      <div className="flex gap-1 mb-4 bg-card/50 p-1 rounded-lg w-fit max-w-full overflow-x-auto">
         {tabs.map((t) => (
           <button key={t.key} onClick={() => setSubTab(t.key)}
-            className={`flex items-center gap-1 px-3 py-1.5 text-sm rounded-md transition-colors ${
+            className={`flex shrink-0 items-center gap-1 whitespace-nowrap px-3 py-1.5 text-sm rounded-md transition-colors ${
               subTab === t.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             }`}>
             <t.icon className="w-3.5 h-3.5" /> {t.label}
