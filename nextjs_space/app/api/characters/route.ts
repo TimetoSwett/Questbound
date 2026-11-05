@@ -13,7 +13,8 @@ import { libraryIdsIn, stripMissingLibraryIds } from '@/lib/library';
 import { removeCharacterTokens } from '@/lib/battle-map';
 import { sanitizeSpellsPsionics } from '@/lib/psionics';
 import { sanitizeSpellsPathOfWar } from '@/lib/path-of-war';
-import { readCyberpunkSheet } from '@/lib/cyberpunk-sheet';
+import { defaultCyberpunkSheet, sanitizeCyberpunkSheet } from '@/lib/cyberpunk-sheet';
+import { isCyberpunkCampaign } from '@/lib/campaign-system';
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -83,6 +84,14 @@ export async function POST(request: Request) {
     if (!role) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
   }
 
+  // Characters created in a cyberpunk2020 campaign start with a blank
+  // CP2020 sheet; pf1e characters (and vault characters) keep cyberpunk null.
+  let cyberpunk = undefined;
+  if (campaignId) {
+    const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { system: true } });
+    if (campaign && isCyberpunkCampaign(campaign.system)) cyberpunk = defaultCyberpunkSheet();
+  }
+
   const character = await prisma.character.create({
     data: {
       userId: session.user.id,
@@ -92,6 +101,7 @@ export async function POST(request: Request) {
       equipment: JSON.stringify([]),
       feats: JSON.stringify([]),
       spells: JSON.stringify({ slots: {}, known: [] }),
+      ...(cyberpunk ? { cyberpunk } : {}),
     },
   });
 
@@ -161,9 +171,6 @@ export async function PUT(request: Request) {
   const data: Record<string, unknown> = Object.fromEntries(
     editableFields.filter((field) => Object.prototype.hasOwnProperty.call(body, field)).map((field) => [field, body[field]]),
   );
-  if (Object.prototype.hasOwnProperty.call(data, 'cyberpunk')) {
-    data.cyberpunk = data.cyberpunk == null ? null : readCyberpunkSheet(data.cyberpunk);
-  }
 
   if (Object.prototype.hasOwnProperty.call(data, 'equipped')) {
     // Normalize the optional flags without making legacy saves fail validation.
@@ -293,6 +300,25 @@ export async function PUT(request: Request) {
           }
         }
       }
+    }
+  }
+
+  // Cyberpunk sheet data: only characters in a cyberpunk2020 campaign may
+  // hold a sheet object; null clears it (pf1e characters stay null). Other
+  // payloads are rejected rather than stored.
+  if (Object.prototype.hasOwnProperty.call(data, 'cyberpunk')) {
+    if (data.cyberpunk === null) {
+      // Clearing is always allowed; it restores the pf1e-style null state.
+    } else {
+      const campaign = character.campaignId
+        ? await prisma.campaign.findUnique({ where: { id: character.campaignId }, select: { system: true } })
+        : null;
+      if (!campaign || !isCyberpunkCampaign(campaign.system)) {
+        return NextResponse.json({ error: 'Cyberpunk sheet data only applies to cyberpunk2020 campaign characters' }, { status: 400 });
+      }
+      const sanitized = sanitizeCyberpunkSheet(data.cyberpunk);
+      if (!sanitized) return NextResponse.json({ error: 'Invalid cyberpunk sheet' }, { status: 400 });
+      data.cyberpunk = sanitized;
     }
   }
 
