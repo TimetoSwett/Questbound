@@ -124,7 +124,7 @@ export function NpcsTab({ campaignId, system }: { campaignId: string; system: st
         </Button>
         <CompanionNavProvider onOpen={setSelectedCharId}>
           {isCyberpunkCampaign(system)
-            ? <CyberpunkCharacterSheet key={selectedCharId} characterId={selectedCharId} />
+            ? <CyberpunkCharacterSheet key={selectedCharId} characterId={selectedCharId} editable />
             : <CharacterSheet key={selectedCharId} characterId={selectedCharId} editable={true} />}
         </CompanionNavProvider>
       </div>

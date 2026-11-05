@@ -12,7 +12,8 @@ import { toast } from 'sonner';
 import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
 import { CharacterSheet } from '@/app/campaign/[id]/_components/character-sheet';
 import { CyberpunkCharacterSheet } from '@/app/campaign/[id]/_components/cyberpunk-character-sheet';
-import { isCyberpunkCampaign } from '@/lib/campaign-system';
+import { isCyberpunkCampaign, type CampaignSystem } from '@/lib/campaign-system';
+import { CampaignSystemBadge, CampaignSystemPicker } from '@/components/campaign-system-picker';
 import { CompanionNavProvider } from '@/components/characters/companion-nav';
 import { groupCompanions } from '@/lib/companions';
 import { SiteHeader } from '@/components/site-header';
@@ -59,6 +60,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
   const [joinOpen, setJoinOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
+  const [newSystem, setNewSystem] = useState<CampaignSystem>('pf1e');
   const [joinCode, setJoinCode] = useState('');
 
   const [vault, setVault] = useState<VaultChar[]>([]);
@@ -110,13 +112,14 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
     const res = await fetch('/api/campaigns', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newName, description: newDesc }),
+      body: JSON.stringify({ name: newName, description: newDesc, system: newSystem }),
     });
     if (res.ok) {
       toast.success('Campaign created!');
       setCreateOpen(false);
       setNewName('');
       setNewDesc('');
+      setNewSystem('pf1e');
       fetchCampaigns();
     } else {
       const data = await res.json();
@@ -203,7 +206,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
           </Button>
           <CompanionNavProvider onOpen={setEditingId} onChanged={fetchVault}>
             {isCyberpunkCampaign(vault.find((c) => c.id === editingId)?.campaign?.system)
-              ? <CyberpunkCharacterSheet key={editingId} characterId={editingId} />
+              ? <CyberpunkCharacterSheet key={editingId} characterId={editingId} editable />
               : <CharacterSheet key={editingId} characterId={editingId} editable={true} />}
           </CompanionNavProvider>
         </main>
@@ -223,13 +226,14 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
               <p className="text-muted-foreground mt-1">Your campaigns and characters</p>
             </div>
             <div className="flex gap-2 flex-wrap">
-              <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <Dialog open={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (open) setNewSystem('pf1e'); }}>
                 <DialogTrigger asChild>
                   <Button><Plus className="w-4 h-4 mr-1" /> Start a campaign</Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader><DialogTitle>Create a Campaign</DialogTitle></DialogHeader>
                   <div className="space-y-4 mt-2">
+                    <CampaignSystemPicker value={newSystem} onChange={setNewSystem} />
                     <div><Label>Campaign Name</Label><Input value={newName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewName(e.target.value)} placeholder="The Lost Mines" className="mt-1" /></div>
                     <div><Label>Description (optional)</Label><Input value={newDesc} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewDesc(e.target.value)} placeholder="A grand adventure..." className="mt-1" /></div>
                     <Button onClick={handleCreate} className="w-full">Create Campaign</Button>
@@ -279,7 +283,10 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
                       >
                         <div className="flex items-start justify-between">
                           <div>
-                            <h3 className="font-display text-lg font-semibold">{c.name}</h3>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-display text-lg font-semibold">{c.name}</h3>
+                              {isCyberpunkCampaign(c.system) && <CampaignSystemBadge system={c.system} />}
+                            </div>
                             {c.description && <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{c.description}</p>}
                           </div>
                           <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${

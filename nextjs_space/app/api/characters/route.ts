@@ -13,6 +13,7 @@ import { libraryIdsIn, stripMissingLibraryIds } from '@/lib/library';
 import { removeCharacterTokens } from '@/lib/battle-map';
 import { sanitizeSpellsPsionics } from '@/lib/psionics';
 import { sanitizeSpellsPathOfWar } from '@/lib/path-of-war';
+import { readCyberpunkSheet } from '@/lib/cyberpunk-sheet';
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -108,6 +109,9 @@ export async function PUT(request: Request) {
   if (Object.prototype.hasOwnProperty.call(body, 'spells') && Buffer.byteLength(JSON.stringify(body.spells)) > 4 * 1024 * 1024) {
     return NextResponse.json({ error: 'Spells exceed the 4 MiB size limit' }, { status: 413 });
   }
+  if (Object.prototype.hasOwnProperty.call(body, 'cyberpunk') && Buffer.byteLength(JSON.stringify(body.cyberpunk ?? null)) > 64 * 1024) {
+    return NextResponse.json({ error: 'Cyberpunk sheet exceeds the 64 KiB size limit' }, { status: 413 });
+  }
   const { id } = body;
   if (!id) return NextResponse.json({ error: 'Character id required' }, { status: 400 });
 
@@ -152,11 +156,14 @@ export async function PUT(request: Request) {
     'baseFort', 'baseRef', 'baseWill', 'miscFort', 'miscRef', 'miscWill',
     'armorBonus', 'shieldBonus', 'naturalArmor', 'deflection', 'sizeMod',
     'miscAC', 'miscTouchAC', 'miscFlatAC', 'miscCMD', 'miscCMB', 'miscInit',
-    'skills', 'equipment', 'equipped', 'feats', 'spells', 'notes', 'creatureId',
+    'skills', 'equipment', 'equipped', 'feats', 'spells', 'notes', 'creatureId', 'cyberpunk',
   ] as const satisfies readonly (keyof Prisma.CharacterUncheckedUpdateInput)[];
   const data: Record<string, unknown> = Object.fromEntries(
     editableFields.filter((field) => Object.prototype.hasOwnProperty.call(body, field)).map((field) => [field, body[field]]),
   );
+  if (Object.prototype.hasOwnProperty.call(data, 'cyberpunk')) {
+    data.cyberpunk = data.cyberpunk == null ? null : readCyberpunkSheet(data.cyberpunk);
+  }
 
   if (Object.prototype.hasOwnProperty.call(data, 'equipped')) {
     // Normalize the optional flags without making legacy saves fail validation.
