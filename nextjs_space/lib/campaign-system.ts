@@ -11,3 +11,10 @@ export function isCampaignSystem(value: unknown): value is CampaignSystem {
 export function isCyberpunkCampaign(system: unknown): boolean {
   return system === 'cyberpunk2020';
 }
+
+/** Display name for a campaign's rules system. Per campaign, never a global switch. */
+export function campaignSystemLabel(system: unknown): string {
+  if (system === 'cyberpunk2020') return 'Cyberpunk 2020';
+  if (system === 'pf1e') return 'Pathfinder';
+  return typeof system === 'string' && system.trim() ? system : 'Pathfinder';
+}

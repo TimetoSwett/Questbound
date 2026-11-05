@@ -9,6 +9,8 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { FadeIn, Stagger, StaggerItem } from '@/components/ui/animate';
+import { CampaignSystemPicker } from '@/components/campaign-system-picker';
+import { campaignSystemLabel, isCampaignSystem, type CampaignSystem } from '@/lib/campaign-system';
 
 interface Member {
   id: string;
@@ -26,7 +28,7 @@ interface CharData {
   user?: { displayName: string };
 }
 
-export function PlayersTab({ campaignId }: { campaignId: string }) {
+export function PlayersTab({ campaignId, system }: { campaignId: string; system: string }) {
   const router = useRouter();
   const [members, setMembers] = useState<Member[]>([]);
   const [characters, setCharacters] = useState<CharData[]>([]);
@@ -37,6 +39,7 @@ export function PlayersTab({ campaignId }: { campaignId: string }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [savingSystem, setSavingSystem] = useState(false);
 
   const loadRequest = useCallback(async () => {
     const [campRes, charRes] = await Promise.all([
@@ -100,6 +103,34 @@ export function PlayersTab({ campaignId }: { campaignId: string }) {
     }
   };
 
+  const currentSystem: CampaignSystem = isCampaignSystem(campaign?.system)
+    ? campaign.system
+    : isCampaignSystem(system) ? system : 'pf1e';
+
+  const updateSystem = async (next: CampaignSystem) => {
+    if (next === currentSystem || savingSystem) return;
+    const label = campaignSystemLabel(next);
+    if (!confirm(`Use ${label} for this campaign? Sheets in this campaign follow that system. Other campaigns stay as they are.`)) return;
+    setSavingSystem(true);
+    try {
+      const res = await fetch('/api/campaigns', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignId, system: next }),
+      });
+      if (!res.ok) {
+        toast.error((await res.json().catch(() => null))?.error ?? 'Failed to update system');
+        return;
+      }
+      const updated = await res.json();
+      setCampaign((prev: any) => ({ ...(prev ?? {}), ...updated, memberships: prev?.memberships }));
+      toast.success(`${label} selected for this campaign`);
+      router.refresh();
+    } finally {
+      setSavingSystem(false);
+    }
+  };
+
   const rename = async () => {
     if (!newName.trim()) return;
     const res = await fetch('/api/campaigns', {
@@ -132,6 +163,13 @@ export function PlayersTab({ campaignId }: { campaignId: string }) {
               </div>
             </DialogContent>
           </Dialog>
+        </div>
+      </FadeIn>
+
+      <FadeIn delay={0.05}>
+        <div className="bg-card rounded-lg p-4 border border-border" style={{ boxShadow: 'var(--shadow-md)' }}>
+          <CampaignSystemPicker value={currentSystem} onChange={updateSystem} disabled={savingSystem} />
+          <p className="text-xs text-muted-foreground mt-2">Applies to this campaign only. Pathfinder campaigns keep their sheets.</p>
         </div>
       </FadeIn>
 

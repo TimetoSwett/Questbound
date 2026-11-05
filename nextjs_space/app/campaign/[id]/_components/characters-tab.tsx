@@ -87,7 +87,7 @@ export function CharactersTab({ campaignId, system, role, userId, initialCharact
         </Button>
         <CompanionNavProvider onOpen={setSelectedId} onChanged={load}>
           {isCyberpunkCampaign(system)
-            ? <CyberpunkCharacterSheet key={selectedId} characterId={selectedId} />
+            ? <CyberpunkCharacterSheet key={selectedId} characterId={selectedId} editable={canEdit} />
             : <CharacterSheet key={selectedId} characterId={selectedId} editable={canEdit} />}
         </CompanionNavProvider>
       </div>

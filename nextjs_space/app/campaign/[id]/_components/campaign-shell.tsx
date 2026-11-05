@@ -17,6 +17,7 @@ import { LootTab } from './loot-tab';
 import { RollLog } from './roll-log';
 import { CampaignEventsProvider } from '@/hooks/use-campaign-events';
 import { HallNav } from '@/components/library/hall-nav';
+import { CampaignSystemBadge } from '@/components/campaign-system-picker';
 
 const DESKTOP_QUERY = '(min-width: 1024px)';
 function subscribeDesktop(cb: () => void) {
@@ -126,6 +127,7 @@ export function CampaignShell({ campaignId, campaignName, system, inviteCode, ro
             <div className="h-5 w-px bg-border" />
             <Shield className="w-5 h-5 text-primary" />
             <span className="min-w-0 truncate font-display text-lg font-bold tracking-tight">{campaignName}</span>
+            <CampaignSystemBadge system={system} />
             <button onClick={copyCode} className="flex items-center gap-1 text-xs font-mono bg-muted px-2 py-1 rounded hover:bg-muted/80 transition-colors" title="Copy invite code">
               {inviteCode}
               {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3 text-muted-foreground" />}
@@ -178,7 +180,7 @@ export function CampaignShell({ campaignId, campaignName, system, inviteCode, ro
           {activeTab === 'towns' && !isDM && <TownsTab campaignId={campaignId} role={role} />}
           {activeTab === 'npcs' && isDM && <NpcsTab campaignId={campaignId} system={system} />}
           {activeTab === 'loot' && <LootTab campaignId={campaignId} role={role} userId={userId} />}
-          {activeTab === 'players' && isDM && <PlayersTab campaignId={campaignId} />}
+          {activeTab === 'players' && isDM && <PlayersTab campaignId={campaignId} system={system} />}
         </main>
         {logOpen && (
           <aside id="campaign-roll-log" aria-label="Roll log" className="fixed inset-x-0 bottom-0 z-40 h-[min(70dvh,32rem)] overscroll-contain border-t border-border bg-card shadow-2xl lg:static lg:z-auto lg:h-auto lg:w-80 lg:shrink-0 lg:border-t-0 lg:border-l lg:bg-card/40 lg:shadow-none">

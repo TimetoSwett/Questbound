@@ -39,7 +39,8 @@
     "test:aon-wands": "tsx scripts/test-aon-wands.mjs",
     "test:d20pfsrd-scrolls": "tsx scripts/test-d20pfsrd-scrolls.mjs",
     "test:d20pfsrd-wands": "tsx scripts/test-d20pfsrd-wands.mjs",
-    "test:spell-item-import": "tsx scripts/test-spell-item-import.mjs"
+    "test:spell-item-import": "tsx scripts/test-spell-item-import.mjs",
+    "test:cp-guardrails": "node scripts/test-cp-guardrails.mjs"
   },
   "prisma": {
     "seed": "tsx --require dotenv/config scripts/safe-seed.ts"
