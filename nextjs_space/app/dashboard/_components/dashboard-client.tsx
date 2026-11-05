@@ -12,8 +12,9 @@ import { toast } from 'sonner';
 import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
 import { CharacterSheet } from '@/app/campaign/[id]/_components/character-sheet';
 import { CyberpunkCharacterSheet } from '@/app/campaign/[id]/_components/cyberpunk-character-sheet';
-import { isCyberpunkCampaign, type CampaignSystem } from '@/lib/campaign-system';
-import { CampaignSystemBadge, CampaignSystemPicker } from '@/components/campaign-system-picker';
+import { campaignRulesSystem, campaignSystemLabel, characterRulesSystem } from '@/lib/campaign-system';
+import { CampaignSystemBadge } from '@/components/campaign-system-picker';
+import { setRulesSystem, useRulesSystem } from '@/components/rules-system-toggle';
 import { CompanionNavProvider } from '@/components/characters/companion-nav';
 import { groupCompanions } from '@/lib/companions';
 import { SiteHeader } from '@/components/site-header';
@@ -42,6 +43,7 @@ interface VaultChar {
   hpMax: number;
   hpCurrent: number;
   createdAt: string;
+  cyberpunk?: unknown;
 }
 
 function classSummary(classes: any): string {
@@ -54,18 +56,19 @@ function classSummary(classes: any): string {
 export function DashboardClient({ userId, userName }: { userId: string; userName: string }) {
   const router = useRouter();
   const view = useSearchParams().get('view') === 'vault' ? 'vault' : 'campaigns';
+  const rulesSystem = useRulesSystem();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
-  const [newSystem, setNewSystem] = useState<CampaignSystem>('pf1e');
   const [joinCode, setJoinCode] = useState('');
 
   const [vault, setVault] = useState<VaultChar[]>([]);
   const [vaultLoading, setVaultLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingSeed, setEditingSeed] = useState<VaultChar | null>(null);
   const navCurrent = editingId || view === 'vault' ? '/dashboard?view=vault' : '/dashboard';
   const [attachChar, setAttachChar] = useState<VaultChar | null>(null);
 
@@ -112,14 +115,13 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
     const res = await fetch('/api/campaigns', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newName, description: newDesc, system: newSystem }),
+      body: JSON.stringify({ name: newName, description: newDesc, system: rulesSystem }),
     });
     if (res.ok) {
       toast.success('Campaign created!');
       setCreateOpen(false);
       setNewName('');
       setNewDesc('');
-      setNewSystem('pf1e');
       fetchCampaigns();
     } else {
       const data = await res.json();
@@ -139,7 +141,15 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
       toast.success(`Joined ${data?.name ?? 'campaign'}!`);
       setJoinOpen(false);
       setJoinCode('');
-      fetchCampaigns();
+      const result = await requestCampaigns();
+      if (result) {
+        setCampaigns(result);
+        const joined = (result as Campaign[]).find((c) => c.id === data?.campaignId);
+        const joinedSystem = campaignRulesSystem(joined?.system);
+        if (joined && joinedSystem !== rulesSystem) setRulesSystem(joinedSystem);
+      } else {
+        fetchCampaigns();
+      }
     } else {
       toast.error(data?.error ?? 'Invalid code');
     }
@@ -149,10 +159,13 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
     const res = await fetch('/api/characters', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'New Character' }),
+      body: JSON.stringify({ name: 'New Character', system: rulesSystem }),
     });
     if (res.ok) {
       const ch = await res.json();
+      const row: VaultChar = { ...ch, campaign: null, isAssigned: false };
+      setVault((prev) => (prev.some((c) => c.id === row.id) ? prev : [...prev, row]));
+      setEditingSeed(row);
       toast.success('Character created!');
       fetchVault();
       setEditingId(ch.id);
@@ -195,6 +208,12 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
     }
   };
 
+  const visibleCampaigns = campaigns.filter((c) => campaignRulesSystem(c.system) === rulesSystem);
+  const visibleVault = vault.filter((c) => characterRulesSystem(c) === rulesSystem);
+  const modeLabel = campaignSystemLabel(rulesSystem);
+  const editing = vault.find((c) => c.id === editingId) ?? (editingSeed?.id === editingId ? editingSeed : undefined);
+  const cyberpunkSheet = !!editing && characterRulesSystem(editing) === 'cyberpunk2020';
+
   // Character editor view
   if (editingId) {
     return (
@@ -205,7 +224,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
             <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to vault
           </Button>
           <CompanionNavProvider onOpen={setEditingId} onChanged={fetchVault}>
-            {isCyberpunkCampaign(vault.find((c) => c.id === editingId)?.campaign?.system)
+            {cyberpunkSheet
               ? <CyberpunkCharacterSheet key={editingId} characterId={editingId} editable />
               : <CharacterSheet key={editingId} characterId={editingId} editable={true} />}
           </CompanionNavProvider>
@@ -223,17 +242,19 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
             <div>
               <h1 className="font-display text-3xl tracking-tight font-bold">Dashboard</h1>
-              <p className="text-muted-foreground mt-1">Your campaigns and characters</p>
+              <p className="text-muted-foreground mt-1">{modeLabel} mode</p>
             </div>
             <div className="flex gap-2 flex-wrap">
-              <Dialog open={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (open) setNewSystem('pf1e'); }}>
+              <Dialog open={createOpen} onOpenChange={setCreateOpen}>
                 <DialogTrigger asChild>
                   <Button><Plus className="w-4 h-4 mr-1" /> Start a campaign</Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader><DialogTitle>Create a Campaign</DialogTitle></DialogHeader>
                   <div className="space-y-4 mt-2">
-                    <CampaignSystemPicker value={newSystem} onChange={setNewSystem} />
+                    <p className="text-sm text-muted-foreground">
+                      Rules system: <span className="font-medium text-foreground">{modeLabel}</span>. Switch it with the header toggle.
+                    </p>
                     <div><Label>Campaign Name</Label><Input value={newName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewName(e.target.value)} placeholder="The Lost Mines" className="mt-1" /></div>
                     <div><Label>Description (optional)</Label><Input value={newDesc} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewDesc(e.target.value)} placeholder="A grand adventure..." className="mt-1" /></div>
                     <Button onClick={handleCreate} className="w-full">Create Campaign</Button>
@@ -262,18 +283,24 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
         {view === 'campaigns' ? (
           loading ? (
             <div className="text-center py-20 text-muted-foreground">Loading campaigns...</div>
-          ) : (campaigns?.length ?? 0) === 0 ? (
+          ) : visibleCampaigns.length === 0 ? (
             <FadeIn>
               <div className="text-center py-20">
                 <Scroll className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-                <h2 className="text-xl font-display font-semibold mb-2">No campaigns yet</h2>
-                <p className="text-muted-foreground">Start a new campaign or join one with an invite code</p>
+                <h2 className="text-xl font-display font-semibold mb-2">
+                  {campaigns.length === 0 ? 'No campaigns yet' : `No ${modeLabel} campaigns`}
+                </h2>
+                <p className="text-muted-foreground">
+                  {campaigns.length === 0
+                    ? 'Start a new campaign or join one with an invite code'
+                    : 'This mode only lists campaigns for the selected system. Use the header toggle to switch.'}
+                </p>
               </div>
             </FadeIn>
           ) : (
-            <Stagger key="campaigns" staggerDelay={0.08}>
+            <Stagger key={`campaigns-${rulesSystem}`} staggerDelay={0.08}>
               <div className="grid gap-4 sm:grid-cols-2">
-                {(campaigns ?? []).map((c: Campaign) => (
+                {visibleCampaigns.map((c: Campaign) => (
                   <StaggerItem key={c.id}>
                     <HoverLift>
                       <button
@@ -285,7 +312,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
                           <div>
                             <div className="flex items-center gap-2">
                               <h3 className="font-display text-lg font-semibold">{c.name}</h3>
-                              {isCyberpunkCampaign(c.system) && <CampaignSystemBadge system={c.system} />}
+                              <CampaignSystemBadge system={campaignRulesSystem(c.system)} />
                             </div>
                             {c.description && <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{c.description}</p>}
                           </div>
@@ -310,26 +337,35 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
         ) : (
           vaultLoading ? (
             <div className="text-center py-20 text-muted-foreground">Loading vault...</div>
-          ) : (vault?.length ?? 0) === 0 ? (
+          ) : visibleVault.length === 0 ? (
             <FadeIn>
               <div className="text-center py-20">
                 <Scroll className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-                <h2 className="text-xl font-display font-semibold mb-2">No characters yet</h2>
-                <p className="text-muted-foreground mb-4">Make a character now — no campaign needed.</p>
+                <h2 className="text-xl font-display font-semibold mb-2">
+                  {vault.length === 0 ? 'No characters yet' : `No ${modeLabel} characters`}
+                </h2>
+                <p className="text-muted-foreground mb-4">
+                  {vault.length === 0
+                    ? 'Make a character now — no campaign needed.'
+                    : 'Characters for the other system are hidden in this mode. Use the header toggle to switch.'}
+                </p>
                 <Button onClick={makeCharacter}><Plus className="w-4 h-4 mr-1" /> Make a character</Button>
               </div>
             </FadeIn>
           ) : (
-            <Stagger key="vault" staggerDelay={0.06}>
+            <Stagger key={`vault-${rulesSystem}`} staggerDelay={0.06}>
               <div className="grid gap-3">
-                {groupCompanions(vault ?? []).map(({ item: ch, depth, isCompanion }) => {
+                {groupCompanions(visibleVault).map(({ item: ch, depth, isCompanion }) => {
                   const cls = classSummary(ch.classes);
                   return (
                     <StaggerItem key={ch.id}>
                       <HoverLift className={depth ? 'ml-6' : undefined}>
                         <div className="flex items-center gap-3 bg-card p-4 rounded-lg border border-border hover:border-primary/30 transition-colors" style={{ boxShadow: 'var(--shadow-sm)' }}>
                           <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setEditingId(ch.id)}>
-                            <h3 className="font-display font-semibold truncate">{ch.name ?? 'Unnamed'}{isCompanion && <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 align-middle text-xs font-normal text-muted-foreground">{ch.companionType || 'Companion'}</span>}</h3>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="font-display font-semibold truncate">{ch.name ?? 'Unnamed'}{isCompanion && <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 align-middle text-xs font-normal text-muted-foreground">{ch.companionType || 'Companion'}</span>}</h3>
+                              <CampaignSystemBadge system={characterRulesSystem(ch)} />
+                            </div>
                             {ch.campaign ? (
                               <Link
                                 href={`/campaign/${ch.campaign.id}`}
@@ -348,7 +384,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
                             <p className="text-sm font-mono"><span className="text-success">{ch.hpCurrent ?? 0}</span>/{ch.hpMax ?? 0} HP</p>
                           </div>
                           {!ch.isAssigned && (
-                            <Button variant="secondary" size="sm" onClick={() => setAttachChar(ch)} disabled={(campaigns?.length ?? 0) === 0} title={(campaigns?.length ?? 0) === 0 ? 'Join a campaign first' : 'Add to a campaign'}>
+                            <Button variant="secondary" size="sm" onClick={() => setAttachChar(ch)} disabled={visibleCampaigns.length === 0} title={visibleCampaigns.length === 0 ? `No ${modeLabel} campaigns yet` : 'Add to a campaign'}>
                               <FolderPlus className="w-4 h-4 mr-1" /> Add to campaign
                             </Button>
                           )}
@@ -372,7 +408,7 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
           <DialogHeader><DialogTitle>Add to campaign</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground">Choose a campaign for <span className="font-medium text-foreground">{attachChar?.name}</span>.</p>
           <div className="space-y-2 mt-2">
-            {(campaigns ?? []).map((c: Campaign) => (
+            {visibleCampaigns.map((c: Campaign) => (
               <button
                 key={c.id}
                 onClick={() => attachToCampaign(c.id)}

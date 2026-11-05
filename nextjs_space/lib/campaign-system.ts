@@ -12,9 +12,27 @@ export function isCyberpunkCampaign(system: unknown): boolean {
   return system === 'cyberpunk2020';
 }
 
-/** Display name for a campaign's rules system. Per campaign, never a global switch. */
+/** Display name for a rules system. */
 export function campaignSystemLabel(system: unknown): string {
   if (system === 'cyberpunk2020') return 'Cyberpunk 2020';
   if (system === 'pf1e') return 'Pathfinder';
   return typeof system === 'string' && system.trim() ? system : 'Pathfinder';
+}
+
+/** Stored campaign system, with unknown values treated as Pathfinder. */
+export function campaignRulesSystem(system: unknown): CampaignSystem {
+  return isCampaignSystem(system) ? system : DEFAULT_CAMPAIGN_SYSTEM;
+}
+
+/**
+ * Which sheet a character uses.
+ * Assigned characters follow Campaign.system. Unassigned vault characters
+ * follow the sheet stored at create time (a cyberpunk object means Cyberpunk 2020).
+ */
+export function characterRulesSystem(character: {
+  campaign?: { system?: unknown } | null;
+  cyberpunk?: unknown;
+}): CampaignSystem {
+  if (character.campaign) return campaignRulesSystem(character.campaign.system);
+  return character.cyberpunk != null ? 'cyberpunk2020' : DEFAULT_CAMPAIGN_SYSTEM;
 }

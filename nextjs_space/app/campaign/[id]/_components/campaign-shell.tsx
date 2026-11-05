@@ -18,6 +18,7 @@ import { RollLog } from './roll-log';
 import { CampaignEventsProvider } from '@/hooks/use-campaign-events';
 import { HallNav } from '@/components/library/hall-nav';
 import { CampaignSystemBadge } from '@/components/campaign-system-picker';
+import { RulesSystemToggle, SyncRulesSystem } from '@/components/rules-system-toggle';
 
 const DESKTOP_QUERY = '(min-width: 1024px)';
 function subscribeDesktop(cb: () => void) {
@@ -116,6 +117,7 @@ export function CampaignShell({ campaignId, campaignName, system, inviteCode, ro
 
   return (
     <CampaignEventsProvider campaignId={campaignId}>
+    <SyncRulesSystem system={system} />
     <div className="min-h-screen bg-background flex flex-col">
       {/* Top navbar */}
       <header className="sticky top-0 z-50 bg-card/80 backdrop-blur-md border-b border-border">
@@ -134,6 +136,7 @@ export function CampaignShell({ campaignId, campaignName, system, inviteCode, ro
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <RulesSystemToggle />
             <BrightnessControl />
             <HallNav />
             <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${role === 'dm' ? 'bg-primary/20 text-primary' : 'bg-secondary text-secondary-foreground'}`}>{role === 'dm' ? 'Dungeon Master' : 'Player'}</span>
@@ -180,7 +183,7 @@ export function CampaignShell({ campaignId, campaignName, system, inviteCode, ro
           {activeTab === 'towns' && !isDM && <TownsTab campaignId={campaignId} role={role} />}
           {activeTab === 'npcs' && isDM && <NpcsTab campaignId={campaignId} system={system} />}
           {activeTab === 'loot' && <LootTab campaignId={campaignId} role={role} userId={userId} />}
-          {activeTab === 'players' && isDM && <PlayersTab campaignId={campaignId} system={system} />}
+          {activeTab === 'players' && isDM && <PlayersTab campaignId={campaignId} />}
         </main>
         {logOpen && (
           <aside id="campaign-roll-log" aria-label="Roll log" className="fixed inset-x-0 bottom-0 z-40 h-[min(70dvh,32rem)] overscroll-contain border-t border-border bg-card shadow-2xl lg:static lg:z-auto lg:h-auto lg:w-80 lg:shrink-0 lg:border-t-0 lg:border-l lg:bg-card/40 lg:shadow-none">
