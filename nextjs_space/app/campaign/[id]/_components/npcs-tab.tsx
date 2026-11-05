@@ -8,6 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
 import { CharacterSheet } from './character-sheet';
+import { CyberpunkCharacterSheet } from './cyberpunk-character-sheet';
+import { isCyberpunkCampaign } from '@/lib/campaign-system';
 import { CompanionNavProvider } from '@/components/characters/companion-nav';
 
 interface NpcSummary {
@@ -29,7 +31,7 @@ const LEVEL_LABEL: Record<string, string> = { hidden: 'Hidden', unknown: 'Visibl
 
 // GM-only. Lists Bestiary creatures flagged as NPCs. Hidden NPCs are fine here:
 // this tab never renders for players.
-export function NpcsTab({ campaignId }: { campaignId: string }) {
+export function NpcsTab({ campaignId, system }: { campaignId: string; system: string }) {
   const router = useRouter();
   const [npcs, setNpcs] = useState<NpcSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -121,7 +123,9 @@ export function NpcsTab({ campaignId }: { campaignId: string }) {
           <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to NPCs
         </Button>
         <CompanionNavProvider onOpen={setSelectedCharId}>
-          <CharacterSheet key={selectedCharId} characterId={selectedCharId} editable={true} />
+          {isCyberpunkCampaign(system)
+            ? <CyberpunkCharacterSheet key={selectedCharId} characterId={selectedCharId} />
+            : <CharacterSheet key={selectedCharId} characterId={selectedCharId} editable={true} />}
         </CompanionNavProvider>
       </div>
     );

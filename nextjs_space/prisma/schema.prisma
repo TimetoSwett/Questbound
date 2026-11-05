@@ -68,6 +68,7 @@ model Campaign {
   description String?  @default("")
   inviteCode  String   @unique
   dmUserId    String
+  system      String   @default("pf1e") // rules system: pf1e | cyberpunk2020 (see lib/campaign-system.ts)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -189,6 +190,10 @@ model Character {
 
   // Notes / Backstory (TipTap HTML)
   notes String @default("")
+
+  // Cyberpunk 2020 sheet data (see lib/cyberpunk-sheet.ts for the shape).
+  // Null for pf1e characters and for cyberpunk characters not yet saved.
+  cyberpunk Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

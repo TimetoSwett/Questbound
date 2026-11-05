@@ -25,6 +25,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
       key={`${tab ?? ''}:${character ?? ''}`}
       campaignId={id}
       campaignName={campaign.name}
+      system={campaign.system}
       inviteCode={campaign.inviteCode}
       role={membership.role}
       userId={session.user.id ?? ''}
