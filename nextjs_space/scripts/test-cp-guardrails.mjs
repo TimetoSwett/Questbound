@@ -34,6 +34,19 @@ r = await req('PUT', '/api/characters', { id: pfc.id, cyberpunk: null });
 check('4 PF PUT cyberpunk:null allowed', r.s === 200, `${r.s}`);
 r = await req('POST', '/api/campaigns', { name: 'Bad', system: 'dnd5e' });
 check('invalid system rejected', r.s === 400, `${r.s}`);
+r = await req('POST', '/api/characters', { campaignId: pf.id, name: 'Ignore client system', system: 'cyberpunk2020' });
+check('1 campaign system beats client system', r.s === 200 && r.j?.cyberpunk == null, JSON.stringify(r.j?.cyberpunk));
+r = await req('POST', '/api/characters', { name: 'Vault PF' });
+const vaultPf = r.j;
+check('vault PF character stays cyberpunk null', r.s === 200 && vaultPf?.campaignId == null && vaultPf?.cyberpunk == null, JSON.stringify(vaultPf?.cyberpunk));
+r = await req('PUT', '/api/characters', { id: vaultPf.id, cyberpunk: { stats: {}, role: 'Solo', skills: [] } });
+check('vault PF PUT cyberpunk rejected (400)', r.s === 400, `${r.s}`);
+r = await req('POST', '/api/characters', { name: 'Vault CP', system: 'cyberpunk2020' });
+const vaultCp = r.j;
+check('vault CP seeds sheet without a campaign', r.s === 200 && vaultCp?.campaignId == null && STATS.every((s) => vaultCp?.cyberpunk?.stats?.[s] === 5) && vaultCp?.cyberpunk?.role === '', JSON.stringify(vaultCp?.cyberpunk));
+const vaultEdited = { stats: { ...(vaultCp?.cyberpunk?.stats ?? {}), REF: 7 }, role: 'Solo', skills: [] };
+r = await req('PUT', '/api/characters', { id: vaultCp?.id, cyberpunk: vaultEdited });
+check('vault CP PUT saves', r.s === 200, `${r.s} ${JSON.stringify(r.j).slice(0, 180)}`);
 
 // 2/3. CP campaign + character
 r = await req('POST', '/api/campaigns', { name: 'Night City', system: 'cyberpunk2020' }); const cp = r.j;

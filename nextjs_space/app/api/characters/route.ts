@@ -76,7 +76,7 @@ export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { campaignId, name } = await request.json();
+  const { campaignId, name, system } = await request.json();
 
   // campaignId is optional now: omitted -> vault character owned by the caller
   if (campaignId) {
@@ -84,12 +84,15 @@ export async function POST(request: Request) {
     if (!role) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
   }
 
-  // Characters created in a cyberpunk2020 campaign start with a blank
-  // CP2020 sheet; pf1e characters (and vault characters) keep cyberpunk null.
+  // Inside a campaign, Campaign.system wins and the client system is ignored.
+  // A vault character (no campaign) uses the requested system: cyberpunk2020
+  // starts a blank CP sheet; anything else stays Pathfinder (cyberpunk null).
   let cyberpunk = undefined;
   if (campaignId) {
     const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { system: true } });
     if (campaign && isCyberpunkCampaign(campaign.system)) cyberpunk = defaultCyberpunkSheet();
+  } else if (isCyberpunkCampaign(system)) {
+    cyberpunk = defaultCyberpunkSheet();
   }
 
   const character = await prisma.character.create({
@@ -303,9 +306,9 @@ export async function PUT(request: Request) {
     }
   }
 
-  // Cyberpunk sheet data: only characters in a cyberpunk2020 campaign may
-  // hold a sheet object; null clears it (pf1e characters stay null). Other
-  // payloads are rejected rather than stored.
+  // Cyberpunk sheet data is stored only for cyberpunk2020 characters:
+  // a character in a cyberpunk2020 campaign, or an unassigned vault character
+  // that was created with a CP sheet. Null clears it. Other payloads are rejected.
   if (Object.prototype.hasOwnProperty.call(data, 'cyberpunk')) {
     if (data.cyberpunk === null) {
       // Clearing is always allowed; it restores the pf1e-style null state.
@@ -313,8 +316,10 @@ export async function PUT(request: Request) {
       const campaign = character.campaignId
         ? await prisma.campaign.findUnique({ where: { id: character.campaignId }, select: { system: true } })
         : null;
-      if (!campaign || !isCyberpunkCampaign(campaign.system)) {
-        return NextResponse.json({ error: 'Cyberpunk sheet data only applies to cyberpunk2020 campaign characters' }, { status: 400 });
+      const inCyberpunkCampaign = !!campaign && isCyberpunkCampaign(campaign.system);
+      const vaultCyberpunkSheet = !character.campaignId && character.cyberpunk != null;
+      if (!inCyberpunkCampaign && !vaultCyberpunkSheet) {
+        return NextResponse.json({ error: 'Cyberpunk sheet data only applies to cyberpunk2020 characters' }, { status: 400 });
       }
       const sanitized = sanitizeCyberpunkSheet(data.cyberpunk);
       if (!sanitized) return NextResponse.json({ error: 'Invalid cyberpunk sheet' }, { status: 400 });

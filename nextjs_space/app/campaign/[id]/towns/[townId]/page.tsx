@@ -2,6 +2,7 @@ import { auth } from '@/auth';
 import { redirect, notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { TownDetail } from './_components/town-detail';
+import { SyncRulesSystem } from '@/components/rules-system-toggle';
 
 export default async function TownPage({ params }: { params: Promise<{ id: string; townId: string }> }) {
   const session = await auth();
@@ -11,6 +12,7 @@ export default async function TownPage({ params }: { params: Promise<{ id: strin
 
   const membership = await prisma.campaignMembership.findUnique({
     where: { userId_campaignId: { userId: session.user.id ?? '', campaignId: id } },
+    include: { campaign: { select: { system: true } } },
   });
   if (!membership) redirect('/dashboard');
 
@@ -19,5 +21,10 @@ export default async function TownPage({ params }: { params: Promise<{ id: strin
   if (!town || town.campaignId !== id) notFound();
   if (membership.role !== 'dm' && town.revealLevel === 'hidden') notFound();
 
-  return <TownDetail campaignId={id} townId={townId} role={membership.role} />;
+  return (
+    <>
+      <SyncRulesSystem system={membership.campaign.system} />
+      <TownDetail campaignId={id} townId={townId} role={membership.role} />
+    </>
+  );
 }

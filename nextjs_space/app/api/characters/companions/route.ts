@@ -8,6 +8,8 @@ import {
   accessibleCharacters, canAccessCharacterById, companionQuerySchema, companionSelect, createCompanionSchema,
   COMPANION_ERRORS, linkCompanionSchema, toCompanionSummary,
 } from '@/lib/companions';
+import { isCyberpunkCampaign } from '@/lib/campaign-system';
+import { defaultCyberpunkSheet } from '@/lib/cyberpunk-sheet';
 
 const updateSelect = { id: true, name: true, companionType: true, ownerCharacterId: true, campaignId: true } as const;
 const accessFields = { id: true, userId: true, campaignId: true, ownerCharacterId: true } as const;
@@ -90,9 +92,18 @@ export async function POST(request: Request) {
     const companion = await prisma.$transaction(async (tx) => {
       await lockCharacters(tx, [owner.id]);
       // Re-read under the lock: a concurrent link may have just made the owner a companion.
-      const locked = await tx.character.findUnique({ where: { id: owner.id }, select: accessFields });
+      const locked = await tx.character.findUnique({ where: { id: owner.id }, select: { ...accessFields, cyberpunk: true } });
       if (!locked) throw new Rejection(404, 'Not found');
       if (locked.ownerCharacterId) throw new Rejection(400, COMPANION_ERRORS.ownerIsCompanion);
+      // Same rule as character create: a campaign companion follows that
+      // campaign; an unassigned companion follows the owner's stored sheet.
+      let cyberpunkSheet: ReturnType<typeof defaultCyberpunkSheet> | undefined;
+      if (locked.campaignId) {
+        const campaign = await tx.campaign.findUnique({ where: { id: locked.campaignId }, select: { system: true } });
+        if (campaign && isCyberpunkCampaign(campaign.system)) cyberpunkSheet = defaultCyberpunkSheet();
+      } else if (locked.cyberpunk != null) {
+        cyberpunkSheet = defaultCyberpunkSheet();
+      }
       return tx.character.create({
         data: {
           userId: locked.userId,
@@ -104,6 +115,7 @@ export async function POST(request: Request) {
           equipment: JSON.stringify([]),
           feats: JSON.stringify([]),
           spells: JSON.stringify({ slots: {}, known: [] }),
+          ...(cyberpunkSheet ? { cyberpunk: cyberpunkSheet } : {}),
         },
       });
     });
