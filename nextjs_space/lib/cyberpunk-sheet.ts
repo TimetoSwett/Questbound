@@ -30,15 +30,6 @@ export function defaultCyberpunkSheet(): CyberpunkSheet {
   };
 }
 
-/** Unsaved / missing sheet. Stats stay at 0 so the UI does not invent the 5s in defaultCyberpunkSheet. */
-export function emptyCyberpunkSheet(): CyberpunkSheet {
-  return {
-    stats: { INT: 0, REF: 0, TECH: 0, COOL: 0, ATTR: 0, LUCK: 0, MA: 0, BODY: 0, EMP: 0 },
-    role: '',
-    skills: [],
-  };
-}
-
 function finiteNumber(value: unknown, fallback = 0): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string' && value.trim() !== '') {
@@ -48,9 +39,9 @@ function finiteNumber(value: unknown, fallback = 0): number {
   return fallback;
 }
 
-/** Read a stored cyberpunk blob. Null, missing, or malformed data becomes the empty sheet (stats 0). Saved numbers are kept as stored. */
+/** Read a stored cyberpunk blob. Null, missing, or malformed data becomes defaultCyberpunkSheet(). Saved numbers are kept as stored. */
 export function readCyberpunkSheet(value: unknown): CyberpunkSheet {
-  const empty = emptyCyberpunkSheet();
+  const empty = defaultCyberpunkSheet();
   let raw: unknown = value;
   if (typeof raw === 'string') {
     try { raw = JSON.parse(raw); } catch { return empty; }

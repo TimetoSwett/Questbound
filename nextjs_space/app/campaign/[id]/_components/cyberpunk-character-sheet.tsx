@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
   CYBERPUNK_STATS,
-  emptyCyberpunkSheet,
+  defaultCyberpunkSheet,
   readCyberpunkSheet,
   type CyberpunkSheet,
   type CyberpunkStat,
@@ -35,11 +35,11 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
   const [name, setName] = useState('');
-  const [sheet, setSheet] = useState<CyberpunkSheet>(emptyCyberpunkSheet);
+  const [sheet, setSheet] = useState<CyberpunkSheet>(defaultCyberpunkSheet);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [activeId, setActiveId] = useState(characterId);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const payloadRef = useRef<{ name: string; sheet: CyberpunkSheet }>({ name: '', sheet: emptyCyberpunkSheet() });
+  const payloadRef = useRef<{ name: string; sheet: CyberpunkSheet }>({ name: '', sheet: defaultCyberpunkSheet() });
   const editableRef = useRef(editable);
 
   if (activeId !== characterId) {
@@ -48,7 +48,7 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
     setMissing(false);
     setStatus('idle');
     setName('');
-    setSheet(emptyCyberpunkSheet());
+    setSheet(defaultCyberpunkSheet());
   }
 
   useEffect(() => {
