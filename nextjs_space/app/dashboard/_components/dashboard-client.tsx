@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from 'sonner';
 import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
 import { CharacterSheet } from '@/app/campaign/[id]/_components/character-sheet';
+import { CyberpunkCharacterSheet } from '@/app/campaign/[id]/_components/cyberpunk-character-sheet';
+import { isCyberpunkCampaign } from '@/lib/campaign-system';
 import { CompanionNavProvider } from '@/components/characters/companion-nav';
 import { groupCompanions } from '@/lib/companions';
 import { SiteHeader } from '@/components/site-header';
@@ -20,6 +22,7 @@ interface Campaign {
   name: string;
   description: string | null;
   inviteCode: string;
+  system?: string;
   myRole: string;
   playerCount: number;
   _count?: { characters: number };
@@ -28,7 +31,7 @@ interface Campaign {
 interface VaultChar {
   id: string;
   campaignId: string | null;
-  campaign: { id: string; name: string } | null;
+  campaign: { id: string; name: string; system?: string } | null;
   isAssigned: boolean;
   ownerCharacterId?: string | null;
   companionType?: string;
@@ -199,7 +202,9 @@ export function DashboardClient({ userId, userName }: { userId: string; userName
             <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to vault
           </Button>
           <CompanionNavProvider onOpen={setEditingId} onChanged={fetchVault}>
-            <CharacterSheet key={editingId} characterId={editingId} editable={true} />
+            {isCyberpunkCampaign(vault.find((c) => c.id === editingId)?.campaign?.system)
+              ? <CyberpunkCharacterSheet key={editingId} characterId={editingId} />
+              : <CharacterSheet key={editingId} characterId={editingId} editable={true} />}
           </CompanionNavProvider>
         </main>
       </div>

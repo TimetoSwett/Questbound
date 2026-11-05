@@ -33,6 +33,7 @@ type TabKey = 'characters' | 'world' | 'bestiary' | 'towns' | 'npcs' | 'players'
 interface Props {
   campaignId: string;
   campaignName: string;
+  system: string;
   inviteCode: string;
   role: string;
   userId: string;
@@ -46,7 +47,7 @@ interface Props {
 const GM_TABS: TabKey[] = ['world', 'bestiary', 'npcs', 'characters', 'loot', 'players'];
 const PLAYER_TABS: TabKey[] = ['characters', 'world', 'bestiary', 'towns', 'loot'];
 
-export function CampaignShell({ campaignId, campaignName, inviteCode, role, userId, userName, initialTab, initialCharacterId }: Props) {
+export function CampaignShell({ campaignId, campaignName, system, inviteCode, role, userId, userName, initialTab, initialCharacterId }: Props) {
   const router = useRouter();
   const isDM = role === 'dm';
   const allowedTabs = isDM ? GM_TABS : PLAYER_TABS;
@@ -171,11 +172,11 @@ export function CampaignShell({ campaignId, campaignName, inviteCode, role, user
       {/* Content + roll log side column */}
       <div className="flex-1 flex items-stretch min-w-0">
         <main className="flex-1 min-w-0">
-          {activeTab === 'characters' && <CharactersTab campaignId={campaignId} role={role} userId={userId} initialCharacterId={initialCharacterId} />}
+          {activeTab === 'characters' && <CharactersTab campaignId={campaignId} system={system} role={role} userId={userId} initialCharacterId={initialCharacterId} />}
           {activeTab === 'world' && <WorldTab campaignId={campaignId} role={role} initialSubTab={gmTownsLink ? 'towns' : undefined} />}
           {activeTab === 'bestiary' && <BestiaryTab campaignId={campaignId} role={role} />}
           {activeTab === 'towns' && !isDM && <TownsTab campaignId={campaignId} role={role} />}
-          {activeTab === 'npcs' && isDM && <NpcsTab campaignId={campaignId} />}
+          {activeTab === 'npcs' && isDM && <NpcsTab campaignId={campaignId} system={system} />}
           {activeTab === 'loot' && <LootTab campaignId={campaignId} role={role} userId={userId} />}
           {activeTab === 'players' && isDM && <PlayersTab campaignId={campaignId} />}
         </main>

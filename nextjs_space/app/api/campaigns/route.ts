@@ -4,6 +4,7 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { detachCampaignCharacters, generateInviteCode } from '@/lib/campaign-helpers';
 import { publish } from '@/lib/realtime';
+import { DEFAULT_CAMPAIGN_SYSTEM, isCampaignSystem } from '@/lib/campaign-system';
 
 export async function GET() {
   const session = await auth();
@@ -34,8 +35,9 @@ export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { name, description } = await request.json();
+  const { name, description, system } = await request.json();
   if (!name) return NextResponse.json({ error: 'Campaign name required' }, { status: 400 });
+  if (system !== undefined && !isCampaignSystem(system)) return NextResponse.json({ error: 'Invalid system' }, { status: 400 });
 
   let inviteCode = generateInviteCode();
   // Ensure unique
@@ -49,6 +51,7 @@ export async function POST(request: Request) {
     data: {
       name,
       description: description ?? '',
+      system: system ?? DEFAULT_CAMPAIGN_SYSTEM,
       inviteCode,
       dmUserId: session.user.id,
       memberships: {
@@ -64,8 +67,9 @@ export async function PATCH(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { campaignId, name, regenerateCode, removeUserId } = await request.json();
+  const { campaignId, name, system, regenerateCode, removeUserId } = await request.json();
   if (!campaignId) return NextResponse.json({ error: 'campaignId required' }, { status: 400 });
+  if (system !== undefined && !isCampaignSystem(system)) return NextResponse.json({ error: 'Invalid system' }, { status: 400 });
 
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
   if (!campaign || campaign.dmUserId !== session.user.id) {
@@ -74,6 +78,7 @@ export async function PATCH(request: Request) {
 
   const updates: any = {};
   if (name) updates.name = name;
+  if (system !== undefined) updates.system = system;
   if (regenerateCode) {
     let code = generateInviteCode();
     let ex = await prisma.campaign.findUnique({ where: { inviteCode: code } });

@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { FadeIn, Stagger, StaggerItem, HoverLift } from '@/components/ui/animate';
 import { CharacterSheet } from './character-sheet';
+import { CyberpunkCharacterSheet } from './cyberpunk-character-sheet';
+import { isCyberpunkCampaign } from '@/lib/campaign-system';
 import { CompanionNavProvider } from '@/components/characters/companion-nav';
 import { groupCompanions } from '@/lib/companions';
 
@@ -22,7 +24,7 @@ interface CharSummary {
   user?: { displayName: string };
 }
 
-export function CharactersTab({ campaignId, role, userId, initialCharacterId }: { campaignId: string; role: string; userId: string; initialCharacterId?: string }) {
+export function CharactersTab({ campaignId, system, role, userId, initialCharacterId }: { campaignId: string; system: string; role: string; userId: string; initialCharacterId?: string }) {
   const [characters, setCharacters] = useState<CharSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(initialCharacterId ?? null);
   const [loading, setLoading] = useState(true);
@@ -84,7 +86,9 @@ export function CharactersTab({ campaignId, role, userId, initialCharacterId }: 
           <ChevronRight className="w-4 h-4 rotate-180 mr-1" /> Back to list
         </Button>
         <CompanionNavProvider onOpen={setSelectedId} onChanged={load}>
-          <CharacterSheet key={selectedId} characterId={selectedId} editable={canEdit} />
+          {isCyberpunkCampaign(system)
+            ? <CyberpunkCharacterSheet key={selectedId} characterId={selectedId} />
+            : <CharacterSheet key={selectedId} characterId={selectedId} editable={canEdit} />}
         </CompanionNavProvider>
       </div>
     );

@@ -35,7 +35,7 @@ export async function GET(request: Request) {
         id: { in: characters.flatMap((character) => character.campaignId ? [character.campaignId] : []) },
         memberships: { some: { userId: session.user.id } },
       },
-      select: { id: true, name: true },
+      select: { id: true, name: true, system: true },
     });
     const campaignsById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
     // A companion's ownerCharacterId is only exposed when its owner is in this list too.
