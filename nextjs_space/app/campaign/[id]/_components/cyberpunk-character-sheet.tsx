@@ -7,12 +7,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
+  CYBERPUNK_SKILL_GROUPS,
   CYBERPUNK_STATS,
   defaultCyberpunkSheet,
+  normalizeCyberpunkSkillStat,
   readCyberpunkSheet,
   type CyberpunkSheet,
+  type CyberpunkSkillStat,
   type CyberpunkStat,
 } from '@/lib/cyberpunk-sheet';
+
+const CYBERPUNK_SKILL_STAT_OPTIONS = [...CYBERPUNK_SKILL_GROUPS, 'OTHER'] as const satisfies readonly CyberpunkSkillStat[];
 
 function parseStatInput(raw: string): number | null {
   const trimmed = raw.trim();
@@ -183,7 +188,7 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
                 id={`cp-stat-${stat}`}
                 type="number"
                 inputMode="numeric"
-                value={sheet.stats[stat]}
+                value={sheet.stats[stat] ?? ''}
                 disabled={!editable}
                 className="mt-1 px-2 text-center font-mono"
                 onChange={(e) => setStat(stat, e.target.value)}
@@ -201,7 +206,7 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
               type="button"
               variant="secondary"
               size="sm"
-              onClick={() => editSheet({ ...sheet, skills: [...sheet.skills, { name: '', stat: 'REF', value: 0 }] })}
+              onClick={() => editSheet({ ...sheet, skills: [...sheet.skills, { name: '', stat: 'REF', value: 0, chipped: false }] })}
             >
               <Plus className="mr-1 h-4 w-4" /> Add skill
             </Button>
@@ -228,15 +233,12 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
                   <Label htmlFor={`cp-skill-stat-${index}`} className="text-xs">Stat</Label>
                   <select
                     id={`cp-skill-stat-${index}`}
-                    value={skill.stat}
+                    value={normalizeCyberpunkSkillStat(skill.stat)}
                     disabled={!editable}
                     className="mt-1 flex h-10 w-full rounded-lg border border-input bg-background px-2 text-sm font-mono disabled:cursor-not-allowed disabled:opacity-50"
-                    onChange={(e) => updateSkill(index, { stat: e.target.value })}
+                    onChange={(e) => updateSkill(index, { stat: e.target.value as CyberpunkSkillStat })}
                   >
-                    {!(CYBERPUNK_STATS as readonly string[]).includes(skill.stat) && (
-                      <option value={skill.stat}>{skill.stat}</option>
-                    )}
-                    {CYBERPUNK_STATS.map((stat) => (
+                    {CYBERPUNK_SKILL_STAT_OPTIONS.map((stat) => (
                       <option key={stat} value={stat}>{stat}</option>
                     ))}
                   </select>
@@ -247,7 +249,7 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
                     id={`cp-skill-value-${index}`}
                     type="number"
                     inputMode="numeric"
-                    value={skill.value}
+                    value={skill.value ?? ''}
                     disabled={!editable}
                     className="mt-1 font-mono"
                     onChange={(e) => {
