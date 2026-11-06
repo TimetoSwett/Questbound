@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { defaultCyberpunkSheet, readCyberpunkSheet, type CyberpunkSheet } from '@/lib/cyberpunk-sheet';
 import { CyberpunkBasicsPanel } from './cyberpunk/basics-panel';
+import { CyberpunkInventoryLifepathPanel } from './cyberpunk/inventory-lifepath-panel';
 
 function saveCyberpunk(characterId: string, nextName: string, nextSheet: CyberpunkSheet, keepalive = false) {
   return fetch('/api/characters', {
@@ -140,6 +141,7 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
         <p className="pt-6 text-xs text-muted-foreground" aria-live="polite">{statusLabel}</p>
       </div>
       <CyberpunkBasicsPanel key={characterId} sheet={sheet} editable={editable} onChange={editSheet} />
+      <CyberpunkInventoryLifepathPanel key={characterId} sheet={sheet} editable={editable} onChange={editSheet} />
     </div>
   );
 }
