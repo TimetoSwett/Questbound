@@ -127,9 +127,13 @@ assert.equal(CYBERPUNK_ARMOR_LOCATION_INFO.rHand.side, 'right');
 assert.equal(CYBERPUNK_WOUND_COLUMNS[0], 'LIGHT');
 assert.equal(CYBERPUNK_WOUND_COLUMNS[CYBERPUNK_WOUND_COLUMNS.length - 1], 'MORTAL_6');
 assert.equal(CYBERPUNK_WOUND_BOXES, 4);
+assert.equal(Object.isFrozen(CYBERPUNK_DEFAULT_SKILLS), true);
+assert.ok(CYBERPUNK_DEFAULT_SKILLS.every((skill) => Object.isFrozen(skill)));
 assert.throws(() => {
+  'use strict';
   (CYBERPUNK_DEFAULT_SKILLS[0] as { value: number | null }).value = 4;
 });
+assert.equal(CYBERPUNK_DEFAULT_SKILLS[0].value, null);
 
 const seeded = addOfficialCyberpunkSkills([
   { name: 'Handgun', stat: 'REF', value: 7, chipped: true },
