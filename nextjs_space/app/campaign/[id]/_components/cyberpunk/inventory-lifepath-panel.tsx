@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +24,7 @@ import {
   type CyberpunkSheet,
   type CyberpunkWeapon,
 } from '@/lib/cyberpunk-sheet';
+import { patchCyberpunkSheet, type CyberpunkSheetUpdater } from '@/lib/cyberpunk-sheet-persistence';
 
 const sectionClass = 'rounded-lg border border-border bg-card p-4';
 const sectionStyle = { boxShadow: 'var(--shadow-sm)' };
@@ -138,6 +139,18 @@ function storedLifeEvents(rows: readonly PresentedRow<CyberpunkLifeEvent>[]): Cy
   return rows.map(({ year, event }) => ({ year, event }));
 }
 
+function useRowList<T>(initial: PresentedRow<T>[]) {
+  const [rows, setRows] = useState(initial);
+  const ref = useRef(rows);
+  const update = (updater: (current: PresentedRow<T>[]) => PresentedRow<T>[]) => {
+    const next = updater(ref.current);
+    ref.current = next;
+    setRows(next);
+    return next;
+  };
+  return { rows, update };
+}
+
 function armorLabel(location: CyberpunkArmorLocation): string {
   const info = CYBERPUNK_ARMOR_LOCATION_INFO[location];
   if (!('side' in info)) return info.label;
@@ -245,31 +258,36 @@ export function CyberpunkInventoryLifepathPanel({
 }: {
   sheet: CyberpunkSheet;
   editable: boolean;
-  onChange: (next: CyberpunkSheet) => void;
+  onChange: (updater: CyberpunkSheetUpdater) => void;
 }) {
-  const [cybernetics, setCybernetics] = useState<PresentedRow<CyberpunkCybernetic>[]>(() => presentRows(sheet.cybernetics, 'cybernetic'));
-  const [gear, setGear] = useState<PresentedRow<CyberpunkGearItem>[]>(() => presentRows(sheet.gear, 'gear'));
-  const [weapons, setWeapons] = useState<PresentedRow<CyberpunkWeapon>[]>(() => presentRows(sheet.weapons, 'weapon'));
-  const [lifeEvents, setLifeEvents] = useState<PresentedRow<CyberpunkLifeEvent>[]>(() => presentRows(sheet.lifepath.lifeEvents, 'event'));
+  const cyberneticRows = useRowList(presentRows(sheet.cybernetics, 'cybernetic'));
+  const gearRows = useRowList(presentRows(sheet.gear, 'gear'));
+  const weaponRows = useRowList(presentRows(sheet.weapons, 'weapon'));
+  const lifeEventRows = useRowList(presentRows(sheet.lifepath.lifeEvents, 'event'));
+  const cybernetics = cyberneticRows.rows;
+  const gear = gearRows.rows;
+  const weapons = weaponRows.rows;
+  const lifeEvents = lifeEventRows.rows;
 
-  const pushCybernetics = (next: PresentedRow<CyberpunkCybernetic>[]) => {
-    setCybernetics(next);
-    onChange({ ...sheet, cybernetics: storedCybernetics(next) });
+  const pushCybernetics = (updater: (current: PresentedRow<CyberpunkCybernetic>[]) => PresentedRow<CyberpunkCybernetic>[]) => {
+    const next = cyberneticRows.update(updater);
+    onChange(patchCyberpunkSheet('cybernetics', storedCybernetics(next)));
   };
 
-  const pushGear = (next: PresentedRow<CyberpunkGearItem>[]) => {
-    setGear(next);
-    onChange({ ...sheet, gear: storedGear(next) });
+  const pushGear = (updater: (current: PresentedRow<CyberpunkGearItem>[]) => PresentedRow<CyberpunkGearItem>[]) => {
+    const next = gearRows.update(updater);
+    onChange(patchCyberpunkSheet('gear', storedGear(next)));
   };
 
-  const pushWeapons = (next: PresentedRow<CyberpunkWeapon>[]) => {
-    setWeapons(next);
-    onChange({ ...sheet, weapons: storedWeapons(next) });
+  const pushWeapons = (updater: (current: PresentedRow<CyberpunkWeapon>[]) => PresentedRow<CyberpunkWeapon>[]) => {
+    const next = weaponRows.update(updater);
+    onChange(patchCyberpunkSheet('weapons', storedWeapons(next)));
   };
 
-  const pushLifeEvents = (next: PresentedRow<CyberpunkLifeEvent>[]) => {
-    setLifeEvents(next);
-    onChange({ ...sheet, lifepath: { ...sheet.lifepath, lifeEvents: storedLifeEvents(next) } });
+  const pushLifeEvents = (updater: (current: PresentedRow<CyberpunkLifeEvent>[]) => PresentedRow<CyberpunkLifeEvent>[]) => {
+    const next = lifeEventRows.update(updater);
+    const stored = storedLifeEvents(next);
+    onChange(patchCyberpunkSheet('lifepath', (lifepath) => ({ ...lifepath, lifeEvents: stored })));
   };
 
   return (
@@ -286,7 +304,7 @@ export function CyberpunkInventoryLifepathPanel({
               integer={false}
               range={CYBERPUNK_LIMITS.resource}
               className="mt-1"
-              onCommit={(money) => onChange({ ...sheet, money })}
+              onCommit={(money) => onChange(patchCyberpunkSheet('money', money))}
             />
           </div>
         </div>
@@ -306,7 +324,7 @@ export function CyberpunkInventoryLifepathPanel({
                 integer
                 range={CYBERPUNK_LIMITS.armor}
                 className="mt-1 px-2 text-center"
-                onCommit={(value) => onChange({ ...sheet, armor: { ...sheet.armor, [location]: value } })}
+                onCommit={(value) => onChange(patchCyberpunkSheet('armor', (armor) => ({ ...armor, [location]: value })))}
               />
             </div>
           ))}
@@ -321,7 +339,7 @@ export function CyberpunkInventoryLifepathPanel({
               type="button"
               variant="secondary"
               size="sm"
-              onClick={() => pushCybernetics(appendPresentedRow(cybernetics, 'cybernetic', BLANK_CYBERNETIC))}
+              onClick={() => pushCybernetics((current) => appendPresentedRow(current, 'cybernetic', BLANK_CYBERNETIC))}
             >
               <Plus className="mr-1 h-4 w-4" /> Add cybernetic
             </Button>
@@ -343,8 +361,8 @@ export function CyberpunkInventoryLifepathPanel({
                   ? { integer: false, range: CYBERPUNK_LIMITS.humanityLoss }
                   : { integer: false, range: CYBERPUNK_LIMITS.resource }}
                 textMax={() => CYBERPUNK_LIMITS.text.line}
-                onPatch={(key, value) => pushCybernetics(updatePresentedRow(
-                  cybernetics,
+                onPatch={(key, value) => pushCybernetics((current) => updatePresentedRow(
+                  current,
                   row.key,
                   { [key]: value } as Partial<CyberpunkCybernetic>,
                 ))}
@@ -352,7 +370,7 @@ export function CyberpunkInventoryLifepathPanel({
               {editable && (
                 <RemoveButton
                   label={`Remove ${row.type || 'cybernetic'}`}
-                  onClick={() => pushCybernetics(removePresentedRow(cybernetics, row.key))}
+                  onClick={() => pushCybernetics((current) => removePresentedRow(current, row.key))}
                 />
               )}
             </li>
@@ -368,7 +386,7 @@ export function CyberpunkInventoryLifepathPanel({
               integer={false}
               range={CYBERPUNK_LIMITS.humanityLoss}
               className="mt-1"
-              onCommit={(hl) => onChange({ ...sheet, cyberneticsTotals: { ...sheet.cyberneticsTotals, hl } })}
+              onCommit={(hl) => onChange(patchCyberpunkSheet('cyberneticsTotals', (totals) => ({ ...totals, hl })))}
             />
           </div>
           <div>
@@ -380,7 +398,7 @@ export function CyberpunkInventoryLifepathPanel({
               integer={false}
               range={CYBERPUNK_LIMITS.resource}
               className="mt-1"
-              onCommit={(euro) => onChange({ ...sheet, cyberneticsTotals: { ...sheet.cyberneticsTotals, euro } })}
+              onCommit={(euro) => onChange(patchCyberpunkSheet('cyberneticsTotals', (totals) => ({ ...totals, euro })))}
             />
           </div>
         </div>
@@ -395,7 +413,7 @@ export function CyberpunkInventoryLifepathPanel({
               type="button"
               variant="secondary"
               size="sm"
-              onClick={() => pushGear(appendPresentedRow(gear, 'gear', BLANK_GEAR))}
+              onClick={() => pushGear((current) => appendPresentedRow(current, 'gear', BLANK_GEAR))}
             >
               <Plus className="mr-1 h-4 w-4" /> Add gear
             </Button>
@@ -415,8 +433,8 @@ export function CyberpunkInventoryLifepathPanel({
                 showLabels
                 numberRange={() => ({ integer: false, range: CYBERPUNK_LIMITS.resource })}
                 textMax={() => CYBERPUNK_LIMITS.text.line}
-                onPatch={(key, value) => pushGear(updatePresentedRow(
-                  gear,
+                onPatch={(key, value) => pushGear((current) => updatePresentedRow(
+                  current,
                   row.key,
                   { [key]: value } as Partial<CyberpunkGearItem>,
                 ))}
@@ -424,7 +442,7 @@ export function CyberpunkInventoryLifepathPanel({
               {editable && (
                 <RemoveButton
                   label={`Remove ${row.type || 'gear'}`}
-                  onClick={() => pushGear(removePresentedRow(gear, row.key))}
+                  onClick={() => pushGear((current) => removePresentedRow(current, row.key))}
                 />
               )}
             </li>
@@ -440,7 +458,7 @@ export function CyberpunkInventoryLifepathPanel({
               type="button"
               variant="secondary"
               size="sm"
-              onClick={() => pushWeapons(appendPresentedRow(weapons, 'weapon', BLANK_WEAPON))}
+              onClick={() => pushWeapons((current) => appendPresentedRow(current, 'weapon', BLANK_WEAPON))}
             >
               <Plus className="mr-1 h-4 w-4" /> Add weapon
             </Button>
@@ -474,8 +492,8 @@ export function CyberpunkInventoryLifepathPanel({
                       ? { integer: true, range: CYBERPUNK_LIMITS.wa }
                       : { integer: true, range: CYBERPUNK_LIMITS.counter }}
                     textMax={(key) => key === 'name' ? CYBERPUNK_LIMITS.text.name : CYBERPUNK_LIMITS.text.short}
-                    onPatch={(key, value) => pushWeapons(updatePresentedRow(
-                      weapons,
+                    onPatch={(key, value) => pushWeapons((current) => updatePresentedRow(
+                      current,
                       row.key,
                       { [key]: value } as Partial<CyberpunkWeapon>,
                     ))}
@@ -483,7 +501,7 @@ export function CyberpunkInventoryLifepathPanel({
                   {editable ? (
                     <RemoveButton
                       label={`Remove ${row.name || 'weapon'}`}
-                      onClick={() => pushWeapons(removePresentedRow(weapons, row.key))}
+                      onClick={() => pushWeapons((current) => removePresentedRow(current, row.key))}
                     />
                   ) : (
                     <span aria-hidden="true" />
@@ -511,7 +529,10 @@ export function CyberpunkInventoryLifepathPanel({
                     maxLength={lifepathMax(field)}
                     rows={3}
                     className="mt-1"
-                    onChange={(event) => onChange({ ...sheet, lifepath: { ...sheet.lifepath, [field]: event.target.value } })}
+                    onChange={(event) => {
+                      const text = event.target.value;
+                      onChange(patchCyberpunkSheet('lifepath', (lifepath) => ({ ...lifepath, [field]: text })));
+                    }}
                   />
                 ) : (
                   <Input
@@ -520,7 +541,10 @@ export function CyberpunkInventoryLifepathPanel({
                     disabled={!editable}
                     maxLength={lifepathMax(field)}
                     className="mt-1"
-                    onChange={(event) => onChange({ ...sheet, lifepath: { ...sheet.lifepath, [field]: event.target.value } })}
+                    onChange={(event) => {
+                      const text = event.target.value;
+                      onChange(patchCyberpunkSheet('lifepath', (lifepath) => ({ ...lifepath, [field]: text })));
+                    }}
                   />
                 )}
               </div>
@@ -534,7 +558,7 @@ export function CyberpunkInventoryLifepathPanel({
               type="button"
               variant="secondary"
               size="sm"
-              onClick={() => pushLifeEvents(appendPresentedRow(lifeEvents, 'event', BLANK_LIFE_EVENT))}
+              onClick={() => pushLifeEvents((current) => appendPresentedRow(current, 'event', BLANK_LIFE_EVENT))}
             >
               <Plus className="mr-1 h-4 w-4" /> Add life event
             </Button>
@@ -555,7 +579,7 @@ export function CyberpunkInventoryLifepathPanel({
                   integer
                   range={CYBERPUNK_LIMITS.year}
                   className="mt-1"
-                  onCommit={(year) => pushLifeEvents(updatePresentedRow(lifeEvents, row.key, { year }))}
+                  onCommit={(year) => pushLifeEvents((current) => updatePresentedRow(current, row.key, { year }))}
                 />
               </div>
               <div>
@@ -567,13 +591,16 @@ export function CyberpunkInventoryLifepathPanel({
                   maxLength={CYBERPUNK_LIMITS.text.event}
                   rows={2}
                   className="mt-1"
-                  onChange={(event) => pushLifeEvents(updatePresentedRow(lifeEvents, row.key, { event: event.target.value }))}
+                  onChange={(event) => {
+                    const text = event.target.value;
+                    pushLifeEvents((current) => updatePresentedRow(current, row.key, { event: text }));
+                  }}
                 />
               </div>
               {editable && (
                 <RemoveButton
                   label={`Remove life event ${row.year ?? ''}`.trim()}
-                  onClick={() => pushLifeEvents(removePresentedRow(lifeEvents, row.key))}
+                  onClick={() => pushLifeEvents((current) => removePresentedRow(current, row.key))}
                 />
               )}
             </li>

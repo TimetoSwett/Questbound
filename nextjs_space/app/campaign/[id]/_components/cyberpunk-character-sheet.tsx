@@ -5,6 +5,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { defaultCyberpunkSheet, readCyberpunkSheet, type CyberpunkSheet } from '@/lib/cyberpunk-sheet';
+import {
+  createCyberpunkSaveQueue,
+  createLatestRef,
+  type CyberpunkSheetUpdater,
+} from '@/lib/cyberpunk-sheet-persistence';
 import { CyberpunkBasicsPanel } from './cyberpunk/basics-panel';
 import { CyberpunkInventoryLifepathPanel } from './cyberpunk/inventory-lifepath-panel';
 
@@ -28,7 +33,27 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
   const payloadRef = useRef<{ name: string; sheet: CyberpunkSheet }>({ name: '', sheet: defaultCyberpunkSheet() });
   const editableRef = useRef(editable);
   const nameRef = useRef(name);
-  const sheetRef = useRef(sheet);
+  const sheetDraft = useRef(createLatestRef(defaultCyberpunkSheet()));
+  const queueRef = useRef<ReturnType<typeof createCyberpunkSaveQueue> | null>(null);
+  if (queueRef.current === null) {
+    queueRef.current = createCyberpunkSaveQueue(
+      (job) => saveCyberpunk(job.characterId, job.name, job.sheet, job.keepalive).then(
+        (res) => ({ ok: res.ok }),
+        () => ({ ok: false }),
+      ),
+      {
+        onSettled: ({ job, ok, superseded }) => {
+          if (job.keepalive || superseded) return;
+          if (!ok) {
+            setStatus('error');
+            toast.error('Save failed');
+            return;
+          }
+          setStatus('saved');
+        },
+      },
+    );
+  }
 
   if (activeId !== characterId) {
     const blank = defaultCyberpunkSheet();
@@ -57,7 +82,7 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
         const nextName = typeof data.name === 'string' ? data.name : '';
         const nextSheet = readCyberpunkSheet(data.cyberpunk);
         nameRef.current = nextName;
-        sheetRef.current = nextSheet;
+        sheetDraft.current.set(nextSheet);
         payloadRef.current = { name: nextName, sheet: nextSheet };
         setName(nextName);
         setSheet(nextSheet);
@@ -71,25 +96,24 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
       saveTimer.current = null;
       if (!editableRef.current) return;
       const pending = payloadRef.current;
-      void saveCyberpunk(characterId, pending.name, pending.sheet, true);
+      queueRef.current?.enqueue({
+        characterId,
+        name: pending.name,
+        sheet: pending.sheet,
+        keepalive: true,
+      });
     };
   }, [characterId]);
 
-  const persist = useCallback(async (nextName: string, nextSheet: CyberpunkSheet) => {
+  const persist = useCallback((nextName: string, nextSheet: CyberpunkSheet) => {
     if (!editableRef.current) return;
     setStatus('saving');
-    try {
-      const res = await saveCyberpunk(characterId, nextName, nextSheet);
-      if (!res.ok) {
-        setStatus('error');
-        toast.error('Save failed');
-        return;
-      }
-      setStatus('saved');
-    } catch {
-      setStatus('error');
-      toast.error('Save error');
-    }
+    queueRef.current?.enqueue({
+      characterId,
+      name: nextName,
+      sheet: nextSheet,
+      keepalive: false,
+    });
   }, [characterId]);
 
   const scheduleSave = useCallback((nextName: string, nextSheet: CyberpunkSheet) => {
@@ -99,12 +123,12 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
     saveTimer.current = setTimeout(() => {
       saveTimer.current = null;
       const current = payloadRef.current;
-      void persist(current.name, current.sheet);
+      persist(current.name, current.sheet);
     }, 600);
   }, [persist]);
 
-  const editSheet = (next: CyberpunkSheet) => {
-    sheetRef.current = next;
+  const editSheet = (updater: CyberpunkSheetUpdater) => {
+    const next = sheetDraft.current.update(updater);
     setSheet(next);
     scheduleSave(nameRef.current, next);
   };
@@ -134,14 +158,14 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
               const nextName = event.target.value;
               nameRef.current = nextName;
               setName(nextName);
-              scheduleSave(nextName, sheetRef.current);
+              scheduleSave(nextName, sheetDraft.current.get());
             }}
           />
         </div>
         <p className="pt-6 text-xs text-muted-foreground" aria-live="polite">{statusLabel}</p>
       </div>
-      <CyberpunkBasicsPanel key={characterId} sheet={sheet} editable={editable} onChange={editSheet} />
-      <CyberpunkInventoryLifepathPanel key={characterId} sheet={sheet} editable={editable} onChange={editSheet} />
+      <CyberpunkBasicsPanel key={`${characterId}-basics`} sheet={sheet} editable={editable} onChange={editSheet} />
+      <CyberpunkInventoryLifepathPanel key={`${characterId}-inventory`} sheet={sheet} editable={editable} onChange={editSheet} />
     </div>
   );
 }

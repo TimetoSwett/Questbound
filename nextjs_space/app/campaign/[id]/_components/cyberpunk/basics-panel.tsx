@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -26,6 +26,7 @@ import {
   type CyberpunkStat,
   type CyberpunkWoundColumn,
 } from '@/lib/cyberpunk-sheet';
+import { overlayCyberpunkSheet, patchCyberpunkSheet, type CyberpunkSheetUpdater } from '@/lib/cyberpunk-sheet-persistence';
 import {
   CYBERPUNK_SKILL_STAT_OPTIONS,
   DERIVED_HINTS,
@@ -115,34 +116,48 @@ export function CyberpunkBasicsPanel({
 }: {
   sheet: CyberpunkSheet;
   editable: boolean;
-  onChange: (next: CyberpunkSheet) => void;
+  onChange: (updater: CyberpunkSheetUpdater) => void;
 }) {
   const [manual, setManual] = useState<DerivedManual>(() => inferDerivedManual(sheet));
   const [skills, setSkills] = useState<PresentedSkill[]>(() => presentCyberpunkSkills(sheet.skills));
+  const manualRef = useRef(manual);
+  const skillsRef = useRef(skills);
   const derived = displayedDerived(sheet, manual);
 
-  const push = (next: CyberpunkSheet, nextManual?: DerivedManual) => {
-    if (nextManual) setManual(nextManual);
-    onChange({ ...next, skills: storedCyberpunkSkills(skills) });
+  const rememberManual = (nextManual: DerivedManual) => {
+    manualRef.current = nextManual;
+    setManual(nextManual);
   };
 
-  const pushSkills = (nextSkills: PresentedSkill[]) => {
+  const commit = (updater: CyberpunkSheetUpdater) => {
+    onChange(overlayCyberpunkSheet(updater, () => ({ skills: storedCyberpunkSkills(skillsRef.current) })));
+  };
+
+  const pushSkills = (updater: (current: PresentedSkill[]) => PresentedSkill[]) => {
+    const nextSkills = updater(skillsRef.current);
+    skillsRef.current = nextSkills;
     setSkills(nextSkills);
-    onChange({ ...sheet, skills: storedCyberpunkSkills(nextSkills) });
+    onChange(patchCyberpunkSheet('skills', storedCyberpunkSkills(nextSkills)));
   };
 
   const setStat = (stat: CyberpunkStat, value: number | null) => {
-    const applied = applyStatEdit(sheet, manual, stat, value);
-    push(applied.sheet, applied.manual);
+    commit((current) => {
+      const applied = applyStatEdit(current, manualRef.current, stat, value);
+      rememberManual(applied.manual);
+      return applied.sheet;
+    });
   };
 
   const setDerived = (key: CyberpunkDerivedKey, value: number | null) => {
-    const applied = applyDerivedEdit(sheet, manual, key, value);
-    push(applied.sheet, applied.manual);
+    commit((current) => {
+      const applied = applyDerivedEdit(current, manualRef.current, key, value);
+      rememberManual(applied.manual);
+      return applied.sheet;
+    });
   };
 
   const updateSkill = (key: string, patch: Partial<CyberpunkSkill>) => {
-    pushSkills(updatePresentedSkill(skills, key, patch));
+    pushSkills((current) => updatePresentedSkill(current, key, patch));
   };
 
   const hintedAbility = isListedRole(sheet.role) ? CYBERPUNK_ROLE_SPECIAL_ABILITY[sheet.role] : null;
@@ -161,7 +176,7 @@ export function CyberpunkBasicsPanel({
               maxLength={CYBERPUNK_LIMITS.text.name}
               placeholder="Street name"
               className="mt-1"
-              onChange={(event) => push({ ...sheet, handle: event.target.value })}
+              onChange={(event) => commit(patchCyberpunkSheet('handle', event.target.value))}
             />
           </div>
           <div>
@@ -173,7 +188,7 @@ export function CyberpunkBasicsPanel({
               integer
               range={CYBERPUNK_LIMITS.counter}
               className="mt-1"
-              onCommit={(characterPoints) => push({ ...sheet, characterPoints })}
+              onCommit={(characterPoints) => commit(patchCyberpunkSheet('characterPoints', characterPoints))}
             />
           </div>
           <div>
@@ -185,7 +200,7 @@ export function CyberpunkBasicsPanel({
               integer
               range={CYBERPUNK_LIMITS.age}
               className="mt-1"
-              onCommit={(age) => push({ ...sheet, age })}
+              onCommit={(age) => commit(patchCyberpunkSheet('age', age))}
             />
           </div>
         </div>
@@ -202,7 +217,7 @@ export function CyberpunkBasicsPanel({
                   variant={selected ? 'default' : 'outline'}
                   aria-pressed={selected}
                   disabled={!editable}
-                  onClick={() => push({ ...sheet, role: selected ? '' : role })}
+                  onClick={() => commit(patchCyberpunkSheet('role', (current) => (current === role ? '' : role)))}
                 >
                   {role}
                 </Button>
@@ -218,7 +233,7 @@ export function CyberpunkBasicsPanel({
                 disabled={!editable}
                 maxLength={CYBERPUNK_LIMITS.text.name}
                 className="mt-1"
-                onChange={(event) => push({ ...sheet, role: event.target.value })}
+                onChange={(event) => commit(patchCyberpunkSheet('role', event.target.value))}
               />
             </div>
           )}
@@ -285,7 +300,7 @@ export function CyberpunkBasicsPanel({
               integer
               range={CYBERPUNK_LIMITS.save}
               className="mt-1"
-              onCommit={(save) => push({ ...sheet, save })}
+              onCommit={(save) => commit(patchCyberpunkSheet('save', save))}
             />
           </div>
           <div>
@@ -297,7 +312,7 @@ export function CyberpunkBasicsPanel({
               integer
               range={CYBERPUNK_LIMITS.btm}
               className="mt-1"
-              onCommit={(btm) => push({ ...sheet, btm })}
+              onCommit={(btm) => commit(patchCyberpunkSheet('btm', btm))}
             />
           </div>
         </div>
@@ -310,10 +325,12 @@ export function CyberpunkBasicsPanel({
                 boxes={sheet.wounds[column]}
                 editable={editable}
                 onToggle={(index) => {
-                  const next = sheet.wounds[column].slice(0, CYBERPUNK_WOUND_BOXES);
-                  while (next.length < CYBERPUNK_WOUND_BOXES) next.push(false);
-                  next[index] = !next[index];
-                  push({ ...sheet, wounds: { ...sheet.wounds, [column]: next } });
+                  commit(patchCyberpunkSheet('wounds', (wounds) => {
+                    const next = wounds[column].slice(0, CYBERPUNK_WOUND_BOXES);
+                    while (next.length < CYBERPUNK_WOUND_BOXES) next.push(false);
+                    next[index] = !next[index];
+                    return { ...wounds, [column]: next };
+                  }));
                 }}
               />
             ))}
@@ -341,11 +358,8 @@ export function CyberpunkBasicsPanel({
                   disabled={!editable}
                   integer
                   range={CYBERPUNK_LIMITS.rank}
-                  onCommit={(value) => push({
-                    ...sheet,
-                    specialAbilities: sheet.specialAbilities.map((row) =>
-                      row.name === ability.name ? { ...row, value } : row),
-                  })}
+                  onCommit={(value) => commit(patchCyberpunkSheet('specialAbilities', (rows) =>
+                    rows.map((row) => (row.name === ability.name ? { ...row, value } : row))))}
                 />
               </li>
             );
@@ -364,9 +378,9 @@ export function CyberpunkBasicsPanel({
               editable={editable}
               rows={skills.filter((skill) => skill.source === 'official' && CYBERPUNK_DEFAULT_SKILLS[skill.catalogIndex ?? -1]?.stat === group)}
               custom={skills.filter((skill) => skill.source === 'custom' && skill.stat === group)}
-              onAdd={() => pushSkills(appendCustomSkill(skills, { name: '', stat: group, value: null, chipped: false }))}
+              onAdd={() => pushSkills((current) => appendCustomSkill(current, { name: '', stat: group, value: null, chipped: false }))}
               onSkill={updateSkill}
-              onRemove={(key) => pushSkills(removePresentedSkill(skills, key))}
+              onRemove={(key) => pushSkills((current) => removePresentedSkill(current, key))}
             />
           ))}
           <SkillGroup
@@ -374,9 +388,9 @@ export function CyberpunkBasicsPanel({
             editable={editable}
             rows={[]}
             custom={skills.filter((skill) => skill.source === 'custom' && skill.stat === 'OTHER')}
-            onAdd={() => pushSkills(appendCustomSkill(skills, { name: '', stat: 'OTHER', value: null, chipped: false }))}
+            onAdd={() => pushSkills((current) => appendCustomSkill(current, { name: '', stat: 'OTHER', value: null, chipped: false }))}
             onSkill={updateSkill}
-            onRemove={(key) => pushSkills(removePresentedSkill(skills, key))}
+            onRemove={(key) => pushSkills((current) => removePresentedSkill(current, key))}
           />
         </div>
       </section>
@@ -393,7 +407,7 @@ export function CyberpunkBasicsPanel({
               integer
               range={CYBERPUNK_LIMITS.counter}
               className="mt-1"
-              onCommit={(rep) => push({ ...sheet, rep })}
+              onCommit={(rep) => commit(patchCyberpunkSheet('rep', rep))}
             />
           </div>
           <div>
@@ -405,7 +419,7 @@ export function CyberpunkBasicsPanel({
               integer
               range={CYBERPUNK_LIMITS.counter}
               className="mt-1"
-              onCommit={(currentIp) => push({ ...sheet, currentIp })}
+              onCommit={(currentIp) => commit(patchCyberpunkSheet('currentIp', currentIp))}
             />
           </div>
           <div>
@@ -417,7 +431,7 @@ export function CyberpunkBasicsPanel({
               integer={false}
               range={CYBERPUNK_LIMITS.counter}
               className="mt-1"
-              onCommit={(humanity) => push({ ...sheet, humanity })}
+              onCommit={(humanity) => commit(patchCyberpunkSheet('humanity', humanity))}
             />
           </div>
         </div>
