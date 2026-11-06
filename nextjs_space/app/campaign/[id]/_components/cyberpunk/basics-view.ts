@@ -8,7 +8,7 @@ import {
   CYBERPUNK_DERIVED_KEYS,
   CYBERPUNK_SKILL_GROUPS,
   CYBERPUNK_SKILLS_BY_GROUP,
-  addOfficialCyberpunkSkills,
+  normalizeCyberpunkSkillStat,
   type CyberpunkDerived,
   type CyberpunkDerivedKey,
   type CyberpunkSheet,
@@ -145,52 +145,101 @@ export function applyDerivedEdit(
   return { sheet: { ...sheet, derived }, manual: nextManual };
 }
 
-function matchingVariableTemplate(stat: CyberpunkSkillStat, name: string): string | null {
-  if (stat !== 'INT' && stat !== 'REF') return null;
-  for (const template of CYBERPUNK_SKILLS_BY_GROUP[stat]) {
-    if (!isVariableSkillTemplate(template)) continue;
-    if (name === template || name.startsWith(`${template}: `)) return template;
-  }
-  return null;
+/** Official catalog rows keep a fixed key. Saved rows stay custom and keep their key when a neighbor is removed. */
+export type PresentedSkill = CyberpunkSkill & {
+  key: string;
+  source: 'official' | 'custom';
+  catalogIndex?: number;
+};
+
+function copySkill(skill: CyberpunkSkill): CyberpunkSkill {
+  return {
+    name: skill.name,
+    stat: normalizeCyberpunkSkillStat(skill.stat),
+    value: skill.value ?? null,
+    chipped: skill.chipped === true,
+  };
+}
+
+function matchesOfficialSlot(skill: { name: string; stat: string }, template: CyberpunkSkill): boolean {
+  if (normalizeCyberpunkSkillStat(skill.stat) !== template.stat) return false;
+  if (skill.name === template.name) return true;
+  return isVariableSkillTemplate(template.name) && skill.name.startsWith(`${template.name}: `);
+}
+
+/** True only after this sheet has already stored the official block in catalog order. */
+function hasOfficialPrefix(skills: readonly CyberpunkSkill[]): boolean {
+  if (skills.length < CYBERPUNK_DEFAULT_SKILLS.length) return false;
+  return CYBERPUNK_DEFAULT_SKILLS.every((template, index) => matchesOfficialSlot(skills[index], template));
+}
+
+function officialRows(skills: readonly CyberpunkSkill[] | null): PresentedSkill[] {
+  return CYBERPUNK_DEFAULT_SKILLS.map((template, catalogIndex) => {
+    const saved = skills?.[catalogIndex];
+    const skill = saved && matchesOfficialSlot(saved, template) ? copySkill(saved) : {
+      name: template.name,
+      stat: template.stat,
+      value: null,
+      chipped: false,
+    };
+    return { ...skill, stat: template.stat, key: `official:${catalogIndex}`, source: 'official', catalogIndex };
+  });
+}
+
+function customRows(skills: readonly CyberpunkSkill[]): PresentedSkill[] {
+  return skills.map((skill, index) => ({
+    ...copySkill(skill),
+    key: `custom:${index}`,
+    source: 'custom' as const,
+  }));
 }
 
 /**
- * Official skills in sheet order, then custom rows. "Language: Japanese" fills
- * the next Language slot; extra renamed rows stay custom. Does not write the
- * catalog into an untouched sheet by itself — callers save the returned list
- * only after an edit.
+ * Saved rows stay editable custom skills, including ones that share an official
+ * name. The official catalog is added in front only when that block is not
+ * already stored, so a second pass does not duplicate it. Duplicate custom
+ * names are kept as separate rows.
  */
-export function presentCyberpunkSkills(skills: readonly CyberpunkSkill[]): CyberpunkSkill[] {
-  const capacity = new Map<string, number>();
-  for (const template of CYBERPUNK_DEFAULT_SKILLS) {
-    if (!isVariableSkillTemplate(template.name)) continue;
-    const key = `${template.stat}|${template.name}`;
-    capacity.set(key, (capacity.get(key) ?? 0) + 1);
+export function presentCyberpunkSkills(skills: readonly CyberpunkSkill[]): PresentedSkill[] {
+  if (hasOfficialPrefix(skills)) {
+    return [...officialRows(skills), ...customRows(skills.slice(CYBERPUNK_DEFAULT_SKILLS.length))];
   }
-  const taken = new Map<string, number>();
-  const annotations = skills.map((skill) => {
-    const template = matchingVariableTemplate(skill.stat, skill.name);
-    if (!template) return { skill: { ...skill }, specialty: null as string | null };
-    const key = `${skill.stat}|${template}`;
-    const used = taken.get(key) ?? 0;
-    if (used >= (capacity.get(key) ?? 0)) return { skill: { ...skill }, specialty: null };
-    taken.set(key, used + 1);
-    const specialty = skill.name === template ? '' : skill.name.slice(template.length + 2);
-    return { skill: { ...skill, name: template }, specialty };
+  return [...officialRows(null), ...customRows(skills)];
+}
+
+export function storedCyberpunkSkills(rows: readonly PresentedSkill[]): CyberpunkSkill[] {
+  return rows.map(({ name, stat, value, chipped }) => ({ name, stat, value, chipped }));
+}
+
+export function updatePresentedSkill(
+  rows: readonly PresentedSkill[],
+  key: string,
+  patch: Partial<CyberpunkSkill>,
+): PresentedSkill[] {
+  return rows.map((row) => {
+    if (row.key !== key) return row;
+    if (row.source === 'official') {
+      const next = { ...row };
+      if (patch.value !== undefined) next.value = patch.value;
+      if (patch.chipped !== undefined) next.chipped = patch.chipped === true;
+      const template = row.catalogIndex === undefined ? undefined : CYBERPUNK_DEFAULT_SKILLS[row.catalogIndex];
+      if (patch.name !== undefined && template && isVariableSkillTemplate(template.name)) next.name = patch.name;
+      return next;
+    }
+    const stat = patch.stat === undefined ? row.stat : normalizeCyberpunkSkillStat(patch.stat);
+    return { ...row, ...patch, stat, key: row.key, source: 'custom' };
   });
-  const expanded = addOfficialCyberpunkSkills(annotations.map((row) => row.skill));
-  const usedIndexes = new Set<number>();
-  const official = CYBERPUNK_DEFAULT_SKILLS.map((template, index) => {
-    const found = annotations.findIndex((row, skillIndex) =>
-      !usedIndexes.has(skillIndex) && row.skill.name === template.name && row.skill.stat === template.stat);
-    const base = expanded[index];
-    if (found === -1) return base;
-    usedIndexes.add(found);
-    const specialty = annotations[found].specialty;
-    if (!specialty) return base;
-    return { ...base, name: `${template.name}: ${specialty}` };
-  });
-  return [...official, ...expanded.slice(CYBERPUNK_DEFAULT_SKILLS.length)];
+}
+
+export function removePresentedSkill(rows: readonly PresentedSkill[], key: string): PresentedSkill[] {
+  return rows.filter((row) => row.source === 'official' || row.key !== key);
+}
+
+export function appendCustomSkill(rows: readonly PresentedSkill[], skill: CyberpunkSkill): PresentedSkill[] {
+  const used = new Set(rows.map((row) => row.key));
+  let index = 0;
+  while (used.has(`custom:${index}`)) index += 1;
+  return [...rows, { ...copySkill(skill), key: `custom:${index}`, source: 'custom' }];
 }
 
 export function skillSpecialty(name: string, templateName: string): string {
@@ -202,10 +251,6 @@ export function skillSpecialty(name: string, templateName: string): string {
 export function withSkillSpecialty(templateName: string, specialty: string): string {
   if (specialty.trim() === '') return templateName;
   return `${templateName}: ${specialty}`;
-}
-
-export function officialSkillCount(): number {
-  return CYBERPUNK_DEFAULT_SKILLS.length;
 }
 
 export function isSkillStatOption(value: string): value is CyberpunkSkillStat {

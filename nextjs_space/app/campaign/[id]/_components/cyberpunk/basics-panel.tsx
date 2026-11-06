@@ -30,17 +30,21 @@ import {
   CYBERPUNK_SKILL_STAT_OPTIONS,
   DERIVED_HINTS,
   DERIVED_KEY_LIST,
+  appendCustomSkill,
   applyDerivedEdit,
   applyStatEdit,
   displayedDerived,
   inferDerivedManual,
   isSkillStatOption,
   isVariableSkillTemplate,
-  officialSkillCount,
   presentCyberpunkSkills,
+  removePresentedSkill,
   skillSpecialty,
+  storedCyberpunkSkills,
+  updatePresentedSkill,
   withSkillSpecialty,
   type DerivedManual,
+  type PresentedSkill,
 } from './basics-view';
 
 const sectionClass = 'rounded-lg border border-border bg-card p-4';
@@ -114,18 +118,17 @@ export function CyberpunkBasicsPanel({
   onChange: (next: CyberpunkSheet) => void;
 }) {
   const [manual, setManual] = useState<DerivedManual>(() => inferDerivedManual(sheet));
-  const [skills, setSkills] = useState<CyberpunkSkill[]>(() => presentCyberpunkSkills(sheet.skills));
-  const derived = displayedDerived({ ...sheet, skills }, manual);
-  const officialCount = officialSkillCount();
+  const [skills, setSkills] = useState<PresentedSkill[]>(() => presentCyberpunkSkills(sheet.skills));
+  const derived = displayedDerived(sheet, manual);
 
   const push = (next: CyberpunkSheet, nextManual?: DerivedManual) => {
     if (nextManual) setManual(nextManual);
-    onChange({ ...next, skills });
+    onChange({ ...next, skills: storedCyberpunkSkills(skills) });
   };
 
-  const pushSkills = (nextSkills: CyberpunkSkill[]) => {
+  const pushSkills = (nextSkills: PresentedSkill[]) => {
     setSkills(nextSkills);
-    onChange({ ...sheet, skills: nextSkills });
+    onChange({ ...sheet, skills: storedCyberpunkSkills(nextSkills) });
   };
 
   const setStat = (stat: CyberpunkStat, value: number | null) => {
@@ -138,8 +141,8 @@ export function CyberpunkBasicsPanel({
     push(applied.sheet, applied.manual);
   };
 
-  const updateSkill = (index: number, patch: Partial<CyberpunkSkill>) => {
-    pushSkills(skills.map((skill, i) => (i === index ? { ...skill, ...patch } : skill)));
+  const updateSkill = (key: string, patch: Partial<CyberpunkSkill>) => {
+    pushSkills(updatePresentedSkill(skills, key, patch));
   };
 
   const hintedAbility = isListedRole(sheet.role) ? CYBERPUNK_ROLE_SPECIAL_ABILITY[sheet.role] : null;
@@ -359,27 +362,21 @@ export function CyberpunkBasicsPanel({
               key={group}
               label={CYBERPUNK_SKILL_GROUP_LABELS[group]}
               editable={editable}
-              rows={skills
-                .map((skill, index) => ({ skill, index }))
-                .filter(({ index }) => index < officialCount && CYBERPUNK_DEFAULT_SKILLS[index]?.stat === group)}
-              custom={skills
-                .map((skill, index) => ({ skill, index }))
-                .filter(({ skill, index }) => index >= officialCount && skill.stat === group)}
-              onAdd={() => pushSkills([...skills, { name: '', stat: group, value: null, chipped: false }])}
+              rows={skills.filter((skill) => skill.source === 'official' && CYBERPUNK_DEFAULT_SKILLS[skill.catalogIndex ?? -1]?.stat === group)}
+              custom={skills.filter((skill) => skill.source === 'custom' && skill.stat === group)}
+              onAdd={() => pushSkills(appendCustomSkill(skills, { name: '', stat: group, value: null, chipped: false }))}
               onSkill={updateSkill}
-              onRemove={(index) => pushSkills(skills.filter((_, i) => i !== index))}
+              onRemove={(key) => pushSkills(removePresentedSkill(skills, key))}
             />
           ))}
           <SkillGroup
             label="Other"
             editable={editable}
             rows={[]}
-            custom={skills
-              .map((skill, index) => ({ skill, index }))
-              .filter(({ skill, index }) => index >= officialCount && skill.stat === 'OTHER')}
-            onAdd={() => pushSkills([...skills, { name: '', stat: 'OTHER', value: null, chipped: false }])}
+            custom={skills.filter((skill) => skill.source === 'custom' && skill.stat === 'OTHER')}
+            onAdd={() => pushSkills(appendCustomSkill(skills, { name: '', stat: 'OTHER', value: null, chipped: false }))}
             onSkill={updateSkill}
-            onRemove={(index) => pushSkills(skills.filter((_, i) => i !== index))}
+            onRemove={(key) => pushSkills(removePresentedSkill(skills, key))}
           />
         </div>
       </section>
@@ -470,12 +467,12 @@ function SkillGroup({
   onRemove,
 }: {
   label: string;
-  rows: { skill: CyberpunkSkill; index: number }[];
-  custom: { skill: CyberpunkSkill; index: number }[];
+  rows: PresentedSkill[];
+  custom: PresentedSkill[];
   editable: boolean;
   onAdd: () => void;
-  onSkill: (index: number, patch: Partial<CyberpunkSkill>) => void;
-  onRemove: (index: number) => void;
+  onSkill: (key: string, patch: Partial<CyberpunkSkill>) => void;
+  onRemove: (key: string) => void;
 }) {
   return (
     <div>
@@ -488,13 +485,13 @@ function SkillGroup({
         )}
       </div>
       <ul className="mt-2 space-y-2">
-        {rows.map(({ skill, index }) => {
-          const template = CYBERPUNK_DEFAULT_SKILLS[index];
+        {rows.map((skill) => {
+          const template = skill.catalogIndex === undefined ? undefined : CYBERPUNK_DEFAULT_SKILLS[skill.catalogIndex];
           const variable = template ? isVariableSkillTemplate(template.name) : false;
           return (
             <SkillValueRow
-              key={`official-${index}`}
-              id={`cp-skill-${index}`}
+              key={skill.key}
+              id={`cp-skill-${skill.key}`}
               label={template?.name ?? skill.name}
               specialty={variable && template ? skillSpecialty(skill.name, template.name) : undefined}
               specialtyPlaceholder={template?.name === 'Language' ? 'Language' : template?.name === 'Expert' ? 'Specialty' : 'Style'}
@@ -502,36 +499,36 @@ function SkillGroup({
               chipped={skill.chipped}
               editable={editable}
               onSpecialty={variable && template
-                ? (specialty) => onSkill(index, { name: withSkillSpecialty(template.name, specialty) })
+                ? (specialty) => onSkill(skill.key, { name: withSkillSpecialty(template.name, specialty) })
                 : undefined}
-              onValue={(value) => onSkill(index, { value })}
-              onChipped={(chipped) => onSkill(index, { chipped })}
+              onValue={(value) => onSkill(skill.key, { value })}
+              onChipped={(chipped) => onSkill(skill.key, { chipped })}
             />
           );
         })}
-        {custom.map(({ skill, index }) => (
-          <li key={`custom-${index}`} className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_8rem_5rem_auto_auto]">
+        {custom.map((skill) => (
+          <li key={skill.key} className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_8rem_5rem_auto_auto]">
             <div>
-              <Label htmlFor={`cp-skill-name-${index}`} className="text-xs">Name</Label>
+              <Label htmlFor={`cp-skill-name-${skill.key}`} className="text-xs">Name</Label>
               <Input
-                id={`cp-skill-name-${index}`}
+                id={`cp-skill-name-${skill.key}`}
                 value={skill.name}
                 disabled={!editable}
                 maxLength={CYBERPUNK_LIMITS.text.name}
                 placeholder="Custom skill"
                 className="mt-1"
-                onChange={(event) => onSkill(index, { name: event.target.value })}
+                onChange={(event) => onSkill(skill.key, { name: event.target.value })}
               />
             </div>
             <div>
-              <Label htmlFor={`cp-skill-stat-${index}`} className="text-xs">Stat</Label>
+              <Label htmlFor={`cp-skill-stat-${skill.key}`} className="text-xs">Stat</Label>
               <select
-                id={`cp-skill-stat-${index}`}
+                id={`cp-skill-stat-${skill.key}`}
                 value={skill.stat}
                 disabled={!editable}
                 className={cn(selectClass, 'mt-1')}
                 onChange={(event) => {
-                  if (isSkillStatOption(event.target.value)) onSkill(index, { stat: event.target.value });
+                  if (isSkillStatOption(event.target.value)) onSkill(skill.key, { stat: event.target.value });
                 }}
               >
                 {CYBERPUNK_SKILL_STAT_OPTIONS.map((stat) => (
@@ -540,22 +537,22 @@ function SkillGroup({
               </select>
             </div>
             <div>
-              <Label htmlFor={`cp-skill-value-${index}`} className="text-xs">Value</Label>
+              <Label htmlFor={`cp-skill-value-${skill.key}`} className="text-xs">Value</Label>
               <NullableNumberInput
-                id={`cp-skill-value-${index}`}
+                id={`cp-skill-value-${skill.key}`}
                 value={skill.value}
                 disabled={!editable}
                 integer
                 range={CYBERPUNK_LIMITS.rank}
                 className="mt-1"
-                onCommit={(value) => onSkill(index, { value })}
+                onCommit={(value) => onSkill(skill.key, { value })}
               />
             </div>
             <ChippedMark
-              id={`cp-skill-chip-${index}`}
+              id={`cp-skill-chip-${skill.key}`}
               checked={skill.chipped}
               disabled={!editable}
-              onChange={(chipped) => onSkill(index, { chipped })}
+              onChange={(chipped) => onSkill(skill.key, { chipped })}
             />
             {editable && (
               <Button
@@ -564,7 +561,7 @@ function SkillGroup({
                 size="icon-sm"
                 className="mb-1"
                 aria-label={`Remove ${skill.name || 'skill'}`}
-                onClick={() => onRemove(index)}
+                onClick={() => onRemove(skill.key)}
               >
                 <Trash2 className="h-4 w-4 text-destructive" />
               </Button>
