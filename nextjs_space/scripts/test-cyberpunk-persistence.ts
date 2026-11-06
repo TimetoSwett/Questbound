@@ -10,11 +10,19 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defaultCyberpunkSheet, type CyberpunkGearItem, type CyberpunkSheet } from '../lib/cyberpunk-sheet';
 import {
+  CYBERPUNK_KEEPALIVE_MAX_BYTES,
+  CYBERPUNK_SAVE_TIMEOUT_MS,
+  createCyberpunkCharacterDraft,
   createCyberpunkSaveQueue,
   createLatestRef,
+  cyberpunkKeepaliveForBody,
+  cyberpunkSaveBody,
+  cyberpunkSaveBodyBytes,
+  finalizeCyberpunkSaveJob,
   overlayCyberpunkSheet,
   patchCyberpunkSheet,
   type CyberpunkSaveJob,
+  type CyberpunkSaveSettlement,
   type CyberpunkSheetUpdater,
 } from '../lib/cyberpunk-sheet-persistence';
 
@@ -56,6 +64,24 @@ function trackedQueue() {
 async function flush(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+async function captureWarn(run: () => Promise<void> | void): Promise<string[]> {
+  const warnings: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map((arg) => String(arg)).join(' '));
+  };
+  try {
+    await run();
+  } finally {
+    console.warn = original;
+  }
+  return warnings;
+}
+
+function sheetOverKeepaliveLimit(): CyberpunkSheet {
+  return sheet({ handle: 'H'.repeat(CYBERPUNK_KEEPALIVE_MAX_BYTES) });
 }
 
 function sheet(patch: Partial<CyberpunkSheet> = {}): CyberpunkSheet {
@@ -320,16 +346,251 @@ async function main(): Promise<void> {
     ]);
   }
 
+  // Keepalive stays on at the 60_000 byte cap and turns off one byte past it.
+  // TextEncoder counts UTF-8 bytes, not UTF-16 code units.
+  {
+    assert.equal(CYBERPUNK_SAVE_TIMEOUT_MS, 15_000);
+    const atLimit = 'a'.repeat(CYBERPUNK_KEEPALIVE_MAX_BYTES);
+    const under = cyberpunkKeepaliveForBody(true, atLimit);
+    assert.equal(under.bytes, CYBERPUNK_KEEPALIVE_MAX_BYTES);
+    assert.equal(under.keepalive, true);
+    assert.equal(under.downgraded, false);
+
+    const over = cyberpunkKeepaliveForBody(true, `${atLimit}b`);
+    assert.equal(over.bytes, CYBERPUNK_KEEPALIVE_MAX_BYTES + 1);
+    assert.equal(over.keepalive, false);
+    assert.equal(over.downgraded, true);
+
+    const plain = cyberpunkKeepaliveForBody(false, `${atLimit}b`);
+    assert.equal(plain.keepalive, false);
+    assert.equal(plain.downgraded, false);
+
+    const marks = '€'.repeat(Math.floor(CYBERPUNK_KEEPALIVE_MAX_BYTES / 3) + 1);
+    const multibyte = cyberpunkKeepaliveForBody(true, marks);
+    assert.ok(marks.length < CYBERPUNK_KEEPALIVE_MAX_BYTES);
+    assert.ok(multibyte.bytes > CYBERPUNK_KEEPALIVE_MAX_BYTES);
+    assert.equal(multibyte.keepalive, false);
+    assert.equal(new TextEncoder().encode(marks).length, multibyte.bytes);
+  }
+
+  // A small unmount flush still uses keepalive and does not warn.
+  {
+    const warnings = await captureWarn(async () => {
+      const harness = trackedQueue();
+      const body = sheet({ handle: 'First', money: 4 });
+      const bytes = cyberpunkSaveBodyBytes(cyberpunkSaveBody({
+        characterId: 'c1',
+        name: 'V',
+        sheet: body,
+      }));
+      assert.ok(bytes <= CYBERPUNK_KEEPALIVE_MAX_BYTES);
+      harness.queue.enqueue({ characterId: 'c1', name: 'V', sheet: body, keepalive: true });
+      assert.equal(harness.calls.length, 1);
+      assert.equal(harness.calls[0].job.keepalive, true);
+      assert.equal(harness.calls[0].job.sheet.money, 4);
+      harness.calls[0].finish(true);
+      await harness.queue.whenIdle();
+    });
+    assert.equal(warnings.length, 0);
+  }
+
+  // A sheet over the keepalive cap is still sent. The fetch is a normal PUT,
+  // and the downgrade is logged instead of failing silently.
+  {
+    const warnings = await captureWarn(async () => {
+      const settlements: CyberpunkSaveSettlement[] = [];
+      const calls: CyberpunkSaveJob[] = [];
+      const queue = createCyberpunkSaveQueue((job) => {
+        calls.push(job);
+        return Promise.resolve({ ok: true });
+      }, {
+        onSettled: (settlement) => settlements.push(settlement),
+      });
+      const huge = sheetOverKeepaliveLimit();
+      const bytes = cyberpunkSaveBodyBytes(cyberpunkSaveBody({
+        characterId: 'c1',
+        name: 'V',
+        sheet: huge,
+      }));
+      assert.ok(bytes > CYBERPUNK_KEEPALIVE_MAX_BYTES);
+      queue.enqueue({ characterId: 'c1', name: 'V', sheet: huge, keepalive: true });
+      await queue.whenIdle();
+      assert.equal(calls.length, 1, 'an oversized keepalive save must still be sent');
+      assert.equal(calls[0].keepalive, false);
+      assert.equal(calls[0].sheet.handle, huge.handle);
+      assert.equal(calls[0].sheet.money, null);
+      assert.equal(settlements.length, 1);
+      assert.equal(settlements[0].ok, true);
+      assert.equal(settlements[0].keepaliveDowngraded, true);
+      assert.equal(settlements[0].job.keepalive, false);
+
+      // The queue passes keepalive false onward, so the fetch helper must
+      // not warn a second time for the same body.
+      const again = finalizeCyberpunkSaveJob(calls[0]);
+      assert.equal(again.keepalive, false);
+      assert.equal(again.keepaliveDowngraded, false);
+      assert.equal(again.body.includes(huge.handle), true);
+    });
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0].includes(String(CYBERPUNK_KEEPALIVE_MAX_BYTES)), true);
+    assert.equal(warnings[0].includes('normal fetch'), true);
+    assert.equal(warnings[0].includes('not dropped'), true);
+  }
+
+  // An in-flight save must not swallow a later oversized unmount flush.
+  {
+    const warnings = await captureWarn(async () => {
+      const harness = trackedQueue();
+      const held = sheet({ handle: 'First' });
+      const unmount = sheetOverKeepaliveLimit();
+      harness.queue.enqueue({ characterId: 'c1', name: 'V', sheet: held, keepalive: false });
+      harness.queue.enqueue({ characterId: 'c1', name: 'V', sheet: unmount, keepalive: true });
+      assert.equal(harness.calls.length, 1);
+      assert.equal(harness.calls[0].job.keepalive, false);
+      harness.calls[0].finish(true);
+      await flush();
+      assert.equal(harness.calls.length, 2);
+      assert.equal(harness.calls[1].job.keepalive, false);
+      assert.equal(harness.calls[1].job.sheet.handle, unmount.handle);
+      harness.calls[1].finish(true);
+      await harness.queue.whenIdle();
+    });
+    assert.equal(warnings.length, 1);
+  }
+
+  // A hung PUT is aborted and the newest snapshot still goes out.
+  {
+    const calls: CyberpunkSaveJob[] = [];
+    const hung: { signal: AbortSignal | null } = { signal: null };
+    const queue = createCyberpunkSaveQueue((job, signal) => {
+      calls.push(job);
+      if (calls.length === 1) {
+        hung.signal = signal;
+        return new Promise(() => {});
+      }
+      return Promise.resolve({ ok: true });
+    }, { timeoutMs: 30 });
+    const newest = withStyle(sheet({ handle: 'Next' }), 'Late', 99);
+    queue.enqueue({ characterId: 'c1', name: 'V', sheet: sheet({ handle: 'Hung' }), keepalive: false });
+    queue.enqueue({ characterId: 'c1', name: 'V', sheet: sheet({ handle: 'Mid', money: 3 }), keepalive: false });
+    queue.enqueue({ characterId: 'c1', name: 'Nova', sheet: newest, keepalive: false });
+    assert.equal(calls.length, 1);
+    const started = Date.now();
+    while (calls.length < 2) {
+      if (Date.now() - started > 1000) break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.equal(calls.length, 2, 'the queue must continue after the hung save times out');
+    assert.equal(hung.signal?.aborted, true);
+    assert.equal(calls[1].name, 'Nova');
+    assert.equal(calls[1].sheet.handle, 'Next');
+    assert.equal(calls[1].sheet.money, 99);
+    assert.equal(calls[1].sheet.lifepath.style, 'Late');
+    assert.equal(calls.some((call) => call.sheet.money === 3), false);
+    await queue.whenIdle();
+    assert.ok(Date.now() - started < 1000);
+  }
+
+  // A save that settles does not get aborted when the timeout later elapses.
+  {
+    let aborted = false;
+    const queue = createCyberpunkSaveQueue((_job, signal) => {
+      signal.addEventListener('abort', () => { aborted = true; });
+      return Promise.resolve({ ok: true });
+    }, { timeoutMs: 40 });
+    queue.enqueue({ characterId: 'c1', name: 'V', sheet: sheet({ handle: 'Fast' }), keepalive: false });
+    await queue.whenIdle();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.equal(aborted, false);
+  }
+
+  // Switching characters drops the previous latest sheet immediately. The
+  // pending payload survives until beginLoad so it can still be flushed
+  // under the previous id, and a later edit cannot see the old handle.
+  {
+    const draft = createCyberpunkCharacterDraft('char-a');
+    draft.replaceLoaded('V', sheet({ handle: 'V', money: 99, role: 'Solo' }));
+    draft.setName('V');
+    draft.sheet.update(patchCyberpunkSheet('money', 40));
+    draft.setPayload('V', draft.sheet.get());
+    assert.equal(draft.noteCharacter('char-a'), false);
+    assert.equal(draft.sheet.get().handle, 'V');
+    assert.equal(draft.sheet.get().money, 40);
+
+    draft.beginLoad('char-a');
+    assert.equal(draft.sheet.get().handle, 'V');
+    assert.equal(draft.payload().sheet.money, 40);
+
+    assert.equal(draft.noteCharacter('char-b'), true);
+    assert.equal(draft.boundId(), 'char-b');
+    assert.equal(draft.name(), '');
+    assert.equal(draft.sheet.get().handle, '');
+    assert.equal(draft.sheet.get().money, null);
+    assert.equal(draft.sheet.get().role, '');
+    const flushed = draft.payload();
+    assert.equal(flushed.name, 'V');
+    assert.equal(flushed.sheet.handle, 'V');
+    assert.equal(flushed.sheet.money, 40);
+    assert.equal(flushed.sheet.role, 'Solo');
+
+    draft.beginLoad('char-b');
+    assert.equal(draft.payload().name, '');
+    assert.equal(draft.payload().sheet.handle, '');
+    assert.equal(draft.payload().sheet.money, null);
+    assert.equal(draft.payload().sheet.role, '');
+    draft.setName('Nova');
+    draft.sheet.update(patchCyberpunkSheet('money', 5));
+    draft.sheet.update(patchCyberpunkSheet('handle', 'Nova'));
+    assert.equal(draft.sheet.get().money, 5);
+    assert.equal(draft.sheet.get().handle, 'Nova');
+    assert.equal(draft.sheet.get().role, '');
+    assert.equal(draft.noteCharacter('char-b'), false);
+    assert.equal(draft.sheet.get().handle, 'Nova');
+  }
+
+  // beginLoad itself blanks the draft when the id changes, which is what the
+  // sheet effect does after flushing the previous character.
+  {
+    const draft = createCyberpunkCharacterDraft('char-a');
+    draft.replaceLoaded('V', sheet({ handle: 'V', money: 12, role: 'Solo' }));
+    const flushed = draft.payload();
+    draft.beginLoad('char-b');
+    assert.equal(flushed.name, 'V');
+    assert.equal(flushed.sheet.handle, 'V');
+    assert.equal(flushed.sheet.money, 12);
+    assert.equal(flushed.sheet.role, 'Solo');
+    assert.equal(draft.boundId(), 'char-b');
+    assert.equal(draft.name(), '');
+    assert.equal(draft.sheet.get().handle, '');
+    assert.equal(draft.sheet.get().money, null);
+    assert.equal(draft.sheet.get().role, '');
+    assert.equal(draft.payload().sheet.handle, '');
+    draft.sheet.update(patchCyberpunkSheet('money', 1));
+    assert.equal(draft.sheet.get().money, 1);
+    assert.equal(draft.sheet.get().role, '');
+    assert.equal(draft.sheet.get().handle, '');
+    draft.beginLoad('char-b');
+    assert.equal(draft.sheet.get().money, 1);
+  }
+
   // Panels must keep using the updater. Spreading the sheet prop is the bug.
   {
     const basics = readFileSync(join(here, '../app/campaign/[id]/_components/cyberpunk/basics-panel.tsx'), 'utf8');
     const inventory = readFileSync(join(here, '../app/campaign/[id]/_components/cyberpunk/inventory-lifepath-panel.tsx'), 'utf8');
     const sheetView = readFileSync(join(here, '../app/campaign/[id]/_components/cyberpunk-character-sheet.tsx'), 'utf8');
+    const persistence = readFileSync(join(here, '../lib/cyberpunk-sheet-persistence.ts'), 'utf8');
     assert.equal(basics.includes('{ ...sheet'), false);
     assert.equal(inventory.includes('{ ...sheet'), false);
     assert.equal(sheetView.includes('createCyberpunkSaveQueue'), true);
-    assert.equal(sheetView.includes('createLatestRef'), true);
+    assert.equal(sheetView.includes('createCyberpunkCharacterDraft'), true);
+    assert.equal(sheetView.includes('noteCharacter'), true);
+    assert.equal(sheetView.includes('beginLoad'), true);
     assert.equal(sheetView.includes('keepalive: true'), true);
+    assert.equal(sheetView.includes('finalizeCyberpunkSaveJob'), true);
+    assert.equal(sheetView.includes('signal'), true);
+    assert.equal(persistence.includes('new AbortController()'), true);
+    assert.equal(persistence.includes('new TextEncoder()'), true);
+    assert.equal(persistence.includes('createLatestRef'), true);
   }
 
   console.log('cyberpunk persistence tests passed');

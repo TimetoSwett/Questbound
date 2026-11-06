@@ -6,19 +6,36 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { defaultCyberpunkSheet, readCyberpunkSheet, type CyberpunkSheet } from '@/lib/cyberpunk-sheet';
 import {
+  createCyberpunkCharacterDraft,
   createCyberpunkSaveQueue,
-  createLatestRef,
+  finalizeCyberpunkSaveJob,
   type CyberpunkSheetUpdater,
 } from '@/lib/cyberpunk-sheet-persistence';
 import { CyberpunkBasicsPanel } from './cyberpunk/basics-panel';
 import { CyberpunkInventoryLifepathPanel } from './cyberpunk/inventory-lifepath-panel';
 
-function saveCyberpunk(characterId: string, nextName: string, nextSheet: CyberpunkSheet, keepalive = false) {
+function saveCyberpunk(
+  characterId: string,
+  nextName: string,
+  nextSheet: CyberpunkSheet,
+  keepalive = false,
+  signal?: AbortSignal,
+) {
+  // The queue already downgrades an oversized keepalive body. Measuring again
+  // here keeps a direct call from handing the browser a keepalive PUT it will
+  // reject. A second pass with keepalive false does not warn again.
+  const prepared = finalizeCyberpunkSaveJob({
+    characterId,
+    name: nextName,
+    sheet: nextSheet,
+    keepalive,
+  });
   return fetch('/api/characters', {
     method: 'PUT',
-    keepalive,
+    keepalive: prepared.keepalive,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: characterId, name: nextName, cyberpunk: nextSheet }),
+    body: prepared.body,
+    signal,
   });
 }
 
@@ -30,20 +47,21 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [activeId, setActiveId] = useState(characterId);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const payloadRef = useRef<{ name: string; sheet: CyberpunkSheet }>({ name: '', sheet: defaultCyberpunkSheet() });
   const editableRef = useRef(editable);
-  const nameRef = useRef(name);
-  const sheetDraft = useRef(createLatestRef(defaultCyberpunkSheet()));
+  const draftRef = useRef<ReturnType<typeof createCyberpunkCharacterDraft> | null>(null);
+  if (draftRef.current === null) draftRef.current = createCyberpunkCharacterDraft(characterId);
   const queueRef = useRef<ReturnType<typeof createCyberpunkSaveQueue> | null>(null);
   if (queueRef.current === null) {
     queueRef.current = createCyberpunkSaveQueue(
-      (job) => saveCyberpunk(job.characterId, job.name, job.sheet, job.keepalive).then(
+      (job, signal) => saveCyberpunk(job.characterId, job.name, job.sheet, job.keepalive, signal).then(
         (res) => ({ ok: res.ok }),
         () => ({ ok: false }),
       ),
       {
-        onSettled: ({ job, ok, superseded }) => {
-          if (job.keepalive || superseded) return;
+        onSettled: ({ job, ok, superseded, keepaliveDowngraded }) => {
+          // Unmount flushes (including ones sent without keepalive because
+          // the body was too large) settle after the sheet is gone.
+          if (job.keepalive || keepaliveDowngraded || superseded) return;
           if (!ok) {
             setStatus('error');
             toast.error('Save failed');
@@ -70,6 +88,13 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
   }, [editable]);
 
   useEffect(() => {
+    const draft = draftRef.current;
+    if (!draft) return;
+    // The previous effect's cleanup already flushed that character's pending
+    // payload. Drop the latest sheet before this fetch resolves so it cannot
+    // leak into the character being opened.
+    draft.noteCharacter(characterId);
+    draft.beginLoad(characterId);
     let active = true;
     fetch(`/api/characters/single?id=${characterId}`)
       .then((res) => (res.ok ? res.json() : null))
@@ -81,9 +106,7 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
         }
         const nextName = typeof data.name === 'string' ? data.name : '';
         const nextSheet = readCyberpunkSheet(data.cyberpunk);
-        nameRef.current = nextName;
-        sheetDraft.current.set(nextSheet);
-        payloadRef.current = { name: nextName, sheet: nextSheet };
+        draft.replaceLoaded(nextName, nextSheet);
         setName(nextName);
         setSheet(nextSheet);
       })
@@ -95,7 +118,10 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
       clearTimeout(saveTimer.current);
       saveTimer.current = null;
       if (!editableRef.current) return;
-      const pending = payloadRef.current;
+      // `characterId` is the id this effect loaded. The next effect has not
+      // called noteCharacter/beginLoad yet, so this payload is still ours.
+      const pending = draftRef.current?.payload();
+      if (!pending) return;
       queueRef.current?.enqueue({
         characterId,
         name: pending.name,
@@ -117,20 +143,23 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
   }, [characterId]);
 
   const scheduleSave = useCallback((nextName: string, nextSheet: CyberpunkSheet) => {
-    payloadRef.current = { name: nextName, sheet: nextSheet };
+    draftRef.current?.setPayload(nextName, nextSheet);
     if (!editableRef.current) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       saveTimer.current = null;
-      const current = payloadRef.current;
+      const current = draftRef.current?.payload();
+      if (!current) return;
       persist(current.name, current.sheet);
     }, 600);
   }, [persist]);
 
   const editSheet = (updater: CyberpunkSheetUpdater) => {
-    const next = sheetDraft.current.update(updater);
+    const draft = draftRef.current;
+    if (!draft) return;
+    const next = draft.sheet.update(updater);
     setSheet(next);
-    scheduleSave(nameRef.current, next);
+    scheduleSave(draft.name(), next);
   };
 
   if (activeId !== characterId || loading) {
@@ -156,9 +185,10 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
             className="mt-1 font-display text-lg"
             onChange={(event) => {
               const nextName = event.target.value;
-              nameRef.current = nextName;
+              draftRef.current?.setName(nextName);
               setName(nextName);
-              scheduleSave(nextName, sheetDraft.current.get());
+              const currentSheet = draftRef.current?.sheet.get();
+              if (currentSheet) scheduleSave(nextName, currentSheet);
             }}
           />
         </div>
