@@ -11,6 +11,7 @@ import {
   defaultCyberpunkSheet,
   readCyberpunkSheet,
   type CyberpunkSheet,
+  type CyberpunkSkillStat,
   type CyberpunkStat,
 } from '@/lib/cyberpunk-sheet';
 
@@ -183,7 +184,7 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
                 id={`cp-stat-${stat}`}
                 type="number"
                 inputMode="numeric"
-                value={sheet.stats[stat]}
+                value={sheet.stats[stat] ?? ''}
                 disabled={!editable}
                 className="mt-1 px-2 text-center font-mono"
                 onChange={(e) => setStat(stat, e.target.value)}
@@ -201,7 +202,7 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
               type="button"
               variant="secondary"
               size="sm"
-              onClick={() => editSheet({ ...sheet, skills: [...sheet.skills, { name: '', stat: 'REF', value: 0 }] })}
+              onClick={() => editSheet({ ...sheet, skills: [...sheet.skills, { name: '', stat: 'REF', value: 0, chipped: false }] })}
             >
               <Plus className="mr-1 h-4 w-4" /> Add skill
             </Button>
@@ -231,7 +232,7 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
                     value={skill.stat}
                     disabled={!editable}
                     className="mt-1 flex h-10 w-full rounded-lg border border-input bg-background px-2 text-sm font-mono disabled:cursor-not-allowed disabled:opacity-50"
-                    onChange={(e) => updateSkill(index, { stat: e.target.value })}
+                    onChange={(e) => updateSkill(index, { stat: e.target.value as CyberpunkSkillStat })}
                   >
                     {!(CYBERPUNK_STATS as readonly string[]).includes(skill.stat) && (
                       <option value={skill.stat}>{skill.stat}</option>
@@ -247,7 +248,7 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
                     id={`cp-skill-value-${index}`}
                     type="number"
                     inputMode="numeric"
-                    value={skill.value}
+                    value={skill.value ?? ''}
                     disabled={!editable}
                     className="mt-1 font-mono"
                     onChange={(e) => {
