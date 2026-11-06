@@ -186,8 +186,8 @@ export function CampaignShell({ campaignId, campaignName, system, inviteCode, ro
           {activeTab === 'players' && isDM && <PlayersTab campaignId={campaignId} />}
         </main>
         {logOpen && (
-          <aside id="campaign-roll-log" aria-label="Roll log" className="fixed inset-x-0 bottom-0 z-40 h-[min(70dvh,32rem)] overscroll-contain border-t border-border bg-card shadow-2xl lg:static lg:z-auto lg:h-auto lg:w-80 lg:shrink-0 lg:border-t-0 lg:border-l lg:bg-card/40 lg:shadow-none">
-            <div className="h-full lg:sticky lg:top-[100px] lg:h-[calc(100vh-100px)]">
+          <aside id="campaign-roll-log" aria-label="Roll log" className="fixed inset-x-0 bottom-[var(--site-footer-offset)] z-40 h-[min(70dvh,32rem)] overscroll-contain border-t border-border bg-card shadow-2xl lg:static lg:bottom-auto lg:z-auto lg:h-auto lg:w-80 lg:shrink-0 lg:border-t-0 lg:border-l lg:bg-card/40 lg:shadow-none">
+            <div className="h-full lg:sticky lg:top-[100px] lg:h-[calc(100vh-100px-var(--site-footer-offset))]">
               <RollLog campaignId={campaignId} role={role} onClose={isDesktop ? undefined : () => setMobileLogOpen(false)} />
             </div>
           </aside>

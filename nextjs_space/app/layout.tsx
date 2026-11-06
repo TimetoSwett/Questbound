@@ -4,6 +4,7 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { Toaster } from '@/components/ui/sonner';
 import { ChunkLoadErrorHandler } from '@/components/chunk-load-error-handler';
 import { Providers } from '@/components/providers';
+import { SiteFooter } from '@/components/site-footer';
 import type { Metadata } from 'next';
 
 export const dynamic = 'force-dynamic';
@@ -33,11 +34,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: `(function(){var level='1';try{var saved=localStorage.getItem('qb:brightness');level=/^[1-5]$/.test(saved||'')?saved:(matchMedia('(prefers-color-scheme: dark)').matches?'5':'1');}catch(e){level='1';}document.documentElement.dataset.brightness=level;document.documentElement.style.colorScheme=Number(level)>=3?'dark':'light';})();` }} />
         <script async src="https://apps.abacus.ai/chatllm/appllm-lib.js" />
       </head>
-      <body className={`${dmSans.variable} ${jakartaSans.variable} ${jetbrainsMono.variable} font-sans`}>
+      <body className={`${dmSans.variable} ${jakartaSans.variable} ${jetbrainsMono.variable} font-sans pb-[var(--site-footer-offset)]`}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
           <Providers>
             {children}
-            <Toaster />
+            <SiteFooter />
+            <Toaster offset="calc(var(--site-footer-offset) + 1rem)" />
             <ChunkLoadErrorHandler />
           </Providers>
         </ThemeProvider>

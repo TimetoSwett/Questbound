@@ -61,6 +61,8 @@
     --spacing-xl: 32px;
     --spacing-2xl: 48px;
     --spacing-3xl: 64px;
+    /* Fixed site-footer bar. Body padding and sticky/fixed bottom UI share this so the bar never covers them. */
+    --site-footer-offset: calc(2.75rem + env(safe-area-inset-bottom, 0px));
   }
 
   /* Levels use endpoint HSL interpolation, with midpoint text flips and
@@ -355,4 +357,11 @@
 }
 .wiki-link:hover {
   text-decoration-style: solid;
+}
+
+/* Sonner 1.5 hardcodes mobile toasts to bottom: 20px, which sits on the fixed footer. */
+@media (max-width: 600px) {
+  html [data-sonner-toaster][data-y-position='bottom'] {
+    bottom: calc(var(--site-footer-offset) + 1rem);
+  }
 }

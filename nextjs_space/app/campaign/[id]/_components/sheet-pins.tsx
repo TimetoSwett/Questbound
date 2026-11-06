@@ -50,7 +50,7 @@ export function PinRail({ ids, side, data, stats, editable, onChange, onUnpin }:
   const weapons = (data?.equipped?.weapons ?? []).filter((weapon: { name?: string }) => weapon?.name?.trim());
   const active = (data?.equipped?.conditions ?? []).map((id: string) => TOGGLES.find(toggle => toggle.id === id)?.label ?? id);
   const buffs = (data?.equipped?.buffs ?? []).filter((buff: { on?: boolean; name?: string }) => buff.on && buff.name?.trim()).map((buff: { name: string }) => buff.name);
-  return <aside aria-label={side === 'left' ? 'Left pins' : 'Right pins'} className={`${side === 'left' ? 'order-1' : 'order-2'} xl:order-none xl:sticky xl:top-24 space-y-3 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto`}>
+  return <aside aria-label={side === 'left' ? 'Left pins' : 'Right pins'} className={`${side === 'left' ? 'order-1' : 'order-2'} xl:order-none xl:sticky xl:top-24 space-y-3 xl:max-h-[calc(100vh-7rem-var(--site-footer-offset))] xl:overflow-y-auto`}>
     {ids.map(id => {
       if (id === 'hp') return <Card key={id} title="Hit points" onUnpin={editable ? () => onUnpin(id) : undefined}>
         <label className="block text-[10px] text-muted-foreground">Current<Input type="number" value={data?.hpCurrent ?? 0} disabled={!editable} className="h-8 text-center font-mono" onChange={e => onChange('hpCurrent', e.target.value)} /></label>
