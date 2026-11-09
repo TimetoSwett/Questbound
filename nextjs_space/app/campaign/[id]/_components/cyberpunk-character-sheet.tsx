@@ -1,38 +1,41 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { defaultCyberpunkSheet, readCyberpunkSheet, type CyberpunkSheet } from '@/lib/cyberpunk-sheet';
 import {
-  CYBERPUNK_SKILL_GROUPS,
-  CYBERPUNK_STATS,
-  defaultCyberpunkSheet,
-  normalizeCyberpunkSkillStat,
-  readCyberpunkSheet,
-  type CyberpunkSheet,
-  type CyberpunkSkillStat,
-  type CyberpunkStat,
-} from '@/lib/cyberpunk-sheet';
+  createCyberpunkCharacterDraft,
+  createCyberpunkSaveQueue,
+  finalizeCyberpunkSaveJob,
+  type CyberpunkSheetUpdater,
+} from '@/lib/cyberpunk-sheet-persistence';
+import { CyberpunkBasicsPanel } from './cyberpunk/basics-panel';
+import { CyberpunkInventoryLifepathPanel } from './cyberpunk/inventory-lifepath-panel';
 
-const CYBERPUNK_SKILL_STAT_OPTIONS = [...CYBERPUNK_SKILL_GROUPS, 'OTHER'] as const satisfies readonly CyberpunkSkillStat[];
-
-function parseStatInput(raw: string): number | null {
-  const trimmed = raw.trim();
-  if (trimmed === '' || trimmed === '-' || trimmed === '+') return 0;
-  const parsed = Number(trimmed);
-  if (!Number.isFinite(parsed)) return null;
-  return Math.trunc(parsed);
-}
-
-function saveCyberpunk(characterId: string, nextName: string, nextSheet: CyberpunkSheet, keepalive = false) {
+function saveCyberpunk(
+  characterId: string,
+  nextName: string,
+  nextSheet: CyberpunkSheet,
+  keepalive = false,
+  signal?: AbortSignal,
+) {
+  // The queue already downgrades an oversized keepalive body. Measuring again
+  // here keeps a direct call from handing the browser a keepalive PUT it will
+  // reject. A second pass with keepalive false does not warn again.
+  const prepared = finalizeCyberpunkSaveJob({
+    characterId,
+    name: nextName,
+    sheet: nextSheet,
+    keepalive,
+  });
   return fetch('/api/characters', {
     method: 'PUT',
-    keepalive,
+    keepalive: prepared.keepalive,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: characterId, name: nextName, cyberpunk: nextSheet }),
+    body: prepared.body,
+    signal,
   });
 }
 
@@ -44,16 +47,40 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [activeId, setActiveId] = useState(characterId);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const payloadRef = useRef<{ name: string; sheet: CyberpunkSheet }>({ name: '', sheet: defaultCyberpunkSheet() });
   const editableRef = useRef(editable);
+  const draftRef = useRef<ReturnType<typeof createCyberpunkCharacterDraft> | null>(null);
+  if (draftRef.current === null) draftRef.current = createCyberpunkCharacterDraft(characterId);
+  const queueRef = useRef<ReturnType<typeof createCyberpunkSaveQueue> | null>(null);
+  if (queueRef.current === null) {
+    queueRef.current = createCyberpunkSaveQueue(
+      (job, signal) => saveCyberpunk(job.characterId, job.name, job.sheet, job.keepalive, signal).then(
+        (res) => ({ ok: res.ok }),
+        () => ({ ok: false }),
+      ),
+      {
+        onSettled: ({ job, ok, superseded, keepaliveDowngraded }) => {
+          // Unmount flushes (including ones sent without keepalive because
+          // the body was too large) settle after the sheet is gone.
+          if (job.keepalive || keepaliveDowngraded || superseded) return;
+          if (!ok) {
+            setStatus('error');
+            toast.error('Save failed');
+            return;
+          }
+          setStatus('saved');
+        },
+      },
+    );
+  }
 
   if (activeId !== characterId) {
+    const blank = defaultCyberpunkSheet();
     setActiveId(characterId);
     setLoading(true);
     setMissing(false);
     setStatus('idle');
     setName('');
-    setSheet(defaultCyberpunkSheet());
+    setSheet(blank);
   }
 
   useEffect(() => {
@@ -61,6 +88,13 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
   }, [editable]);
 
   useEffect(() => {
+    const draft = draftRef.current;
+    if (!draft) return;
+    // The previous effect's cleanup already flushed that character's pending
+    // payload. Drop the latest sheet before this fetch resolves so it cannot
+    // leak into the character being opened.
+    draft.noteCharacter(characterId);
+    draft.beginLoad(characterId);
     let active = true;
     fetch(`/api/characters/single?id=${characterId}`)
       .then((res) => (res.ok ? res.json() : null))
@@ -72,7 +106,7 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
         }
         const nextName = typeof data.name === 'string' ? data.name : '';
         const nextSheet = readCyberpunkSheet(data.cyberpunk);
-        payloadRef.current = { name: nextName, sheet: nextSheet };
+        draft.replaceLoaded(nextName, nextSheet);
         setName(nextName);
         setSheet(nextSheet);
       })
@@ -84,58 +118,51 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
       clearTimeout(saveTimer.current);
       saveTimer.current = null;
       if (!editableRef.current) return;
-      const pending = payloadRef.current;
-      void saveCyberpunk(characterId, pending.name, pending.sheet, true);
+      // `characterId` is the id this effect loaded. The next effect has not
+      // called noteCharacter/beginLoad yet, so this payload is still ours.
+      const pending = draftRef.current?.payload();
+      if (!pending) return;
+      queueRef.current?.enqueue({
+        characterId,
+        name: pending.name,
+        sheet: pending.sheet,
+        keepalive: true,
+      });
     };
   }, [characterId]);
 
-  const persist = useCallback(async (nextName: string, nextSheet: CyberpunkSheet) => {
+  const persist = useCallback((nextName: string, nextSheet: CyberpunkSheet) => {
     if (!editableRef.current) return;
     setStatus('saving');
-    try {
-      const res = await saveCyberpunk(characterId, nextName, nextSheet);
-      if (!res.ok) {
-        setStatus('error');
-        toast.error('Save failed');
-        return;
-      }
-      setStatus('saved');
-    } catch {
-      setStatus('error');
-      toast.error('Save error');
-    }
+    queueRef.current?.enqueue({
+      characterId,
+      name: nextName,
+      sheet: nextSheet,
+      keepalive: false,
+    });
   }, [characterId]);
 
   const scheduleSave = useCallback((nextName: string, nextSheet: CyberpunkSheet) => {
-    payloadRef.current = { name: nextName, sheet: nextSheet };
+    draftRef.current?.setPayload(nextName, nextSheet);
     if (!editableRef.current) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       saveTimer.current = null;
-      const current = payloadRef.current;
-      void persist(current.name, current.sheet);
+      const current = draftRef.current?.payload();
+      if (!current) return;
+      persist(current.name, current.sheet);
     }, 600);
   }, [persist]);
 
-  const editSheet = (next: CyberpunkSheet) => {
+  const editSheet = (updater: CyberpunkSheetUpdater) => {
+    const draft = draftRef.current;
+    if (!draft) return;
+    const next = draft.sheet.update(updater);
     setSheet(next);
-    scheduleSave(name, next);
+    scheduleSave(draft.name(), next);
   };
 
-  const setStat = (stat: CyberpunkStat, raw: string) => {
-    const value = parseStatInput(raw);
-    if (value === null) return;
-    editSheet({ ...sheet, stats: { ...sheet.stats, [stat]: value } });
-  };
-
-  const updateSkill = (index: number, patch: Partial<CyberpunkSheet['skills'][number]>) => {
-    editSheet({
-      ...sheet,
-      skills: sheet.skills.map((skill, i) => (i === index ? { ...skill, ...patch } : skill)),
-    });
-  };
-
-  if (loading) {
+  if (activeId !== characterId || loading) {
     return <p className="py-10 text-center text-muted-foreground">Loading sheet...</p>;
   }
   if (missing) {
@@ -145,7 +172,7 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
   const statusLabel = status === 'saving' ? 'Saving...' : status === 'saved' ? 'Saved' : status === 'error' ? 'Not saved' : editable ? '' : 'View only';
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Cyberpunk 2020</p>
@@ -156,126 +183,19 @@ export function CyberpunkCharacterSheet({ characterId, editable = true }: { char
             disabled={!editable}
             placeholder="Unnamed"
             className="mt-1 font-display text-lg"
-            onChange={(e) => {
-              const nextName = e.target.value;
+            onChange={(event) => {
+              const nextName = event.target.value;
+              draftRef.current?.setName(nextName);
               setName(nextName);
-              scheduleSave(nextName, sheet);
+              const currentSheet = draftRef.current?.sheet.get();
+              if (currentSheet) scheduleSave(nextName, currentSheet);
             }}
           />
         </div>
         <p className="pt-6 text-xs text-muted-foreground" aria-live="polite">{statusLabel}</p>
       </div>
-
-      <section className="rounded-lg border border-border bg-card p-4" style={{ boxShadow: 'var(--shadow-sm)' }}>
-        <Label htmlFor="cp-role">Role</Label>
-        <Input
-          id="cp-role"
-          value={sheet.role}
-          disabled={!editable}
-          placeholder="Solo, Netrunner, Rocker..."
-          className="mt-1"
-          onChange={(e) => editSheet({ ...sheet, role: e.target.value })}
-        />
-      </section>
-
-      <section className="rounded-lg border border-border bg-card p-4" style={{ boxShadow: 'var(--shadow-sm)' }}>
-        <h3 className="font-display text-lg font-semibold">Stats</h3>
-        <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-9">
-          {CYBERPUNK_STATS.map((stat) => (
-            <div key={stat}>
-              <Label htmlFor={`cp-stat-${stat}`} className="font-mono text-xs">{stat}</Label>
-              <Input
-                id={`cp-stat-${stat}`}
-                type="number"
-                inputMode="numeric"
-                value={sheet.stats[stat] ?? ''}
-                disabled={!editable}
-                className="mt-1 px-2 text-center font-mono"
-                onChange={(e) => setStat(stat, e.target.value)}
-              />
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-border bg-card p-4" style={{ boxShadow: 'var(--shadow-sm)' }}>
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="font-display text-lg font-semibold">Skills</h3>
-          {editable && (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => editSheet({ ...sheet, skills: [...sheet.skills, { name: '', stat: 'REF', value: 0, chipped: false }] })}
-            >
-              <Plus className="mr-1 h-4 w-4" /> Add skill
-            </Button>
-          )}
-        </div>
-        {sheet.skills.length === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">No skills yet. Add one to track a name, linked stat, and value.</p>
-        ) : (
-          <ul className="mt-3 space-y-2">
-            {sheet.skills.map((skill, index) => (
-              <li key={index} className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_7rem_5rem_auto]">
-                <div>
-                  <Label htmlFor={`cp-skill-name-${index}`} className="text-xs">Name</Label>
-                  <Input
-                    id={`cp-skill-name-${index}`}
-                    value={skill.name}
-                    disabled={!editable}
-                    placeholder="Skill"
-                    className="mt-1"
-                    onChange={(e) => updateSkill(index, { name: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor={`cp-skill-stat-${index}`} className="text-xs">Stat</Label>
-                  <select
-                    id={`cp-skill-stat-${index}`}
-                    value={normalizeCyberpunkSkillStat(skill.stat)}
-                    disabled={!editable}
-                    className="mt-1 flex h-10 w-full rounded-lg border border-input bg-background px-2 text-sm font-mono disabled:cursor-not-allowed disabled:opacity-50"
-                    onChange={(e) => updateSkill(index, { stat: e.target.value as CyberpunkSkillStat })}
-                  >
-                    {CYBERPUNK_SKILL_STAT_OPTIONS.map((stat) => (
-                      <option key={stat} value={stat}>{stat}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <Label htmlFor={`cp-skill-value-${index}`} className="text-xs">Value</Label>
-                  <Input
-                    id={`cp-skill-value-${index}`}
-                    type="number"
-                    inputMode="numeric"
-                    value={skill.value ?? ''}
-                    disabled={!editable}
-                    className="mt-1 font-mono"
-                    onChange={(e) => {
-                      const value = parseStatInput(e.target.value);
-                      if (value === null) return;
-                      updateSkill(index, { value });
-                    }}
-                  />
-                </div>
-                {editable && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="mb-1"
-                    aria-label={`Remove ${skill.name || 'skill'}`}
-                    onClick={() => editSheet({ ...sheet, skills: sheet.skills.filter((_, i) => i !== index) })}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <CyberpunkBasicsPanel key={`${characterId}-basics`} sheet={sheet} editable={editable} onChange={editSheet} />
+      <CyberpunkInventoryLifepathPanel key={`${characterId}-inventory`} sheet={sheet} editable={editable} onChange={editSheet} />
     </div>
   );
 }
