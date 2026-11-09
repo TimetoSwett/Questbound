@@ -60,7 +60,14 @@ const edited = { stats: { ...seeded.stats, REF: 8, COOL: 9 }, role: 'Rockerboy',
 r = await req('PUT', '/api/characters', { id: cpc.id, cyberpunk: edited });
 check('3 CP PUT edits save', r.s === 200, `${r.s} ${JSON.stringify(r.j).slice(0, 200)}`);
 r = await req('GET', `/api/characters/single?id=${cpc.id}`);
-check('3 CP reload persists', canon(r.j?.cyberpunk) === canon(edited), JSON.stringify(r.j?.cyberpunk));
+// v2 persists the edited stats/role/skills and also stores the expanded sections.
+const sheet = r.j?.cyberpunk;
+const legacyView = sheet && {
+  stats: sheet.stats,
+  role: sheet.role,
+  skills: (sheet.skills || []).map(({ name, stat, value }) => ({ name, stat, value })),
+};
+check('3 CP reload persists', canon(legacyView) === canon(edited), JSON.stringify(legacyView));
 r = await req('PUT', '/api/characters', { id: cpc.id, cyberpunk: 'garbage' });
 check('3 CP malformed blob rejected (400)', r.s === 400, `${r.s}`);
 

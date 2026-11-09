@@ -13,7 +13,8 @@ import { libraryIdsIn, stripMissingLibraryIds } from '@/lib/library';
 import { removeCharacterTokens } from '@/lib/battle-map';
 import { sanitizeSpellsPsionics } from '@/lib/psionics';
 import { sanitizeSpellsPathOfWar } from '@/lib/path-of-war';
-import { defaultCyberpunkSheet, sanitizeCyberpunkSheet } from '@/lib/cyberpunk-sheet';
+import { CYBERPUNK_SHEET_MAX_BYTES, defaultCyberpunkSheet, sanitizeCyberpunkSheet } from '@/lib/cyberpunk-sheet';
+import { parseCharacterCreateBody } from '@/lib/character-name';
 import { isCyberpunkCampaign } from '@/lib/campaign-system';
 
 export async function GET(request: Request) {
@@ -76,7 +77,18 @@ export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { campaignId, name, system } = await request.json();
+  let payload: unknown;
+  try {
+    payload = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid character name' }, { status: 400 });
+  }
+  const parsed = parseCharacterCreateBody(payload);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+  // Name is the only create field checked here. campaignId and system stay raw
+  // so campaign-system precedence is unchanged.
+  const campaignId = parsed.campaignId as string | null | undefined;
+  const { name, system } = parsed;
 
   // campaignId is optional now: omitted -> vault character owned by the caller
   if (campaignId) {
@@ -99,7 +111,7 @@ export async function POST(request: Request) {
     data: {
       userId: session.user.id,
       campaignId: campaignId ?? null,
-      name: name || 'New Character',
+      name,
       skills: JSON.stringify([]),
       equipment: JSON.stringify([]),
       feats: JSON.stringify([]),
@@ -122,8 +134,8 @@ export async function PUT(request: Request) {
   if (Object.prototype.hasOwnProperty.call(body, 'spells') && Buffer.byteLength(JSON.stringify(body.spells)) > 4 * 1024 * 1024) {
     return NextResponse.json({ error: 'Spells exceed the 4 MiB size limit' }, { status: 413 });
   }
-  if (Object.prototype.hasOwnProperty.call(body, 'cyberpunk') && Buffer.byteLength(JSON.stringify(body.cyberpunk ?? null)) > 64 * 1024) {
-    return NextResponse.json({ error: 'Cyberpunk sheet exceeds the 64 KiB size limit' }, { status: 413 });
+  if (Object.prototype.hasOwnProperty.call(body, 'cyberpunk') && Buffer.byteLength(JSON.stringify(body.cyberpunk ?? null)) > CYBERPUNK_SHEET_MAX_BYTES) {
+    return NextResponse.json({ error: `Cyberpunk sheet exceeds the ${CYBERPUNK_SHEET_MAX_BYTES / 1024} KiB size limit` }, { status: 413 });
   }
   const { id } = body;
   if (!id) return NextResponse.json({ error: 'Character id required' }, { status: 400 });
