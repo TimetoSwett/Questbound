@@ -42,7 +42,8 @@
     "test:spell-item-import": "tsx scripts/test-spell-item-import.mjs",
     "test:cp-guardrails": "node scripts/test-cp-guardrails.mjs",
     "test:cyberpunk-sheet": "tsx scripts/test-cyberpunk-sheet.ts",
-    "test:cyberpunk-basics": "tsx scripts/test-cyberpunk-basics-view.ts"
+    "test:cyberpunk-basics": "tsx scripts/test-cyberpunk-basics-view.ts",
+    "test:cyberpunk-persistence": "tsx scripts/test-cyberpunk-persistence.ts"
   },
   "prisma": {
     "seed": "tsx --require dotenv/config scripts/safe-seed.ts"
