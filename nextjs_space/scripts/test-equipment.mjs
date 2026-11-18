@@ -4,11 +4,23 @@ import { createRequire } from 'node:module';
 import { runInNewContext } from 'node:vm';
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
+// Same alias rules as scripts/test-companions.mjs. Explicit mocks win. Otherwise
+// @/ and ./ are compiled from source: Node's require cannot see the @/ alias,
+// which is why loading the characters route threw MODULE_NOT_FOUND.
+const cache = new Map();
 function load(path, mocks = {}) {
+  if (cache.has(path)) return cache.get(path);
   const source = readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
   const exports = {};
-  runInNewContext(js, { exports, URL, Buffer, require: name => name in mocks ? mocks[name] : require(name) });
+  cache.set(path, exports);
+  const req = (name) => {
+    if (name in mocks) return mocks[name];
+    if (name.startsWith('@/')) return load(`${name.slice(2)}.ts`, mocks);
+    if (name.startsWith('./')) return load(`${path.slice(0, path.lastIndexOf('/') + 1)}${name.slice(2)}.ts`, mocks);
+    return require(name);
+  };
+  runInNewContext(js, { exports, URL, Buffer, require: req });
   return exports;
 }
 const skillsValidation = load('lib/skills-validation.ts');

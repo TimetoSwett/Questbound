@@ -81,7 +81,7 @@ jobs:
           unset BASE
           mapfile -t names < <(node -e '
             const scripts = require("./package.json").scripts || {};
-            const skip = new Set(["test:cp-guardrails", "test:equipment"]);
+            const skip = new Set(["test:cp-guardrails"]);
             for (const name of Object.keys(scripts)) {
               if (name.startsWith("test:") && !skip.has(name)) console.log(name);
             }
@@ -95,15 +95,6 @@ jobs:
             npm run "$name"
             echo "::endgroup::"
           done
-
-      # Fails on current main before any route assertion: the in-process loader
-      # does not resolve @/lib/cyberpunk-sheet, @/lib/character-name, or
-      # @/lib/campaign-system when it loads app/api/characters/route.ts.
-      # Non-blocking so that pre-existing harness bug does not fail every PR.
-      # The pure helpers above the route load are not separately runnable.
-      - name: test:equipment (non-blocking, fails on main)
-        continue-on-error: true
-        run: npm run test:equipment
 
       - name: npm test
         run: |
