@@ -10,6 +10,13 @@ import {
   stateToDocument,
   type BattleDocument,
 } from '../lib/battle-map-codec';
+import {
+  BATTLE_MAP_LIMITS,
+  battleMapContentLengthRejection,
+  battleMapLimitViolations,
+  battleMapWriteRejection,
+  type BattleMapLimits,
+} from '../lib/battle-map-limits';
 
 function roundTrip(state: unknown): { document: BattleDocument; state: Record<string, unknown> } {
   const encoded = stateToDocument(state);
@@ -251,5 +258,93 @@ assert.equal((hugeBack.tokens as { id: string }[])[1499].id, 't_1499');
 assert.deepEqual((hugeBack.tokens as { extraNote: unknown }[])[10].extraNote, { i: 10 });
 assert.equal(countDocument(hugeEncoded.document).points, 40 * 250 + 8 * 2 * 250);
 assert.deepEqual(hugeBack, huge);
+
+// The codec stress fixture stays under the production caps. A write of it is legal.
+assert.equal(battleMapWriteRejection(huge), null);
+assert.equal(BATTLE_MAP_LIMITS.maxBytes, 8 * 1024 * 1024);
+assert.equal(BATTLE_MAP_LIMITS.tokens, 10_000);
+assert.equal(BATTLE_MAP_LIMITS.conditionsPerToken, 64);
+assert.equal(BATTLE_MAP_LIMITS.drawings, 4_000);
+assert.equal(BATTLE_MAP_LIMITS.pointsPerDrawing, 2_000);
+assert.equal(BATTLE_MAP_LIMITS.fogCells, 100_000);
+assert.equal(BATTLE_MAP_LIMITS.texts, 2_000);
+assert.equal(BATTLE_MAP_LIMITS.pins, 2_000);
+assert.equal(BATTLE_MAP_LIMITS.highlights, 2_000);
+assert.equal(BATTLE_MAP_LIMITS.turns, 10_000);
+assert.equal(BATTLE_MAP_LIMITS.encounters, 200);
+assert.equal(BATTLE_MAP_LIMITS.snapshots, 50);
+
+const tight: BattleMapLimits = {
+  ...BATTLE_MAP_LIMITS,
+  maxBytes: 80,
+  tokens: 2,
+  conditionsPerToken: 2,
+  drawings: 1,
+  pointsPerDrawing: 2,
+  fogCells: 2,
+  texts: 1,
+  pins: 1,
+  highlights: 1,
+  turns: 1,
+  encounters: 1,
+  snapshots: 1,
+};
+const play = {
+  gridWidth: 20,
+  tokens: [{ id: 'hero', conditions: ['Prone'] }],
+  fog: ['1,1'],
+  drawings: [{ id: 'd', points: [{ x: 0, y: 0 }] }],
+  texts: [{ id: 'tx', text: 'A' }],
+  pins: [{ id: 'p' }],
+  highlights: [{ id: 'h' }],
+  turnOrder: [{ id: 'te' }],
+  encounters: [{ id: 'e', tokens: [{ id: 'et' }] }],
+  snapshots: [{ id: 's', state: { tokens: [{ id: 'st' }], fog: ['2,2'] } }],
+};
+assert.equal(battleMapWriteRejection(play, { ...tight, maxBytes: 10_000, tokens: 5, fogCells: 5 }), null);
+
+const overRows = battleMapWriteRejection({
+  tokens: [
+    { id: 'a', conditions: ['Prone', 'Shaken', 'Dead'] },
+    { id: 'b' },
+    { id: 'c' },
+  ],
+  fog: ['0,0', '1,1', '2,2'],
+  drawings: [{ id: 'd1', points: [{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 2 }] }, { id: 'd2', points: [] }],
+  texts: [{ id: 't1' }, { id: 't2' }],
+  pins: [{ id: 'p1' }, { id: 'p2' }],
+  highlights: [{ id: 'h1' }, { id: 'h2' }],
+  turnOrder: [{ id: 'te1' }, { id: 'te2' }],
+  encounters: [{ id: 'e1', tokens: [{ id: 'et' }] }, { id: 'e2' }],
+  snapshots: [{ id: 's1', state: { tokens: [{ id: 'st', conditions: ['x', 'y', 'z'] }], fog: ['9,9'] } }, { id: 's2' }],
+}, { ...tight, maxBytes: 100_000 });
+assert.ok(overRows);
+assert.equal(overRows.status, 400);
+assert.match(overRows.error, /exceeds row limits/);
+const names = overRows.violations.map((v) => v.limit);
+for (const name of ['tokens', 'conditionsPerToken', 'fogCells', 'drawings', 'pointsPerDrawing', 'texts', 'pins', 'highlights', 'turns', 'encounters', 'snapshots'] as const) {
+  assert.ok(names.includes(name), name);
+}
+const tokenCount = overRows.violations.find((v) => v.limit === 'tokens');
+assert.equal(tokenCount?.actual, 5); // 3 live + 1 encounter + 1 snapshot
+assert.equal(tokenCount?.max, 2);
+const cond = overRows.violations.filter((v) => v.limit === 'conditionsPerToken');
+assert.deepEqual(cond.map((v) => v.detail).sort(), ['a', 'st']);
+assert.equal(battleMapLimitViolations({}, tight).length, 0);
+
+const fat = { notes: 'x'.repeat(200) };
+const overBytes = battleMapWriteRejection(fat, tight);
+assert.ok(overBytes);
+assert.equal(overBytes.status, 413);
+assert.match(overBytes.error, /over the 80 byte limit/);
+assert.equal(overBytes.violations[0].limit, 'maxBytes');
+// Row violations are not mixed into a byte rejection, and nothing is clipped.
+assert.equal(overBytes.violations.length, 1);
+assert.equal((fat.notes as string).length, 200);
+
+assert.equal(battleMapContentLengthRejection(null), null);
+assert.equal(battleMapContentLengthRejection(''), null);
+assert.equal(battleMapContentLengthRejection(String(BATTLE_MAP_LIMITS.maxRequestBytes)), null);
+assert.match(battleMapContentLengthRejection(String(BATTLE_MAP_LIMITS.maxRequestBytes + 1)) ?? '', /request is/);
 
 console.log('test-battle-map-tables: ok');

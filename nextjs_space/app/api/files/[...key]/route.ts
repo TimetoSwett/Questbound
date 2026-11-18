@@ -68,6 +68,9 @@ async function canAccess(userId: string, key: string): Promise<boolean> {
 
   // Battle map: narrow candidates with a text search (key is a validated
   // uuid.ext, so it contains no LIKE wildcards), then check precisely.
+  // extra/raw are scanned only to find candidates. Access is decided below
+  // by collectFileKeys on the sanitized player view (or the full map for
+  // the DM), so a text hit is not itself permission.
   // Relational rows are included so a backfilled map still matches after
   // dual-write is turned off. If the tables are not migrated yet, the legacy
   // JSON search is enough.

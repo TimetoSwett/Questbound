@@ -47,7 +47,11 @@ export async function PATCH(request: Request) {
 
     const next = { ...st, tokens: tokens.map((t: any) => (t?.id === tokenId ? { ...t, x, y } : t)) };
     const updated = await saveBattleStateTx(tx, campaignId, next, { expectedVersion: null });
-    if (!updated.ok) return { status: updated.status === 404 ? 404 : 409, body: { error: 'Not found' } };
+    if (!updated.ok) {
+      if (updated.status === 400) return { status: 400, body: { error: updated.error } };
+      if (updated.status === 409) return { status: 409, body: { error: 'Battle map changed since it was loaded', version: updated.version } };
+      return { status: updated.status, body: { error: 'Not found' } };
+    }
     return { status: 200, body: { ok: true, token: { ...token, x, y } }, version: updated.version };
   }, { timeout: 60_000, maxWait: 10_000 });
   if (result.status === 200) publish(campaignId, 'battle', { version: result.version });

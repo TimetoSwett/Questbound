@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
 import { BATTLE_DEFAULTS, filterLinkedTokensForPlayer, sanitizeForPlayer } from '@/lib/battle-map';
 import { loadBattleState, saveBattleState } from '@/lib/battle-map-store';
+import { battleMapContentLengthRejection, battleMapWriteRejection } from '@/lib/battle-map-limits';
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -57,10 +58,14 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const tooLarge = battleMapContentLengthRejection(request.headers.get('content-length'));
+  if (tooLarge) return NextResponse.json({ error: tooLarge }, { status: 413 });
   const { campaignId, state, version } = await request.json();
   if (!campaignId) return NextResponse.json({ error: 'campaignId required' }, { status: 400 });
   if (!state || typeof state !== 'object' || Array.isArray(state)) return NextResponse.json({ error: 'state required' }, { status: 400 });
   if (!Number.isInteger(version)) return NextResponse.json({ error: 'version required' }, { status: 400 });
+  const limited = battleMapWriteRejection(state);
+  if (limited) return NextResponse.json({ error: limited.error }, { status: limited.status });
   const role = await getUserRole(session.user.id, campaignId);
   if (role !== 'dm') return NextResponse.json({ error: 'Only DM' }, { status: 403 });
   const saved = await saveBattleState(prisma, campaignId, state, { expectedVersion: version });

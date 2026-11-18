@@ -26,7 +26,10 @@ import {
   stateToDocument,
   type BattleCounts,
 } from '../lib/battle-map-codec';
+import { battleMapByteSize, battleMapWriteRejection } from '../lib/battle-map-limits';
 import { loadBattleState, replaceBattleDocument } from '../lib/battle-map-store';
+
+const PAGE = 25;
 
 const args = new Set(process.argv.slice(2));
 const dryRun = args.has('--dry-run');
@@ -109,20 +112,29 @@ async function sqlCounts(campaignId: string, tx: Prisma.TransactionClient): Prom
 }
 
 async function forward() {
-  const campaigns = await prisma.campaign.findMany({
-    select: { id: true, battleMapState: true },
-    orderBy: { id: 'asc' },
-  });
   const summary = {
     dryRun,
-    campaigns: campaigns.length,
+    campaigns: 0,
     nullState: 0,
     malformed: [] as string[],
+    overLimit: [] as Array<{ id: string; bytes: number; error: string }>,
     skippedExisting: 0,
     verified: 0,
     written: 0,
     counts: { tokens: 0, fog: 0, snapshots: 0, encounters: 0, drawings: 0, points: 0 },
   };
+
+  let cursor: string | undefined;
+  for (;;) {
+    const campaigns = await prisma.campaign.findMany({
+      take: PAGE,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      select: { id: true, battleMapState: true },
+      orderBy: { id: 'asc' },
+    });
+    if (campaigns.length === 0) break;
+    cursor = campaigns[campaigns.length - 1].id;
+    summary.campaigns += campaigns.length;
 
   for (const campaign of campaigns) {
     if (campaign.battleMapState == null) {
@@ -135,6 +147,11 @@ async function forward() {
       continue;
     }
     assert.deepEqual(documentToState(encoded.document), campaign.battleMapState, `round-trip mismatch before write for ${campaign.id}`);
+    // Over-cap legacy maps are copied whole and reported. Nothing is clipped.
+    const limited = battleMapWriteRejection(campaign.battleMapState);
+    if (limited) {
+      summary.overLimit.push({ id: campaign.id, bytes: battleMapByteSize(campaign.battleMapState), error: limited.error });
+    }
     const expected = countState(campaign.battleMapState);
     assert.ok(expected, `counts missing for ${campaign.id}`);
     summary.counts.tokens += expected.tokens;
@@ -174,24 +191,40 @@ async function forward() {
       assert.deepEqual(json?.battleMapState, fresh.battleMapState);
       summary.written++;
     }, { timeout: 120_000, maxWait: 15_000 });
+    }
+    if (campaigns.length < PAGE) break;
   }
 
   console.log(JSON.stringify({
     ...summary,
     malformed: summary.malformed.slice(0, 50),
     malformedCount: summary.malformed.length,
+    overLimit: summary.overLimit.slice(0, 50),
+    overLimitCount: summary.overLimit.length,
     legacyJsonUntouched: true,
+    truncated: false,
   }, null, 2));
   console.log(dryRun
-    ? `Dry run: ${summary.verified} object maps round-trip, ${summary.malformed.length} malformed left on JSON, ${summary.nullState} null. No rows written.`
-    : `Backfill wrote ${summary.written} maps, skipped ${summary.skippedExisting} already backfilled, left ${summary.malformed.length} malformed JSON values untouched.`);
+    ? `Dry run: ${summary.verified} object maps round-trip, ${summary.malformed.length} malformed left on JSON, ${summary.nullState} null, ${summary.overLimit.length} over the row/byte caps (reported, not truncated). No rows written.`
+    : `Backfill wrote ${summary.written} maps, skipped ${summary.skippedExisting} already backfilled, left ${summary.malformed.length} malformed JSON values untouched, and copied ${summary.overLimit.length} over-cap maps without truncating them.`);
 }
 
 async function reverse() {
-  const maps = await prisma.battleMap.findMany({ select: { campaignId: true }, orderBy: { campaignId: 'asc' } });
   let written = 0;
   let unchanged = 0;
-  for (const map of maps) {
+  let maps = 0;
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await prisma.battleMap.findMany({
+      take: PAGE,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      select: { id: true, campaignId: true },
+      orderBy: { id: 'asc' },
+    });
+    if (page.length === 0) break;
+    cursor = page[page.length - 1].id;
+    maps += page.length;
+  for (const map of page) {
     await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${map.campaignId} FOR UPDATE`;
       const loaded = await loadBattleState(tx, map.campaignId);
@@ -220,8 +253,10 @@ async function reverse() {
       });
       written++;
     }, { timeout: 120_000, maxWait: 15_000 });
+    }
+    if (page.length < PAGE) break;
   }
-  console.log(JSON.stringify({ writeLegacy: true, maps: maps.length, written, unchanged }, null, 2));
+  console.log(JSON.stringify({ writeLegacy: true, maps, written, unchanged }, null, 2));
   console.log(dryRun
     ? `Dry run: ${written} maps would refresh battleMapState from tables, ${unchanged} already match.`
     : `Wrote legacy JSON for ${written} maps, ${unchanged} already matched. Tables were not dropped.`);
