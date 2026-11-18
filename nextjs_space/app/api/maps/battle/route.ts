@@ -5,6 +5,8 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
 import { BATTLE_DEFAULTS, filterLinkedTokensForPlayer, sanitizeForPlayer } from '@/lib/battle-map';
+import { loadBattleState, saveBattleState } from '@/lib/battle-map-store';
+import { battleMapContentLengthRejection, battleMapWriteRejection } from '@/lib/battle-map-limits';
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -14,8 +16,8 @@ export async function GET(request: Request) {
   if (!campaignId) return NextResponse.json({ error: 'campaignId required' }, { status: 400 });
   const role = await getUserRole(session.user.id, campaignId);
   if (!role) return NextResponse.json({ error: 'Not a member' }, { status: 403 });
-  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { battleMapState: true, battleMapVersion: true } });
-  const raw = (campaign?.battleMapState ?? {}) as Record<string, any>;
+  const loaded = await loadBattleState(prisma, campaignId);
+  const raw = (loaded?.state ?? {}) as Record<string, any>;
   let state: Record<string, any> = { ...BATTLE_DEFAULTS, ...raw };
 
   // Players never receive GM-only data (encounters, snapshots, hidden or
@@ -46,7 +48,7 @@ export async function GET(request: Request) {
     const wikiArticle = pg && (role === 'dm' || pg.visibility === 'shared') ? { id: pg.id, title: pg.title } : null;
     return { ...p, wikiArticle };
   });
-  return NextResponse.json({ ...state, pins: safePins, version: campaign?.battleMapVersion ?? 0 });
+  return NextResponse.json({ ...state, pins: safePins, version: loaded?.version ?? 0 });
 }
 
 // Full-state write, DM only. Uses optimistic concurrency: the client sends the
@@ -56,21 +58,24 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const tooLarge = battleMapContentLengthRejection(request.headers.get('content-length'));
+  if (tooLarge) return NextResponse.json({ error: tooLarge }, { status: 413 });
   const { campaignId, state, version } = await request.json();
   if (!campaignId) return NextResponse.json({ error: 'campaignId required' }, { status: 400 });
   if (!state || typeof state !== 'object' || Array.isArray(state)) return NextResponse.json({ error: 'state required' }, { status: 400 });
   if (!Number.isInteger(version)) return NextResponse.json({ error: 'version required' }, { status: 400 });
+  const limited = battleMapWriteRejection(state);
+  if (limited) return NextResponse.json({ error: limited.error }, { status: limited.status });
   const role = await getUserRole(session.user.id, campaignId);
   if (role !== 'dm') return NextResponse.json({ error: 'Only DM' }, { status: 403 });
-  const res = await prisma.campaign.updateMany({
-    where: { id: campaignId, battleMapVersion: version },
-    data: { battleMapState: state, battleMapVersion: { increment: 1 } },
-  });
-  if (res.count === 0) {
-    const cur = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { battleMapVersion: true } });
-    if (!cur) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    return NextResponse.json({ error: 'Battle map changed since it was loaded', version: cur.battleMapVersion }, { status: 409 });
+  const saved = await saveBattleState(prisma, campaignId, state, { expectedVersion: version });
+  if (!saved.ok) {
+    if (saved.status === 404) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (saved.status === 409) {
+      return NextResponse.json({ error: 'Battle map changed since it was loaded', version: saved.version }, { status: 409 });
+    }
+    return NextResponse.json({ error: saved.error }, { status: 400 });
   }
-  publish(campaignId, 'battle', { version: version + 1 });
-  return NextResponse.json({ ok: true, version: version + 1 });
+  publish(campaignId, 'battle', { version: saved.version });
+  return NextResponse.json({ ok: true, version: saved.version });
 }

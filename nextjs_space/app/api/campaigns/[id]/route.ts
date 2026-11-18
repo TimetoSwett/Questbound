@@ -38,6 +38,6 @@ export async function DELETE(_request: Request, context: { params: Promise<{ id:
   await prisma.$transaction(async (tx) => {
     await detachCampaignCharacters(tx, id);
     await tx.campaign.delete({ where: { id } });
-  });
+  }, { timeout: 60_000, maxWait: 10_000 });
   return NextResponse.json({ ok: true });
 }
