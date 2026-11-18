@@ -2,8 +2,7 @@
 // imports so both the API route and the client bundle can use this.
 // A cursor pairs an ISO timestamp (ms precision) with the roll id, which
 // breaks ties between rolls created in the same millisecond. The token is
-// `${iso}_${id}` (ids are validated against [A-Za-z0-9_-], so `_` only
-// appears as the separator; we split on the LAST `_` regardless).
+// `${iso}_${id}`; ISO timestamps do not contain underscores.
 
 export type RollCursor = { createdAt: Date; id: string };
 export type RollRow = { createdAt: Date | string; id: string };
@@ -21,7 +20,7 @@ export function encodeRollCursor(row: RollRow): string {
 }
 
 export function decodeRollCursor(token: string): RollCursor | null {
-  const sep = token.lastIndexOf('_');
+  const sep = token.indexOf('_');
   if (sep < 0) return null;
   const createdAt = new Date(token.slice(0, sep));
   const id = token.slice(sep + 1);
@@ -41,7 +40,10 @@ export function parseRollCursorParams(
   const token = params.get(direction === 'before' ? 'cursor' : 'afterCursor');
   if (token !== null) {
     const cursor = decodeRollCursor(token);
-    return cursor ? { cursor, legacyTimestamp: null } : 'invalid';
+    if (cursor) return { cursor, legacyTimestamp: null };
+    const legacyTimestamp = new Date(token);
+    return token && !Number.isNaN(+legacyTimestamp)
+      ? { cursor: null, legacyTimestamp } : 'invalid';
   }
   const ts = params.get(direction);
   const id = params.get(`${direction}Id`);
@@ -64,11 +66,6 @@ export function keysetWhere(direction: CursorDirection, cursor: RollCursor) {
       { createdAt: cursor.createdAt, id: { [op]: cursor.id } },
     ],
   };
-}
-
-// Legacy timestamp-only cursors have no id tiebreaker.
-export function legacyWhere(direction: CursorDirection, ts: Date) {
-  return { createdAt: direction === 'before' ? { lt: ts } : { gt: ts } };
 }
 
 export type RollOrderBy = { createdAt: 'asc' | 'desc' } | { id: 'asc' | 'desc' };

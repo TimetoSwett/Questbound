@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
 import { parseDiceExpression, rollDice } from '@/lib/dice';
 import {
-  encodeRollCursor, keysetWhere, legacyWhere, parseRollCursorParams, rollOrder,
+  encodeRollCursor, keysetWhere, parseRollCursorParams, rollOrder,
 } from '@/lib/dice-roll-cursor';
 
 const rollSelect = {
@@ -62,17 +62,20 @@ export async function GET(request: Request) {
   if (role !== 'dm') where.isSecret = false;
   // `before` wins when both directions are sent, matching the old route.
   let direction: 'before' | 'after' | null = null;
+  let legacyTimestamp: Date | null = null;
   if (beforeParsed.cursor) {
     where.OR = keysetWhere('before', beforeParsed.cursor).OR;
     direction = 'before';
   } else if (beforeParsed.legacyTimestamp) {
-    Object.assign(where, legacyWhere('before', beforeParsed.legacyTimestamp));
+    legacyTimestamp = beforeParsed.legacyTimestamp;
+    where.createdAt = { lt: legacyTimestamp };
     direction = 'before';
   } else if (afterParsed.cursor) {
     where.OR = keysetWhere('after', afterParsed.cursor).OR;
     direction = 'after';
   } else if (afterParsed.legacyTimestamp) {
-    Object.assign(where, legacyWhere('after', afterParsed.legacyTimestamp));
+    legacyTimestamp = afterParsed.legacyTimestamp;
+    where.createdAt = { gt: legacyTimestamp };
     direction = 'after';
   }
 
@@ -85,9 +88,21 @@ export async function GET(request: Request) {
     select: rollSelect,
   });
   const pagingOlder = direction !== 'after';
+  const hasNextPage = rolls.length >= limit;
+  // A timestamp alone cannot identify which tied rows the caller has seen.
+  // Return the entire boundary group as well as the next page, so no tied
+  // rows are lost. Legacy callers may see duplicates at the boundary.
+  if (legacyTimestamp) {
+    const boundary = await prisma.diceRoll.findMany({
+      where: { ...where, createdAt: legacyTimestamp },
+      orderBy: rollOrder(pagingOlder ? 'before' : 'after'),
+      select: rollSelect,
+    });
+    rolls.unshift(...boundary);
+  }
   if (pagingOlder) rolls.reverse();
   const res = NextResponse.json(rolls);
-  if (pagingOlder && rolls.length >= limit) {
+  if (pagingOlder && hasNextPage) {
     res.headers.set('X-Next-Cursor', encodeRollCursor(rolls[0]));
   }
   return res;
