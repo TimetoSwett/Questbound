@@ -6,6 +6,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+  "test": "node scripts/run-tests.mjs",
     "test:reveal": "node scripts/test-reveal-levels.mjs",
     "test:creature-reveals": "node scripts/test-creature-reveals.mjs",
     "test:import": "node scripts/test-statblock-import.mjs",
@@ -43,7 +44,10 @@
     "test:cp-guardrails": "node scripts/test-cp-guardrails.mjs",
     "test:cyberpunk-sheet": "tsx scripts/test-cyberpunk-sheet.ts",
     "test:cyberpunk-basics": "tsx scripts/test-cyberpunk-basics-view.ts",
-    "test:cyberpunk-persistence": "tsx scripts/test-cyberpunk-persistence.ts"
+    "test:cyberpunk-persistence": "tsx scripts/test-cyberpunk-persistence.ts",
+    "test:pf-sheet-math": "tsx scripts/test-pf-sheet-math.ts",
+    "test:dice-parser": "tsx scripts/test-dice-parser.ts",
+    "test:loot-rolls": "tsx scripts/test-loot-rolls.ts"
   },
   "prisma": {
     "seed": "tsx --require dotenv/config scripts/safe-seed.ts"
