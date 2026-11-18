@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 import { Shield, Swords, Globe, Users, BookOpen, LogOut, ChevronLeft, Copy, Check, Dices, Castle, Drama, Coins, DoorOpen } from 'lucide-react';
 import { BrightnessControl } from '@/components/brightness-control';
 import { Button } from '@/components/ui/button';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { toast } from 'sonner';
 import { CharactersTab } from './characters-tab';
 import { WorldTab } from './world-tab';
@@ -69,14 +70,7 @@ export function CampaignShell({ campaignId, campaignName, system, inviteCode, ro
   const [mobileLogOpen, setMobileLogOpen] = useState(false);
   const logOpen = isDesktop ? desktopLogOpen : mobileLogOpen;
   const setLogOpen = isDesktop ? setDesktopLogOpen : setMobileLogOpen;
-  useEffect(() => {
-    if (isDesktop || !mobileLogOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMobileLogOpen(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [isDesktop, mobileLogOpen]);
+
 
   const leaveCampaign = async () => {
     if (!confirm(`Leave ${campaignName}? Your characters go back to your vault.`)) return;
@@ -140,7 +134,7 @@ export function CampaignShell({ campaignId, campaignName, system, inviteCode, ro
             <BrightnessControl />
             <HallNav />
             <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${role === 'dm' ? 'bg-primary/20 text-primary' : 'bg-secondary text-secondary-foreground'}`}>{role === 'dm' ? 'Dungeon Master' : 'Player'}</span>
-            <Button variant="ghost" size="sm" onClick={() => setLogOpen((o) => !o)} title={logOpen ? 'Hide roll log' : 'Show roll log'} aria-label={logOpen ? 'Hide roll log' : 'Show roll log'} aria-expanded={logOpen} aria-controls="campaign-roll-log">
+            <Button variant="ghost" size="sm" onClick={() => setLogOpen((o) => !o)} title={logOpen ? 'Hide roll log' : 'Show roll log'} aria-label={logOpen ? 'Hide roll log' : 'Show roll log'} aria-expanded={logOpen} aria-controls={isDesktop ? "campaign-roll-log" : "campaign-roll-log-mobile"}>
               <Dices className="w-4 h-4 mr-1" /> Roll log
             </Button>
             {!isDM && (
@@ -185,13 +179,19 @@ export function CampaignShell({ campaignId, campaignName, system, inviteCode, ro
           {activeTab === 'loot' && <LootTab campaignId={campaignId} role={role} userId={userId} />}
           {activeTab === 'players' && isDM && <PlayersTab campaignId={campaignId} />}
         </main>
-        {logOpen && (
-          <aside id="campaign-roll-log" aria-label="Roll log" className="fixed inset-x-0 bottom-[var(--site-footer-offset)] z-40 h-[min(70dvh,32rem)] overscroll-contain border-t border-border bg-card shadow-2xl lg:static lg:bottom-auto lg:z-auto lg:h-auto lg:w-80 lg:shrink-0 lg:border-t-0 lg:border-l lg:bg-card/40 lg:shadow-none">
-            <div className="h-full lg:sticky lg:top-[100px] lg:h-[calc(100vh-100px-var(--site-footer-offset))]">
-              <RollLog campaignId={campaignId} role={role} onClose={isDesktop ? undefined : () => setMobileLogOpen(false)} />
+        {isDesktop && desktopLogOpen && (
+          <aside id="campaign-roll-log" aria-label="Roll log" className="w-80 shrink-0 border-l border-border bg-card/40">
+            <div className="sticky top-[100px] h-[calc(100vh-100px-var(--site-footer-offset))]">
+              <RollLog campaignId={campaignId} role={role} />
             </div>
           </aside>
         )}
+        <Sheet open={!isDesktop && mobileLogOpen} onOpenChange={setMobileLogOpen}>
+          <SheetContent id="campaign-roll-log-mobile" side="bottom" className="bottom-[var(--site-footer-offset)] flex h-[min(80dvh,36rem)] flex-col overflow-hidden p-0" aria-describedby={undefined}>
+            <SheetTitle className="sr-only">Roll log</SheetTitle>
+            <RollLog campaignId={campaignId} role={role} />
+          </SheetContent>
+        </Sheet>
       </div>
     </div>
     </CampaignEventsProvider>

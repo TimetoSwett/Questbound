@@ -83,6 +83,7 @@ for (const r of tied) {
   assert.equal(+c.createdAt, +r.createdAt, 'ms precision preserved');
   assert.equal(c.id, r.id);
 }
+assert.equal(decodeRollCursor(encodeRollCursor({ createdAt: new Date(base), id: 'id_with_underscores' })).id, 'id_with_underscores');
 assert.equal(decodeRollCursor('not-a-cursor'), null);
 assert.equal(decodeRollCursor('nonsense_x'), null); // bad date
 assert.equal(decodeRollCursor(`${new Date(base).toISOString()}_`), null); // empty id
@@ -108,6 +109,8 @@ const fromAfterPair = parseRollCursorParams(
   new URLSearchParams(`after=${encodeURIComponent(iso)}&afterId=cabc123`), 'after',
 );
 assert.deepEqual(fromAfterPair, { cursor: { createdAt: new Date(iso), id: 'cabc123' }, legacyTimestamp: null });
+
+assert.deepEqual(parseRollCursorParams(new URLSearchParams(`cursor=${encodeURIComponent(iso)}`), 'before'), { cursor: null, legacyTimestamp: new Date(iso) });
 
 const legacy = parseRollCursorParams(new URLSearchParams(`before=${encodeURIComponent(iso)}`), 'before');
 assert.deepEqual(legacy, { cursor: null, legacyTimestamp: new Date(iso) });

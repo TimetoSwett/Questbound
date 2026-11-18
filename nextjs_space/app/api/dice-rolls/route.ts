@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
 import { parseDiceExpression, rollDice } from '@/lib/dice';
 import {
-  encodeRollCursor, keysetWhere, legacyWhere, parseRollCursorParams, rollOrder,
+  encodeRollCursor, keysetWhere, parseRollCursorParams, rollOrder,
 } from '@/lib/dice-roll-cursor';
 
 const rollSelect = {
@@ -36,7 +36,8 @@ function rateLimited(userId: string): boolean {
 // GET ?campaignId=&limit= (+ cursor params) — campaign members only.
 // Non-DMs never receive secret rolls. Returns chronological (oldest first).
 // Keyset cursors pair an ISO timestamp with a roll ID (id breaks ties when
-// rolls share a millisecond, so nothing is skipped or duplicated). Accepted
+// rolls share a millisecond, so composite cursors do not skip or duplicate).
+// Legacy timestamp-only cursors may return boundary duplicates. Accepted
 // formats: `cursor=` / `afterCursor=` (opaque token), `before`+`beforeId` /
 // `after`+`afterId`, and the legacy timestamp-only `before`/`after`. When
 // paging older (or on the initial load) the response carries X-Next-Cursor
@@ -62,17 +63,20 @@ export async function GET(request: Request) {
   if (role !== 'dm') where.isSecret = false;
   // `before` wins when both directions are sent, matching the old route.
   let direction: 'before' | 'after' | null = null;
+  let legacyTimestamp: Date | null = null;
   if (beforeParsed.cursor) {
     where.OR = keysetWhere('before', beforeParsed.cursor).OR;
     direction = 'before';
   } else if (beforeParsed.legacyTimestamp) {
-    Object.assign(where, legacyWhere('before', beforeParsed.legacyTimestamp));
+    legacyTimestamp = beforeParsed.legacyTimestamp;
+    where.createdAt = { lt: legacyTimestamp };
     direction = 'before';
   } else if (afterParsed.cursor) {
     where.OR = keysetWhere('after', afterParsed.cursor).OR;
     direction = 'after';
   } else if (afterParsed.legacyTimestamp) {
-    Object.assign(where, legacyWhere('after', afterParsed.legacyTimestamp));
+    legacyTimestamp = afterParsed.legacyTimestamp;
+    where.createdAt = { gt: legacyTimestamp };
     direction = 'after';
   }
 
@@ -85,9 +89,22 @@ export async function GET(request: Request) {
     select: rollSelect,
   });
   const pagingOlder = direction !== 'after';
+  const hasNextPage = rolls.length >= limit;
+  // A timestamp alone cannot identify which tied rows the caller has seen.
+  // The cap keeps realistic same-millisecond groups complete; groups over
+  // 200 can omit boundary rows. Legacy callers may see boundary duplicates.
+  if (legacyTimestamp) {
+    const boundary = await prisma.diceRoll.findMany({
+      where: { ...where, createdAt: legacyTimestamp },
+      orderBy: rollOrder(pagingOlder ? 'before' : 'after'),
+      take: 200,
+      select: rollSelect,
+    });
+    rolls.unshift(...boundary);
+  }
   if (pagingOlder) rolls.reverse();
   const res = NextResponse.json(rolls);
-  if (pagingOlder && rolls.length >= limit) {
+  if (pagingOlder && hasNextPage) {
     res.headers.set('X-Next-Cursor', encodeRollCursor(rolls[0]));
   }
   return res;
