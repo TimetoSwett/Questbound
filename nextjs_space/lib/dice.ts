@@ -27,12 +27,17 @@ export function parseDiceExpression(input: string): ParsedRoll | null {
   return { count, sides, modifier, expression: `${count}d${sides}${modStr}` };
 }
 
-/** Roll dice server-side. */
+/**
+ * Roll dice server-side. `random` is an injectable stand-in for
+ * crypto.randomInt (same [min, max) contract) so tests can be deterministic;
+ * production calls omit it and keep crypto randomness.
+ */
 export function rollDice(
   count: number,
   sides: number,
   modifier: number,
+  random: (min: number, max: number) => number = randomInt,
 ): { results: number[]; total: number } {
-  const results = Array.from({ length: count }, () => randomInt(1, sides + 1));
+  const results = Array.from({ length: count }, () => random(1, sides + 1));
   return { results, total: results.reduce((a, b) => a + b, 0) + modifier };
 }

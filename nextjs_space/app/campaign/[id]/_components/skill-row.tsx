@@ -3,8 +3,7 @@
 import type { ReactNode } from 'react';
 import { Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { formatMod, type SkillDef } from '@/lib/pf1e-skills';
-import { equipmentSkillPenalty } from '@/lib/equipment';
+import { formatMod, skillAbilityMod, skillTotal, type SkillDef } from '@/lib/pf1e-skills';
 import type { SkillEntry } from '@/lib/skills-validation';
 
 interface SkillRowProps {
@@ -21,12 +20,9 @@ interface SkillRowProps {
 }
 
 export function SkillRow({ label, skill, entry, abilityModForSkill, gearSkill, checkPenalty, editable, onChange, onDelete, specialtyInput }: SkillRowProps) {
-  const primary = entry.ability || skill.ability;
-  const extra = entry.extraAbility && entry.extraAbility !== primary ? entry.extraAbility : '';
-  const abMod = abilityModForSkill(primary) + (extra ? abilityModForSkill(extra) : 0);
+  const abMod = skillAbilityMod(entry, skill, abilityModForSkill);
   const ranks = entry.ranks ?? 0;
-  const csBonus = entry.classSkill && ranks >= 1 ? 3 : 0;
-  const total = ranks + csBonus + abMod + (entry.misc ?? 0) + equipmentSkillPenalty(skill.ability, checkPenalty) + gearSkill;
+  const total = skillTotal({ entry, skill, abilityModForSkill, gearSkill, checkPenalty });
   return (
     <tr className="border-b border-border/50 hover:bg-muted/30">
       <td className="py-1 px-1">

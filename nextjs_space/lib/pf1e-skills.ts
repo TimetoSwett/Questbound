@@ -1,3 +1,6 @@
+import { equipmentSkillPenalty } from './equipment';
+import type { SkillEntry } from './skills-validation';
+
 export interface SkillDef {
   name: string;
   ability: 'STR' | 'DEX' | 'CON' | 'INT' | 'WIS' | 'CHA';
@@ -47,4 +50,50 @@ export function abilityMod(score: number): number {
 
 export function formatMod(n: number): string {
   return n >= 0 ? `+${n}` : `${n}`;
+}
+
+/**
+ * Combined ability modifier for one skill row: the entry's chosen ability
+ * (or the skill's default when none is chosen) plus a second ability when
+ * one is picked and differs from the primary.
+ */
+export function skillAbilityMod(
+  entry: SkillEntry,
+  skill: SkillDef,
+  abilityModForSkill: (ability: string) => number,
+): number {
+  const primary = entry.ability || skill.ability;
+  const extra = entry.extraAbility && entry.extraAbility !== primary ? entry.extraAbility : '';
+  return abilityModForSkill(primary) + (extra ? abilityModForSkill(extra) : 0);
+}
+
+/**
+ * Skill total, exactly as the sheet row displays it: ranks + class-skill
+ * bonus (+3, only with at least 1 rank) + ability mod(s) + misc + armor
+ * check penalty (STR/DEX skills only, per the skill's default ability) +
+ * gear bonuses. Extracted verbatim from SkillRow so it can be unit-tested.
+ */
+export function skillTotal({
+  entry,
+  skill,
+  abilityModForSkill,
+  gearSkill,
+  checkPenalty,
+}: {
+  entry: SkillEntry;
+  skill: SkillDef;
+  abilityModForSkill: (ability: string) => number;
+  gearSkill: number;
+  checkPenalty: number;
+}): number {
+  const ranks = entry.ranks ?? 0;
+  const csBonus = entry.classSkill && ranks >= 1 ? 3 : 0;
+  return (
+    ranks +
+    csBonus +
+    skillAbilityMod(entry, skill, abilityModForSkill) +
+    (entry.misc ?? 0) +
+    equipmentSkillPenalty(skill.ability, checkPenalty) +
+    gearSkill
+  );
 }
