@@ -53,7 +53,7 @@ export async function PATCH(request: Request) {
       return { status: updated.status, body: { error: 'Not found' } };
     }
     return { status: 200, body: { ok: true, token: { ...token, x, y } }, version: updated.version };
-  }, { timeout: 60_000, maxWait: 10_000 });
+  }, { timeout: 15_000, maxWait: 5_000 });
   if (result.status === 200) publish(campaignId, 'battle', { version: result.version });
   return NextResponse.json(result.body, { status: result.status });
 }
