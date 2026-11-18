@@ -17,6 +17,8 @@ import {
   battleMapWriteRejection,
   type BattleMapLimits,
 } from '../lib/battle-map-limits';
+import { applyTargetedPlan, battleMapLegacyPayload, planBattleWrite } from '../lib/battle-map-delta';
+import { removeCharacterTokens } from '../lib/battle-map';
 
 function roundTrip(state: unknown): { document: BattleDocument; state: Record<string, unknown> } {
   const encoded = stateToDocument(state);
@@ -346,5 +348,127 @@ assert.equal(battleMapContentLengthRejection(null), null);
 assert.equal(battleMapContentLengthRejection(''), null);
 assert.equal(battleMapContentLengthRejection(String(BATTLE_MAP_LIMITS.maxRequestBytes)), null);
 assert.match(battleMapContentLengthRejection(String(BATTLE_MAP_LIMITS.maxRequestBytes + 1)) ?? '', /request is/);
+
+function documentOf(state: Record<string, unknown>) {
+  const encoded = stateToDocument(state);
+  assert.equal(encoded.ok, true);
+  if (!encoded.ok) throw new Error('unreachable');
+  return encoded.document;
+}
+
+function targeted(prev: Record<string, unknown>, next: Record<string, unknown>) {
+  const plan = planBattleWrite(documentOf(prev), documentOf(next));
+  assert.equal(plan.kind, 'targeted', plan.kind === 'replace' ? plan.reason : '');
+  if (plan.kind !== 'targeted') throw new Error('unreachable');
+  const applied = applyTargetedPlan(documentOf(prev), plan);
+  assert.deepEqual(documentToState(applied), next);
+  // The JSON column stores this full next document in the same transaction.
+  assert.deepEqual(battleMapLegacyPayload(next), next);
+  return plan;
+}
+
+const party = {
+  gridWidth: 20,
+  fog: ['1,1', '2,2'],
+  tokens: [
+    { id: 'pc', label: 'Kara', x: 1, y: 1, color: '#fff', size: 1, characterId: 'c1' },
+    { id: 'npc', label: 'Goblin', x: 4, y: 4, color: '#f00', size: 1, conditions: ['Prone'] },
+  ],
+  turnOrder: [
+    { id: 'te_pc', label: 'Kara', initiative: 12, tokenId: 'pc', characterId: 'c1' },
+    { id: 'te_npc', label: 'Goblin', initiative: 8, tokenId: 'npc' },
+  ],
+  activeId: 'te_pc',
+  encounters: [{
+    id: 'enc', name: 'Ambush',
+    tokens: [
+      { id: 'epc', label: 'Kara', x: 0, y: 0, color: '#fff', size: 1, characterId: 'c1' },
+      { id: 'enpc', label: 'Wolf', x: 3, y: 3, color: '#888', size: 1 },
+    ],
+  }],
+  snapshots: [{
+    id: 'snap', name: 'Before', createdAt: 10,
+    state: {
+      fog: ['1,1', '2,2'],
+      tokens: [
+        { id: 'spc', label: 'Kara', x: 1, y: 1, color: '#fff', size: 1, characterId: 'c1' },
+        { id: 'snpc', label: 'Goblin', x: 4, y: 4, color: '#f00', size: 1 },
+      ],
+      turnOrder: [{ id: 'ste', label: 'Kara', initiative: 12, tokenId: 'spc', characterId: 'c1' }],
+      activeId: 'ste',
+    },
+  }],
+};
+
+const moved = {
+  ...party,
+  tokens: party.tokens.map((token) => (token.id === 'npc' ? { ...token, x: 5 } : token)),
+};
+const move = targeted(party, moved);
+assert.equal(move.tokens.length, 1);
+assert.equal(move.turns.length, 0);
+assert.equal(move.mapActiveId, null);
+assert.deepEqual(move.snapshotActiveIds, []);
+assert.deepEqual(move.tokens[0], {
+  ...move.tokens[0],
+  op: 'update',
+  clientId: 'npc',
+  changed: ['x'],
+  parent: { scope: 'map' },
+});
+
+const conditioned = {
+  ...party,
+  tokens: party.tokens.map((token) => (token.id === 'npc' ? { ...token, conditions: ['Prone', 'Shaken'] } : token)),
+};
+const conditions = targeted(party, conditioned);
+assert.equal(conditions.tokens.length, 1);
+assert.equal(conditions.tokens[0].op, 'update');
+if (conditions.tokens[0].op === 'update') assert.deepEqual(conditions.tokens[0].changed, ['conditions']);
+assert.equal(conditions.turns.length, 0);
+
+const added = {
+  ...party,
+  tokens: [...party.tokens, { id: 'new', label: 'Orc', x: 6, y: 6, color: '#0f0', size: 2 }],
+};
+const addition = targeted(party, added);
+assert.equal(addition.tokens.length, 1);
+assert.equal(addition.tokens[0].op, 'insert');
+if (addition.tokens[0].op === 'insert') assert.equal(addition.tokens[0].token.clientId, 'new');
+assert.equal(addition.turns.length, 0);
+
+const removed = { ...party, tokens: party.tokens.filter((token) => token.id !== 'npc') };
+const removal = targeted(party, removed);
+assert.deepEqual(removal.tokens.map((op) => op.op === 'delete' ? op.clientId : op.op), ['npc']);
+assert.equal(removal.turns.length, 0);
+
+const stripped = removeCharacterTokens(party, 'c1');
+const strip = targeted(party, stripped);
+assert.deepEqual(
+  strip.tokens.map((op) => `${op.op}:${op.op === 'insert' ? op.token.clientId : op.clientId}`).sort(),
+  ['delete:epc', 'delete:pc', 'delete:spc'],
+);
+assert.deepEqual(
+  strip.turns.map((op) => `${op.op}:${op.op === 'insert' ? op.turn.clientId : op.clientId}`).sort(),
+  ['delete:ste', 'delete:te_pc'],
+);
+assert.deepEqual(strip.mapActiveId, { from: 'te_pc', to: null });
+assert.deepEqual(strip.snapshotActiveIds, [{ clientId: 'snap', from: 'ste', to: null }]);
+assert.equal(JSON.stringify(strip).includes('npc'), false);
+assert.equal(JSON.stringify(strip).includes('enpc'), false);
+assert.equal(JSON.stringify(strip).includes('snpc'), false);
+assert.deepEqual(battleMapLegacyPayload(stripped), stripped);
+
+const fogged = planBattleWrite(documentOf(party), documentOf({ ...party, fog: [] }));
+assert.equal(fogged.kind, 'replace');
+const restored = planBattleWrite(documentOf(party), documentOf({
+  ...party,
+  tokens: [],
+  fog: [],
+  turnOrder: [],
+  activeId: null,
+}));
+assert.equal(restored.kind, 'replace');
+assert.equal(planBattleWrite(null, documentOf(party)).kind, 'replace');
 
 console.log('test-battle-map-tables: ok');

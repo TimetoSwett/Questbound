@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import type { PrismaClient } from '@prisma/client';
 import { removeCharacterTokens } from '@/lib/battle-map';
+import { planBattleWrite, type TargetedBattleWrite, type TokenOp, type TokenParent, type TurnOp, type TurnParent } from '@/lib/battle-map-delta';
 import {
   dualWriteLegacyBattleJson,
   isPlainObject,
@@ -548,21 +549,190 @@ export async function replaceBattleDocument(tx: Prisma.TransactionClient, campai
   await createMany(tx.battleDrawingPoint, bags.points);
 }
 
-async function tablesReady(tx: Prisma.TransactionClient, campaignId: string): Promise<boolean> {
-  try {
-    await tx.battleMap.findUnique({ where: { campaignId }, select: { id: true } });
-    return true;
-  } catch (err) {
-    if (!isMissingBattleSchema(err)) throw err;
-    return false;
+function tokenParentWhere(
+  parent: TokenParent,
+  mapId: string,
+  encounterIds: Map<string, string>,
+  snapshotIds: Map<string, string>,
+): Prisma.BattleTokenWhereInput | null {
+  if (parent.scope === 'map') return { battleMapId: mapId, encounterId: null, snapshotId: null };
+  if (parent.scope === 'encounter') {
+    const encounterId = encounterIds.get(parent.clientId);
+    return encounterId ? { encounterId } : null;
   }
+  const snapshotId = snapshotIds.get(parent.clientId);
+  return snapshotId ? { snapshotId } : null;
+}
+
+function turnParentWhere(
+  parent: TurnParent,
+  mapId: string,
+  snapshotIds: Map<string, string>,
+): Prisma.BattleTurnWhereInput | null {
+  if (parent.scope === 'map') return { battleMapId: mapId, snapshotId: null };
+  const snapshotId = snapshotIds.get(parent.clientId);
+  return snapshotId ? { snapshotId } : null;
+}
+
+function tokenUpdateData(op: Extract<TokenOp, { op: 'update' }>): Prisma.BattleTokenUpdateManyMutationInput {
+  const token = op.token;
+  const data: Prisma.BattleTokenUpdateManyMutationInput = {};
+  if (op.changed.includes('sort')) data.sort = token.sort;
+  if (op.changed.includes('label')) data.label = token.label;
+  if (op.changed.includes('color')) data.color = token.color;
+  if (op.changed.includes('x')) data.x = token.x;
+  if (op.changed.includes('y')) data.y = token.y;
+  if (op.changed.includes('size')) data.size = token.size;
+  if (op.changed.includes('hidden')) data.hidden = token.hidden;
+  if (op.changed.includes('characterId')) data.characterId = token.characterId;
+  if (op.changed.includes('characterName')) data.characterName = token.characterName;
+  if (op.changed.includes('portraitKey')) data.portraitKey = token.portraitKey;
+  if (op.changed.includes('hp')) data.hp = token.hp;
+  if (op.changed.includes('maxHp')) data.maxHp = token.maxHp;
+  if (op.changed.includes('creatureId')) data.creatureId = token.creatureId;
+  if (op.changed.includes('presentKeys')) data.presentKeys = token.presentKeys;
+  if (op.changed.includes('extra')) data.extra = jsonValue(token.extra);
+  if (op.changed.includes('raw')) {
+    data.passthrough = token.passthrough;
+    data.raw = rawColumn(token.passthrough, token.raw);
+  }
+  return data;
+}
+
+function turnUpdateData(op: Extract<TurnOp, { op: 'update' }>): Prisma.BattleTurnUpdateManyMutationInput {
+  const turn = op.turn;
+  const data: Prisma.BattleTurnUpdateManyMutationInput = {};
+  if (op.changed.includes('sort')) data.sort = turn.sort;
+  if (op.changed.includes('label')) data.label = turn.label;
+  if (op.changed.includes('initiative')) data.initiative = turn.initiative;
+  if (op.changed.includes('characterId')) data.characterId = turn.characterId;
+  if (op.changed.includes('tokenId')) data.tokenId = turn.tokenId;
+  if (op.changed.includes('presentKeys')) data.presentKeys = turn.presentKeys;
+  if (op.changed.includes('extra')) data.extra = jsonValue(turn.extra);
+  if (op.changed.includes('raw')) {
+    data.passthrough = turn.passthrough;
+    data.raw = rawColumn(turn.passthrough, turn.raw);
+  }
+  return data;
+}
+
+async function writeTokenConditions(tx: Prisma.TransactionClient, tokenId: string, token: { presentKeys: string[]; conditions: string[] }) {
+  await tx.battleTokenCondition.deleteMany({ where: { tokenId } });
+  if (!token.presentKeys.includes('conditions')) return;
+  await createMany(tx.battleTokenCondition, token.conditions.map((value, sort) => ({
+    id: randomUUID(), tokenId, sort, value,
+  })));
+}
+
+/** Returns false when a parent or row is missing, so the caller can full-replace. */
+async function applyTargetedPlanTx(tx: Prisma.TransactionClient, mapId: string, plan: TargetedBattleWrite): Promise<boolean> {
+  const [encounters, snapshots] = await Promise.all([
+    tx.battleEncounter.findMany({ where: { battleMapId: mapId }, select: { id: true, clientId: true } }),
+    tx.battleSnapshot.findMany({ where: { battleMapId: mapId }, select: { id: true, clientId: true } }),
+  ]);
+  const encounterIds = new Map(encounters.flatMap((row) => (row.clientId ? [[row.clientId, row.id] as const] : [])));
+  const snapshotIds = new Map(snapshots.flatMap((row) => (row.clientId ? [[row.clientId, row.id] as const] : [])));
+
+  for (const op of plan.tokens) {
+    const where = tokenParentWhere(op.parent, mapId, encounterIds, snapshotIds);
+    if (!where) return false;
+    if (op.op === 'delete') {
+      const deleted = await tx.battleToken.deleteMany({ where: { ...where, clientId: op.clientId } });
+      if (deleted.count !== 1) return false;
+      continue;
+    }
+    if (op.op === 'update') {
+      const data = tokenUpdateData(op);
+      const updated = await tx.battleToken.updateMany({ where: { ...where, clientId: op.clientId }, data });
+      if (updated.count !== 1) return false;
+      if (op.changed.includes('conditions') || op.changed.includes('presentKeys')) {
+        const row = await tx.battleToken.findFirst({ where: { ...where, clientId: op.clientId }, select: { id: true } });
+        if (!row) return false;
+        await writeTokenConditions(tx, row.id, op.token);
+      }
+      continue;
+    }
+    const id = randomUUID();
+    await tx.battleToken.create({
+      data: {
+        id,
+        battleMapId: op.parent.scope === 'map' ? mapId : null,
+        encounterId: op.parent.scope === 'encounter' ? encounterIds.get(op.parent.clientId) ?? null : null,
+        snapshotId: op.parent.scope === 'snapshot' ? snapshotIds.get(op.parent.clientId) ?? null : null,
+        sort: op.token.sort,
+        passthrough: op.token.passthrough,
+        raw: rawColumn(op.token.passthrough, op.token.raw),
+        presentKeys: op.token.presentKeys,
+        extra: jsonValue(op.token.extra),
+        clientId: op.token.clientId,
+        label: op.token.label,
+        color: op.token.color,
+        x: op.token.x,
+        y: op.token.y,
+        size: op.token.size,
+        hidden: op.token.hidden,
+        characterId: op.token.characterId,
+        characterName: op.token.characterName,
+        portraitKey: op.token.portraitKey,
+        hp: op.token.hp,
+        maxHp: op.token.maxHp,
+        creatureId: op.token.creatureId,
+      },
+    });
+    await writeTokenConditions(tx, id, op.token);
+  }
+
+  for (const op of plan.turns) {
+    const where = turnParentWhere(op.parent, mapId, snapshotIds);
+    if (!where) return false;
+    if (op.op === 'delete') {
+      const deleted = await tx.battleTurn.deleteMany({ where: { ...where, clientId: op.clientId } });
+      if (deleted.count !== 1) return false;
+      continue;
+    }
+    if (op.op === 'update') {
+      const updated = await tx.battleTurn.updateMany({ where: { ...where, clientId: op.clientId }, data: turnUpdateData(op) });
+      if (updated.count !== 1) return false;
+      continue;
+    }
+    await tx.battleTurn.create({
+      data: {
+        id: randomUUID(),
+        battleMapId: op.parent.scope === 'map' ? mapId : null,
+        snapshotId: op.parent.scope === 'snapshot' ? snapshotIds.get(op.parent.clientId) ?? null : null,
+        sort: op.turn.sort,
+        passthrough: op.turn.passthrough,
+        raw: rawColumn(op.turn.passthrough, op.turn.raw),
+        presentKeys: op.turn.presentKeys,
+        extra: jsonValue(op.turn.extra),
+        clientId: op.turn.clientId,
+        label: op.turn.label,
+        initiative: op.turn.initiative,
+        characterId: op.turn.characterId,
+        tokenId: op.turn.tokenId,
+      },
+    });
+  }
+
+  if (plan.mapActiveId) {
+    await tx.battleMap.update({ where: { id: mapId }, data: { activeId: plan.mapActiveId.to } });
+  }
+  for (const patch of plan.snapshotActiveIds) {
+    const updated = await tx.battleSnapshot.updateMany({
+      where: { battleMapId: mapId, clientId: patch.clientId },
+      data: { activeId: patch.to },
+    });
+    if (updated.count !== 1) return false;
+  }
+  return true;
 }
 
 /**
- * Lock the campaign row, optionally enforce optimistic concurrency, replace
- * the relational document, bump battleMapVersion, and dual-write legacy JSON
- * unless BATTLE_MAP_DUAL_WRITE is off. When the tables are not migrated yet,
- * the write stays on the JSON column so the map keeps working.
+ * Lock the campaign row, optionally enforce optimistic concurrency, write the
+ * relational rows, bump battleMapVersion, and dual-write legacy JSON unless
+ * BATTLE_MAP_DUAL_WRITE is off. A one-token or character-strip change updates
+ * only those rows. Anything wider replaces the document. When the tables are
+ * not migrated yet, the write stays on the JSON column.
  */
 export async function saveBattleStateTx(
   tx: Prisma.TransactionClient,
@@ -582,8 +752,24 @@ export async function saveBattleStateTx(
   const encoded = stateToDocument(state);
   if (!encoded.ok) return { ok: false, status: 400, error: encoded.reason };
 
-  const ready = await tablesReady(tx, campaignId);
-  if (ready) await replaceBattleDocument(tx, campaignId, encoded.document);
+  let ready = true;
+  try {
+    const existing = await tx.battleMap.findUnique({ where: { campaignId }, include: battleInclude });
+    if (!existing) {
+      await replaceBattleDocument(tx, campaignId, encoded.document);
+    } else {
+      const plan = planBattleWrite(mapRecordToDocument(existing), encoded.document);
+      if (plan.kind === 'replace') {
+        await replaceBattleDocument(tx, campaignId, encoded.document);
+      } else {
+        const applied = await applyTargetedPlanTx(tx, existing.id, plan);
+        if (!applied) await replaceBattleDocument(tx, campaignId, encoded.document);
+      }
+    }
+  } catch (err) {
+    if (!isMissingBattleSchema(err)) throw err;
+    ready = false;
+  }
 
   const dualWrite = !ready || dualWriteLegacyBattleJson();
   const updated = await tx.campaign.update({

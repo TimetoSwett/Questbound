@@ -758,7 +758,7 @@ function encodeEncounter(value: unknown, sort: number): EncounterRow {
   return row;
 }
 
-function decodeEncounter(row: EncounterRow): unknown {
+export function decodeEncounter(row: EncounterRow): unknown {
   if (row.passthrough) return row.raw;
   const out = cloneExtra(row.extra);
   const columns: Record<string, unknown> = { id: row.clientId, name: row.name, tokens: row.tokens.map(decodeToken) };
@@ -802,7 +802,7 @@ function encodeSnapshot(value: unknown, sort: number): SnapshotRow {
   return row;
 }
 
-function decodeSnapshot(row: SnapshotRow): unknown {
+export function decodeSnapshot(row: SnapshotRow): unknown {
   if (row.passthrough) return row.raw;
   const out = cloneExtra(row.extra);
   const columns: Record<string, unknown> = {
