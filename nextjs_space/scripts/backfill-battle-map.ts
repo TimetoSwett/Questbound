@@ -39,10 +39,6 @@ if (args.has('--help') || args.has('-h')) {
   console.log('Usage: npm run backfill:battle-map -- [--dry-run | --write-legacy]');
   process.exit(0);
 }
-if (!process.env.DATABASE_URL) {
-  console.error('DATABASE_URL is not set. Refusing to run.');
-  process.exit(1);
-}
 
 type CountRow = {
   tokens: number;
@@ -262,9 +258,24 @@ async function reverse() {
     : `Wrote legacy JSON for ${written} maps, ${unchanged} already matched. Tables were not dropped.`);
 }
 
-try {
-  if (writeLegacy) await reverse();
-  else await forward();
-} finally {
-  await prisma.$disconnect();
+// No top-level await: package.json has no "type": "module", and tsx 4.20
+// compiles this .ts file as CommonJS, which cannot emit top-level await
+// (Node 26 reports that and exits before the script runs).
+async function main(): Promise<void> {
+  try {
+    if (!process.env.DATABASE_URL) {
+      console.error('DATABASE_URL is not set. Refusing to run.');
+      process.exitCode = 1;
+      return;
+    }
+    if (writeLegacy) await reverse();
+    else await forward();
+  } catch (err) {
+    console.error(err);
+    process.exitCode = 1;
+  } finally {
+    await prisma.$disconnect();
+  }
 }
+
+void main();

@@ -107,3 +107,147 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # Prod runs Node 26. The main job stays on Node 22. This job only proves
+  # `npm run backfill:battle-map -- --dry-run` actually starts under tsx's
+  # CommonJS output (no top-level await) and can read a throwaway database.
+  backfill:
+    name: battle-map backfill
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: nextjs_space
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: questbound_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d questbound_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Throwaway credentials for the service container. Not a repo secret.
+      # Keep "prod" and "hpminioma" out of the URL (test:library / test:companions).
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/questbound_ci
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "26.13.1"
+          cache: npm
+          cache-dependency-path: nextjs_space/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Apply Prisma schema
+        run: npx prisma db push --skip-generate --accept-data-loss
+
+      - name: Seed one legacy battle map
+        run: |
+          cat > /tmp/seed-battle-map.cjs << 'EOF'
+          const { PrismaClient } = require('@prisma/client');
+          const prisma = new PrismaClient();
+          const state = {
+            gridWidth: 10,
+            gridHeight: 8,
+            tokens: [{ id: 't1', label: 'Goblin', x: 1, y: 2, color: '#f00', size: 1 }],
+            fog: ['0,0'],
+            highlights: [],
+          };
+          (async () => {
+            await prisma.campaign.create({
+              data: {
+                id: 'ci-battle-map',
+                name: 'CI battle map',
+                inviteCode: 'CIBTL',
+                dmUserId: 'ci-dm',
+                battleMapState: state,
+              },
+            });
+            console.log('seeded ci-battle-map');
+            await prisma.$disconnect();
+          })().catch((err) => {
+            console.error(err);
+            process.exit(1);
+          });
+          EOF
+          NODE_PATH="$PWD/node_modules" node /tmp/seed-battle-map.cjs
+
+      - name: Dry-run backfill
+        run: npm run backfill:battle-map -- --dry-run
+
+      - name: Dry-run wrote nothing
+        run: |
+          cat > /tmp/check-battle-map.cjs << 'EOF'
+          const { PrismaClient } = require('@prisma/client');
+          const prisma = new PrismaClient();
+          (async () => {
+            const n = await prisma.battleMap.count();
+            if (n !== 0) {
+              console.error('dry-run created ' + n + ' BattleMap rows');
+              process.exitCode = 1;
+            } else {
+              console.log('dry-run left BattleMap empty');
+            }
+            await prisma.$disconnect();
+          })().catch((err) => {
+            console.error(err);
+            process.exit(1);
+          });
+          EOF
+          NODE_PATH="$PWD/node_modules" node /tmp/check-battle-map.cjs
+
+      - name: Run backfill
+        run: npm run backfill:battle-map
+
+      - name: Read back the copied map
+        run: |
+          cat > /tmp/read-battle-map.cjs << 'EOF'
+          const { PrismaClient } = require('@prisma/client');
+          const prisma = new PrismaClient();
+          (async () => {
+            const campaign = await prisma.campaign.findUnique({
+              where: { id: 'ci-battle-map' },
+              select: { battleMapState: true, battleMap: { include: { tokens: true, fogCells: true } } },
+            });
+            const state = campaign && campaign.battleMapState;
+            const token = state && state.tokens && state.tokens[0];
+            const row = campaign && campaign.battleMap;
+            const ok = campaign
+              && token && token.id === 't1' && token.label === 'Goblin'
+              && row
+              && row.tokens.length === 1
+              && row.tokens[0].clientId === 't1'
+              && row.tokens[0].x === 1
+              && row.tokens[0].y === 2
+              && row.fogCells.length === 1
+              && row.fogCells[0].x === 0
+              && row.fogCells[0].y === 0;
+            if (!ok) {
+              console.error('read-back failed', JSON.stringify(campaign));
+              process.exitCode = 1;
+            } else {
+              console.log('read-back ok: legacy JSON kept, token and fog copied');
+            }
+            await prisma.$disconnect();
+          })().catch((err) => {
+            console.error(err);
+            process.exit(1);
+          });
+          EOF
+          NODE_PATH="$PWD/node_modules" node /tmp/read-battle-map.cjs
