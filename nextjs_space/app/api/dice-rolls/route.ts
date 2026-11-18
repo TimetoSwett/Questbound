@@ -36,7 +36,8 @@ function rateLimited(userId: string): boolean {
 // GET ?campaignId=&limit= (+ cursor params) — campaign members only.
 // Non-DMs never receive secret rolls. Returns chronological (oldest first).
 // Keyset cursors pair an ISO timestamp with a roll ID (id breaks ties when
-// rolls share a millisecond, so nothing is skipped or duplicated). Accepted
+// rolls share a millisecond, so composite cursors do not skip or duplicate).
+// Legacy timestamp-only cursors may return boundary duplicates. Accepted
 // formats: `cursor=` / `afterCursor=` (opaque token), `before`+`beforeId` /
 // `after`+`afterId`, and the legacy timestamp-only `before`/`after`. When
 // paging older (or on the initial load) the response carries X-Next-Cursor
@@ -90,12 +91,13 @@ export async function GET(request: Request) {
   const pagingOlder = direction !== 'after';
   const hasNextPage = rolls.length >= limit;
   // A timestamp alone cannot identify which tied rows the caller has seen.
-  // Return the entire boundary group as well as the next page, so no tied
-  // rows are lost. Legacy callers may see duplicates at the boundary.
+  // The cap keeps realistic same-millisecond groups complete; groups over
+  // 200 can omit boundary rows. Legacy callers may see boundary duplicates.
   if (legacyTimestamp) {
     const boundary = await prisma.diceRoll.findMany({
       where: { ...where, createdAt: legacyTimestamp },
       orderBy: rollOrder(pagingOlder ? 'before' : 'after'),
+      take: 200,
       select: rollSelect,
     });
     rolls.unshift(...boundary);
