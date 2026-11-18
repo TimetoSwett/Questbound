@@ -55,13 +55,7 @@ jobs:
           cache-dependency-path: nextjs_space/package-lock.json
 
       - name: Install dependencies
-        run: |
-          if npm ci --legacy-peer-deps; then
-            echo "Installed with npm ci --legacy-peer-deps"
-          else
-            echo "::warning::npm ci failed. package-lock.json may have drifted. Falling back to npm install --legacy-peer-deps."
-            npm install --legacy-peer-deps
-          fi
+        run: npm ci --legacy-peer-deps
 
       - name: Prisma generate
         run: npx prisma generate
