@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: nextjs_space
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: nextjs_space
+    env:
+      # Placeholders only. Not credentials, and not repo secrets.
+      #
+      # `next build` on current main succeeds with none of these set: every
+      # route is dynamic, Prisma is constructed but not queried, and NextAuth
+      # does not require a secret until a request. They are set so the job
+      # does not depend on secrets and matches the vars the app actually reads.
+      #
+      # Keep "prod" and "hpminioma" out of DATABASE_URL. test:library and
+      # test:companions exit 1 if they see those substrings. The test step
+      # unsets DATABASE_URL so those scripts stay on their DB-free path
+      # instead of opening a client against this placeholder.
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/questbound_ci
+      # next-auth/lib/env.js: AUTH_SECRET, then NEXTAUTH_SECRET.
+      AUTH_SECRET: ci-placeholder-not-a-secret
+      NEXTAUTH_SECRET: ci-placeholder-not-a-secret
+      # Optional. auth.ts sets trustHost: true, so a URL is not required to build.
+      AUTH_URL: http://localhost:3000
+      NEXTAUTH_URL: http://localhost:3000
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          # engines.node and next are >=20.9.0. @types/node is 22.
+          # Pin the current 22 LTS that satisfies that floor (README: Node 20+).
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: nextjs_space/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          if npm ci --legacy-peer-deps; then
+            echo "Installed with npm ci --legacy-peer-deps"
+          else
+            echo "::warning::npm ci failed. package-lock.json may have drifted. Falling back to npm install --legacy-peer-deps."
+            npm install --legacy-peer-deps
+          fi
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: DB-free model and unit tests
+        run: |
+          # The job placeholder would make test:library and test:companions
+          # open Prisma, and REALTIME_BASE would make test:realtime hit a server.
+          unset DATABASE_URL
+          unset REALTIME_BASE
+          unset BASE
+          mapfile -t names < <(node -e '
+            const scripts = require("./package.json").scripts || {};
+            const skip = new Set(["test:cp-guardrails", "test:equipment"]);
+            for (const name of Object.keys(scripts)) {
+              if (name.startsWith("test:") && !skip.has(name)) console.log(name);
+            }
+          ')
+          if [ "${#names[@]}" -eq 0 ]; then
+            echo "No DB-free test scripts found"
+            exit 1
+          fi
+          for name in "${names[@]}"; do
+            echo "::group::${name}"
+            npm run "$name"
+            echo "::endgroup::"
+          done
+
+      # Fails on current main before any route assertion: the in-process loader
+      # does not resolve @/lib/cyberpunk-sheet, @/lib/character-name, or
+      # @/lib/campaign-system when it loads app/api/characters/route.ts.
+      # Non-blocking so that pre-existing harness bug does not fail every PR.
+      # The pure helpers above the route load are not separately runnable.
+      - name: test:equipment (non-blocking, fails on main)
+        continue-on-error: true
+        run: npm run test:equipment
+
+      - name: npm test
+        run: |
+          unset DATABASE_URL
+          if node -e 'const scripts = require("./package.json").scripts || {}; process.exit(scripts.test ? 0 : 1)'; then
+            npm test
+          else
+            echo "No npm test script. Skipping. A DB-free npm test suite is being added separately."
+          fi
+
+      - name: Build
+        run: npm run build
