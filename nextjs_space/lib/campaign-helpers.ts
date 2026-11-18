@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { removeCharacterTokens } from '@/lib/battle-map';
+import { stripCharactersFromBattleMap } from '@/lib/battle-map-store';
 
 export function generateInviteCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -51,16 +51,6 @@ export async function detachCampaignCharacters(
   // creatureId links an upgraded sheet to this campaign's Bestiary; it can't follow the sheet out.
   await tx.character.updateMany({ where: { id: { in: ids } }, data: { campaignId: null, creatureId: null } });
 
-  const campaign = await tx.campaign.findUnique({ where: { id: campaignId }, select: { battleMapState: true } });
-  if (campaign?.battleMapState) {
-    const state = ids.reduce(
-      (s, id) => removeCharacterTokens(s, id),
-      campaign.battleMapState as Record<string, any>
-    );
-    await tx.campaign.update({
-      where: { id: campaignId },
-      data: { battleMapState: state, battleMapVersion: { increment: 1 } },
-    });
-  }
+  await stripCharactersFromBattleMap(tx, campaignId, ids);
   return ids;
 }

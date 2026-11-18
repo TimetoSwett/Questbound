@@ -10,7 +10,7 @@ import { canAccessCharacter, redactHiddenOwnerIds } from '@/lib/companions';
 import { equippedSchema } from '@/lib/equipment-validation';
 import { ABILITIES, equipmentEffects, manualBonusAfterChange, type Equipped } from '@/lib/equipment';
 import { libraryIdsIn, stripMissingLibraryIds } from '@/lib/library';
-import { removeCharacterTokens } from '@/lib/battle-map';
+import { stripCharactersFromBattleMap } from '@/lib/battle-map-store';
 import { sanitizeSpellsPsionics } from '@/lib/psionics';
 import { sanitizeSpellsPathOfWar } from '@/lib/path-of-war';
 import { CYBERPUNK_SHEET_MAX_BYTES, defaultCyberpunkSheet, sanitizeCyberpunkSheet } from '@/lib/cyberpunk-sheet';
@@ -394,22 +394,9 @@ export async function DELETE(request: Request) {
     if (character.campaignId) {
       // Serialize with token moves and invalidate stale full-map saves.
       await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${character.campaignId} FOR UPDATE`;
-      const campaign = await tx.campaign.findUnique({
-        where: { id: character.campaignId },
-        select: { battleMapState: true },
-      });
-      if (campaign?.battleMapState) {
-        const state = campaign.battleMapState as Record<string, any>;
-        await tx.campaign.update({
-          where: { id: character.campaignId },
-          data: {
-            battleMapState: removeCharacterTokens(state, id),
-            battleMapVersion: { increment: 1 },
-          },
-        });
-      }
+      await stripCharactersFromBattleMap(tx, character.campaignId, [id]);
     }
     await tx.character.delete({ where: { id } });
-  });
+  }, { timeout: 60_000, maxWait: 10_000 });
   return NextResponse.json({ ok: true });
 }

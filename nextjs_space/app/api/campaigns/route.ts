@@ -95,7 +95,7 @@ export async function PATCH(request: Request) {
     await prisma.$transaction(async (tx) => {
       await detachCampaignCharacters(tx, campaignId, removeUserId);
       await tx.campaignMembership.deleteMany({ where: { campaignId, userId: removeUserId } });
-    });
+    }, { timeout: 60_000, maxWait: 10_000 });
     publish(campaignId, 'characters');
     publish(campaignId, 'battle');
     publish(campaignId, 'loot');

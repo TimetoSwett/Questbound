@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { readUpload, isValidKey } from "@/lib/s3";
 import { getUserRole } from "@/lib/campaign-helpers";
 import { BATTLE_DEFAULTS, collectFileKeys, filterLinkedTokensForPlayer, sanitizeForPlayer } from "@/lib/battle-map";
+import { isMissingBattleSchema, loadBattleState } from "@/lib/battle-map-store";
 
 // Serves files previously uploaded via POST /api/upload.
 // Upload keys are bare UUIDs with no campaign prefix, so access is decided by
@@ -65,17 +66,68 @@ async function canAccess(userId: string, key: string): Promise<boolean> {
     if (role === "dm" || (role && c.worldMapImageIsPublic)) return true;
   }
 
-  // Battle map JSON: narrow candidates with a text search (key is a validated
+  // Battle map: narrow candidates with a text search (key is a validated
   // uuid.ext, so it contains no LIKE wildcards), then check precisely.
-  const battle = await prisma.$queryRaw<Array<{ id: string }>>`
-    SELECT c.id FROM "Campaign" c
-    JOIN "CampaignMembership" m ON m."campaignId" = c.id AND m."userId" = ${userId}
-    WHERE c."battleMapState"::text LIKE ${"%" + key + "%"}`;
+  // Relational rows are included so a backfilled map still matches after
+  // dual-write is turned off. If the tables are not migrated yet, the legacy
+  // JSON search is enough.
+  const pattern = "%" + key + "%";
+  let battle: Array<{ id: string }>;
+  try {
+    battle = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT c.id FROM "Campaign" c
+      JOIN "CampaignMembership" m ON m."campaignId" = c.id AND m."userId" = ${userId}
+      WHERE c."battleMapState"::text LIKE ${pattern}
+         OR EXISTS (
+           SELECT 1 FROM "BattleMap" bm
+           WHERE bm."campaignId" = c.id
+             AND (
+               COALESCE(bm."backgroundImage", '') LIKE ${pattern}
+               OR COALESCE(bm."handoutKey", '') LIKE ${pattern}
+               OR bm."extra"::text LIKE ${pattern}
+               OR bm."handoutExtra"::text LIKE ${pattern}
+               OR EXISTS (
+                 SELECT 1 FROM "BattleToken" t
+                 WHERE t."battleMapId" = bm.id
+                   AND (COALESCE(t."portraitKey", '') LIKE ${pattern} OR t."extra"::text LIKE ${pattern} OR COALESCE(t."raw"::text, '') LIKE ${pattern})
+               )
+               OR EXISTS (
+                 SELECT 1 FROM "BattleEncounter" e
+                 JOIN "BattleToken" t ON t."encounterId" = e.id
+                 WHERE e."battleMapId" = bm.id
+                   AND (COALESCE(t."portraitKey", '') LIKE ${pattern} OR t."extra"::text LIKE ${pattern} OR COALESCE(t."raw"::text, '') LIKE ${pattern} OR e."extra"::text LIKE ${pattern} OR COALESCE(e."raw"::text, '') LIKE ${pattern})
+               )
+               OR EXISTS (
+                 SELECT 1 FROM "BattleSnapshot" s
+                 WHERE s."battleMapId" = bm.id
+                   AND (
+                     COALESCE(s."backgroundImage", '') LIKE ${pattern}
+                     OR COALESCE(s."handoutKey", '') LIKE ${pattern}
+                     OR s."extra"::text LIKE ${pattern}
+                     OR s."stateExtra"::text LIKE ${pattern}
+                     OR s."handoutExtra"::text LIKE ${pattern}
+                     OR COALESCE(s."raw"::text, '') LIKE ${pattern}
+                     OR EXISTS (
+                       SELECT 1 FROM "BattleToken" t
+                       WHERE t."snapshotId" = s.id
+                         AND (COALESCE(t."portraitKey", '') LIKE ${pattern} OR t."extra"::text LIKE ${pattern} OR COALESCE(t."raw"::text, '') LIKE ${pattern})
+                     )
+                   )
+               )
+             )
+         )`;
+  } catch (err) {
+    if (!isMissingBattleSchema(err)) throw err;
+    battle = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT c.id FROM "Campaign" c
+      JOIN "CampaignMembership" m ON m."campaignId" = c.id AND m."userId" = ${userId}
+      WHERE c."battleMapState"::text LIKE ${pattern}`;
+  }
   for (const { id } of battle) {
     const role = await getUserRole(userId, id);
     if (!role) continue;
-    const campaign = await prisma.campaign.findUnique({ where: { id }, select: { battleMapState: true } });
-    let state: Record<string, any> = { ...BATTLE_DEFAULTS, ...((campaign?.battleMapState ?? {}) as Record<string, any>) };
+    const loaded = await loadBattleState(prisma, id);
+    let state: Record<string, any> = { ...BATTLE_DEFAULTS, ...((loaded?.state ?? {}) as Record<string, any>) };
     if (role !== "dm") {
       const mine = await prisma.character.findMany({ where: { campaignId: id, userId }, select: { id: true } });
       const full = state.tokens;

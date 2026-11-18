@@ -18,7 +18,7 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
   await prisma.$transaction(async (tx) => {
     await detachCampaignCharacters(tx, id, userId);
     await tx.campaignMembership.deleteMany({ where: { campaignId: id, userId } });
-  });
+  }, { timeout: 60_000, maxWait: 10_000 });
   publish(id, 'characters');
   publish(id, 'battle');
   publish(id, 'loot');

@@ -78,8 +78,13 @@ model Campaign {
   worldMapImage         String?
   worldMapImageIsPublic Boolean              @default(true)
   worldMapPins          WorldMapPin[]
+  // Legacy full-document battle map. Reads prefer the BattleMap* tables and
+  // fall back here until a campaign has been backfilled. Dual-write
+  // (BATTLE_MAP_DUAL_WRITE, default on) keeps this column current so reverting
+  // the app is safe. Do not drop it until after cutover.
   battleMapState        Json?                @default("{\"gridWidth\":20,\"gridHeight\":20,\"tokens\":[],\"highlights\":[],\"fog\":[]}")
   battleMapVersion      Int                  @default(0) // optimistic-concurrency counter for battleMapState
+  battleMap             BattleMap?
   regionNodes           RegionNode[]
   regionEdges           RegionEdge[]
   creatures             Creature[]
@@ -575,4 +580,302 @@ model CreatureReveal {
 
   @@unique([creatureId, userId])
   @@index([userId])
+}
+
+// Relational battle map. One row per campaign replaces the growing
+// Campaign.battleMapState document. Child rows cascade when the map or the
+// campaign is deleted. Client ids and unknown JSON keys are preserved so a
+// document can round-trip without loss (see lib/battle-map-codec.ts).
+// A missing BattleMap row means "not backfilled yet" — readers use the legacy
+// JSON column.
+model BattleMap {
+  id              String   @id @default(cuid())
+  campaignId      String   @unique
+  campaign        Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  gridWidth       Float?
+  gridHeight      Float?
+  backgroundImage String?
+  feetPerSquare   Float?
+  cellNumbers     Boolean?
+  activeId        String?
+  // handout is { key, pushedAt, ...extra } or null. handoutNull distinguishes
+  // an explicit null from a missing handout (see presentKeys).
+  handoutKey      String?
+  handoutPushedAt Float?
+  handoutNull     Boolean  @default(false)
+  handoutKeys     String[] @default([])
+  handoutExtra    Json     @default("{}")
+  // Known keys that were present and stored in columns / child rows, in
+  // source order. Everything else lives in extra.
+  presentKeys     String[] @default([])
+  extra           Json     @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tokens     BattleToken[]
+  highlights BattleHighlight[]
+  fogCells   BattleFogCell[]
+  turns      BattleTurn[]
+  drawings   BattleDrawing[]
+  texts      BattleText[]
+  pins       BattlePin[]
+  encounters BattleEncounter[]
+  snapshots  BattleSnapshot[]
+}
+
+// A token on the live map, inside a saved encounter, or inside a snapshot.
+// Exactly one parent (enforced in SQL). passthrough rows store an array
+// element that was not an object, verbatim, in raw.
+model BattleToken {
+  id            String  @id @default(cuid())
+  battleMapId   String?
+  encounterId   String?
+  snapshotId    String?
+  sort          Int
+  passthrough   Boolean @default(false)
+  raw           Json?
+  presentKeys   String[] @default([])
+  extra         Json     @default("{}")
+  clientId      String?
+  label         String?
+  color         String?
+  x             Float?
+  y             Float?
+  size          Float?
+  hidden        Boolean?
+  characterId   String?
+  characterName String?
+  portraitKey   String?
+  hp            Float?
+  maxHp         Float?
+  creatureId    String?
+
+  battleMap  BattleMap?       @relation(fields: [battleMapId], references: [id], onDelete: Cascade)
+  encounter  BattleEncounter? @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  snapshot   BattleSnapshot?  @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  conditions BattleTokenCondition[]
+
+  @@index([battleMapId, sort])
+  @@index([encounterId, sort])
+  @@index([snapshotId, sort])
+  @@index([characterId])
+  @@index([clientId])
+}
+
+model BattleTokenCondition {
+  id      String @id @default(cuid())
+  tokenId String
+  sort    Int
+  value   String
+  token   BattleToken @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+
+  @@index([tokenId, sort])
+}
+
+model BattleHighlight {
+  id          String   @id @default(cuid())
+  battleMapId String?
+  snapshotId  String?
+  sort        Int
+  passthrough Boolean  @default(false)
+  raw         Json?
+  presentKeys String[] @default([])
+  extra       Json     @default("{}")
+  clientId    String?
+  x           Float?
+  y           Float?
+  w           Float?
+  h           Float?
+  color       String?
+  label       String?
+
+  battleMap BattleMap?      @relation(fields: [battleMapId], references: [id], onDelete: Cascade)
+  snapshot  BattleSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([battleMapId, sort])
+  @@index([snapshotId, sort])
+}
+
+// One fogged cell. Canonical "x,y" integer cells use x/y; anything else
+// (duplicates are allowed) is kept in raw when passthrough is set.
+model BattleFogCell {
+  id          String  @id @default(cuid())
+  battleMapId String?
+  snapshotId  String?
+  sort        Int
+  passthrough Boolean @default(false)
+  raw         Json?
+  x           Int?
+  y           Int?
+
+  battleMap BattleMap?      @relation(fields: [battleMapId], references: [id], onDelete: Cascade)
+  snapshot  BattleSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([battleMapId, sort])
+  @@index([snapshotId, sort])
+}
+
+model BattleTurn {
+  id          String   @id @default(cuid())
+  battleMapId String?
+  snapshotId  String?
+  sort        Int
+  passthrough Boolean  @default(false)
+  raw         Json?
+  presentKeys String[] @default([])
+  extra       Json     @default("{}")
+  clientId    String?
+  label       String?
+  initiative  Float?
+  characterId String?
+  tokenId     String?
+
+  battleMap BattleMap?      @relation(fields: [battleMapId], references: [id], onDelete: Cascade)
+  snapshot  BattleSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([battleMapId, sort])
+  @@index([snapshotId, sort])
+  @@index([characterId])
+}
+
+model BattleDrawing {
+  id            String   @id @default(cuid())
+  battleMapId   String?
+  snapshotId    String?
+  sort          Int
+  passthrough   Boolean  @default(false)
+  raw           Json?
+  presentKeys   String[] @default([])
+  extra         Json     @default("{}")
+  clientId      String?
+  color         String?
+  // True when `points` was an array (possibly empty). A non-array points
+  // value stays in extra.
+  pointsPresent Boolean  @default(false)
+
+  battleMap BattleMap?           @relation(fields: [battleMapId], references: [id], onDelete: Cascade)
+  snapshot  BattleSnapshot?      @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  points    BattleDrawingPoint[]
+
+  @@index([battleMapId, sort])
+  @@index([snapshotId, sort])
+}
+
+model BattleDrawingPoint {
+  id          String   @id @default(cuid())
+  drawingId   String
+  sort        Int
+  passthrough Boolean  @default(false)
+  raw         Json?
+  presentKeys String[] @default([])
+  extra       Json     @default("{}")
+  x           Float?
+  y           Float?
+  drawing     BattleDrawing @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+
+  @@index([drawingId, sort])
+}
+
+model BattleText {
+  id          String   @id @default(cuid())
+  battleMapId String?
+  snapshotId  String?
+  sort        Int
+  passthrough Boolean  @default(false)
+  raw         Json?
+  presentKeys String[] @default([])
+  extra       Json     @default("{}")
+  clientId    String?
+  x           Float?
+  y           Float?
+  text        String?
+  color       String?
+
+  battleMap BattleMap?      @relation(fields: [battleMapId], references: [id], onDelete: Cascade)
+  snapshot  BattleSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([battleMapId, sort])
+  @@index([snapshotId, sort])
+}
+
+model BattlePin {
+  id            String   @id @default(cuid())
+  battleMapId   String?
+  snapshotId    String?
+  sort          Int
+  passthrough   Boolean  @default(false)
+  raw           Json?
+  presentKeys   String[] @default([])
+  extra         Json     @default("{}")
+  clientId      String?
+  x             Float?
+  y             Float?
+  label         String?
+  wikiArticleId String?
+
+  battleMap BattleMap?      @relation(fields: [battleMapId], references: [id], onDelete: Cascade)
+  snapshot  BattleSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([battleMapId, sort])
+  @@index([snapshotId, sort])
+  @@index([wikiArticleId])
+}
+
+model BattleEncounter {
+  id            String   @id @default(cuid())
+  battleMapId   String
+  sort          Int
+  passthrough   Boolean  @default(false)
+  raw           Json?
+  presentKeys   String[] @default([])
+  extra         Json     @default("{}")
+  clientId      String?
+  name          String?
+  tokensPresent Boolean  @default(false)
+
+  battleMap BattleMap    @relation(fields: [battleMapId], references: [id], onDelete: Cascade)
+  tokens    BattleToken[]
+
+  @@index([battleMapId, sort])
+}
+
+// A named full-board snapshot. Scalars and children describe `state`; the
+// snapshot's own id/name/createdAt live on this row. stateKeys is the
+// presentKeys list for the nested state object.
+model BattleSnapshot {
+  id              String   @id @default(cuid())
+  battleMapId     String
+  sort            Int
+  passthrough     Boolean  @default(false)
+  raw             Json?
+  presentKeys     String[] @default([])
+  extra           Json     @default("{}")
+  clientId        String?
+  name            String?
+  createdAtMs     Float?
+  stateNull       Boolean  @default(false)
+  stateKeys       String[] @default([])
+  stateExtra      Json     @default("{}")
+  gridWidth       Float?
+  gridHeight      Float?
+  backgroundImage String?
+  feetPerSquare   Float?
+  cellNumbers     Boolean?
+  activeId        String?
+  handoutKey      String?
+  handoutPushedAt Float?
+  handoutNull     Boolean  @default(false)
+  handoutKeys     String[] @default([])
+  handoutExtra    Json     @default("{}")
+
+  battleMap  BattleMap         @relation(fields: [battleMapId], references: [id], onDelete: Cascade)
+  tokens     BattleToken[]
+  highlights BattleHighlight[]
+  fogCells   BattleFogCell[]
+  turns      BattleTurn[]
+  drawings   BattleDrawing[]
+  texts      BattleText[]
+  pins       BattlePin[]
+
+  @@index([battleMapId, sort])
 }

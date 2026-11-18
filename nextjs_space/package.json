@@ -28,6 +28,8 @@
     "test:psionics": "node scripts/test-psionics.mjs",
     "test:pathofwar": "node scripts/test-pathofwar.mjs",
     "test:battle-visibility": "tsx scripts/test-battle-visibility.mjs",
+    "test:battle-map-tables": "tsx scripts/test-battle-map-tables.ts",
+    "backfill:battle-map": "tsx --require dotenv/config scripts/backfill-battle-map.ts",
     "test:fog": "node scripts/test-fog.mjs",
     "test:dice-paging": "tsx scripts/test-dice-paging.mjs",
     "test:pick-fields": "tsx scripts/test-pick-fields.mjs",

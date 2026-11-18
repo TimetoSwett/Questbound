@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserRole } from '@/lib/campaign-helpers';
+import { loadBattleState, saveBattleStateTx } from '@/lib/battle-map-store';
 
 // PATCH /api/maps/battle/tokens — move a single token (x/y only).
 // DM may move any token. A player may move only tokens linked to a
@@ -26,8 +27,9 @@ export async function PATCH(request: Request) {
   type Result = { status: number; body: Record<string, unknown>; version?: number };
   const result: Result = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "Campaign" WHERE id = ${campaignId} FOR UPDATE`;
-    const campaign = await tx.campaign.findUnique({ where: { id: campaignId }, select: { battleMapState: true } });
-    const st: any = campaign?.battleMapState ?? {};
+    const loaded = await loadBattleState(tx, campaignId);
+    if (!loaded) return { status: 404, body: { error: 'Not found' } };
+    const st: any = loaded.state ?? {};
     const gw = st?.gridWidth ?? 20;
     const gh = st?.gridHeight ?? 20;
     if (x < 0 || y < 0 || x >= gw || y >= gh) return { status: 400, body: { error: 'Out of bounds' } };
@@ -44,9 +46,10 @@ export async function PATCH(request: Request) {
     }
 
     const next = { ...st, tokens: tokens.map((t: any) => (t?.id === tokenId ? { ...t, x, y } : t)) };
-    const updated = await tx.campaign.update({ where: { id: campaignId }, data: { battleMapState: next, battleMapVersion: { increment: 1 } }, select: { battleMapVersion: true } });
-    return { status: 200, body: { ok: true, token: { ...token, x, y } }, version: updated.battleMapVersion };
-  });
+    const updated = await saveBattleStateTx(tx, campaignId, next, { expectedVersion: null });
+    if (!updated.ok) return { status: updated.status === 404 ? 404 : 409, body: { error: 'Not found' } };
+    return { status: 200, body: { ok: true, token: { ...token, x, y } }, version: updated.version };
+  }, { timeout: 60_000, maxWait: 10_000 });
   if (result.status === 200) publish(campaignId, 'battle', { version: result.version });
   return NextResponse.json(result.body, { status: result.status });
 }
